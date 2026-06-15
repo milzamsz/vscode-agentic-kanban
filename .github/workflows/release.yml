@@ -38,12 +38,13 @@ jobs:
         run: |
           VERSION=$(node -p "require('./package.json').version")
           VSIX="agentic-kanban-${VERSION}.vsix"
-          MARKETPLACE="Install via the Visual Studio Marketplace: https://marketplace.visualstudio.com/items?itemName=milzam.agentic-kanban"
-          OPEN_VSX="Install via Open VSX: https://open-vsx.org/extension/milzam/agentic-kanban"
+          RELEASES_URL="https://github.com/${{ github.repository }}/releases"
+          INSTALL_NOTE="Download ${VSIX} from GitHub Releases: ${RELEASES_URL}"
+          INSTALL_CMD='code --install-extension '"${VSIX}"
           GENERATED=$(gh api repos/${{ github.repository }}/releases/generate-notes \
             -f tag_name="${{ github.ref_name }}" \
             --jq '.body')
-          NOTES="${MARKETPLACE}"$'\n'"${OPEN_VSX}"$'\n\n'"${GENERATED}"
+          NOTES="${INSTALL_NOTE}"$'\n\n'"Install in VS Code:"$'\n```bash\n'"${INSTALL_CMD}"$'\n```'$'\n\n'"${GENERATED}"
           gh release create "${{ github.ref_name }}" \
             --title "${{ github.ref_name }}" \
             --notes "${NOTES}" \

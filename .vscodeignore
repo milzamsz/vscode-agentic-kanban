@@ -6,6 +6,7 @@ node_modules/**
 tsconfig.json
 vitest.config.ts
 build.mjs
+icon.png
 package-lock.json
 agents/**
 skills/**

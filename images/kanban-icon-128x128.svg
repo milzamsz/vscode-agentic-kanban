@@ -1,8 +1,43 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="128px" height="128px" viewBox="0 0 128 128" version="1.1">
-<g id="surface1">
-<path style=" stroke:none;fill-rule:nonzero;fill:rgb(0%,0%,0%);fill-opacity:1;" d="M 10.667969 16 L 32 16 C 34.945312 16 37.332031 18.386719 37.332031 21.332031 L 37.332031 106.667969 C 37.332031 109.613281 34.945312 112 32 112 L 10.667969 112 C 7.722656 112 5.332031 109.613281 5.332031 106.667969 L 5.332031 21.332031 C 5.332031 18.386719 7.722656 16 10.667969 16 Z M 10.667969 16 "/>
-<path style=" stroke:none;fill-rule:nonzero;fill:rgb(0%,0%,0%);fill-opacity:1;" d="M 53.332031 16 L 74.667969 16 C 77.613281 16 80 18.386719 80 21.332031 L 80 74.667969 C 80 77.613281 77.613281 80 74.667969 80 L 53.332031 80 C 50.386719 80 48 77.613281 48 74.667969 L 48 21.332031 C 48 18.386719 50.386719 16 53.332031 16 Z M 53.332031 16 "/>
-<path style=" stroke:none;fill-rule:nonzero;fill:rgb(0%,0%,0%);fill-opacity:1;" d="M 96 16 L 117.332031 16 C 120.277344 16 122.667969 18.386719 122.667969 21.332031 L 122.667969 90.667969 C 122.667969 93.613281 120.277344 96 117.332031 96 L 96 96 C 93.054688 96 90.667969 93.613281 90.667969 90.667969 L 90.667969 21.332031 C 90.667969 18.386719 93.054688 16 96 16 Z M 96 16 "/>
-</g>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" fill="none">
+  <defs>
+    <linearGradient id="frame" x1="23" y1="26" x2="104" y2="106" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#24307F"/>
+      <stop offset="1" stop-color="#1D286D"/>
+    </linearGradient>
+    <linearGradient id="bar" x1="24" y1="42" x2="104" y2="42" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3559DE"/>
+      <stop offset="1" stop-color="#4A7DFF"/>
+    </linearGradient>
+    <linearGradient id="col" x1="52" y1="38" x2="52" y2="92" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B6E4FF"/>
+      <stop offset="1" stop-color="#7CC5FF"/>
+    </linearGradient>
+    <linearGradient id="violet" x1="31" y1="51" x2="54" y2="78" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#AB5DFF"/>
+      <stop offset="1" stop-color="#7A30FF"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="53" y1="51" x2="75" y2="78" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8CD4FF"/>
+      <stop offset="1" stop-color="#58AFFF"/>
+    </linearGradient>
+    <linearGradient id="mint" x1="74" y1="51" x2="98" y2="78" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#76ECD8"/>
+      <stop offset="1" stop-color="#46D5CB"/>
+    </linearGradient>
+    <linearGradient id="spark" x1="83" y1="10" x2="109" y2="36" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#AE63FF"/>
+      <stop offset="1" stop-color="#7B33FF"/>
+    </linearGradient>
+  </defs>
+  <path d="M23 36C23 28.8203 28.8203 23 36 23H86V28H36C31.5817 28 28 31.5817 28 36V76C28 84.8366 35.1634 92 44 92H79C87.8366 92 95 84.8366 95 76V41H100V76C100 87.598 90.598 97 79 97H44C32.402 97 23 87.598 23 76V36Z" fill="url(#frame)"/>
+  <path d="M24 40H99V45H24V40Z" fill="url(#bar)"/>
+  <path d="M48 39H52V92H48V39Z" fill="url(#col)"/>
+  <path d="M70 39H74V92H70V39Z" fill="url(#col)"/>
+  <rect x="32" y="52" width="14" height="8" rx="2.5" fill="url(#violet)"/>
+  <rect x="32" y="66" width="18" height="12" rx="3.5" fill="url(#violet)"/>
+  <rect x="54" y="52" width="12" height="8" rx="2.5" fill="url(#blue)"/>
+  <rect x="54" y="66" width="16" height="12" rx="3.5" fill="url(#blue)"/>
+  <rect x="76" y="52" width="12" height="8" rx="2.5" fill="url(#mint)"/>
+  <rect x="76" y="66" width="18" height="12" rx="3.5" fill="url(#mint)"/>
+  <path d="M92.1849 12.4195C93.1904 9.1935 97.8096 9.1935 98.8151 12.4195L100.585 18.1003C100.897 19.1014 101.652 19.8859 102.641 20.2353L108.252 22.2171C111.34 23.3076 111.34 27.6924 108.252 28.7829L102.641 30.7647C101.652 31.1141 100.897 31.8986 100.585 32.8997L98.8151 38.5805C97.8096 41.8065 93.1904 41.8065 92.1849 38.5805L90.4148 32.8997C90.1028 31.8986 89.3483 31.1141 88.3585 30.7647L82.7478 28.7829C79.6598 27.6924 79.6598 23.3076 82.7478 22.2171L88.3585 20.2353C89.3483 19.8859 90.1028 19.1014 90.4148 18.1003L92.1849 12.4195Z" fill="url(#spark)"/>
 </svg>

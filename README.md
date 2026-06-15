@@ -1,11 +1,12 @@
 # Agentic Kanban
 
+<img src="images/icon.png" alt="Agentic Kanban icon" width="256" />
+
 A profile-driven Kanban board for durable, agent-assisted software development in VS Code.
 
 ![Version 1.2.0](https://img.shields.io/badge/version-1.2.0-2563eb)
 [![Elastic License 2.0](https://img.shields.io/badge/license-Elastic%202.0%20source--available-f59e0b)](LICENSE)
-[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/milzam.agentic-kanban?label=VS%20Code%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=milzam.agentic-kanban)
-[![Open VSX](https://img.shields.io/open-vsx/v/milzam/agentic-kanban?label=Open%20VSX)](https://open-vsx.org/extension/milzam/agentic-kanban)
+[![GitHub Release](https://img.shields.io/github/v/release/milzamsz/vscode-agentic-kanban?label=GitHub%20Release)](https://github.com/milzamsz/vscode-agentic-kanban/releases)
 
 A maintained fork of the original extension. See [Credits](#credits).
 
@@ -33,8 +34,6 @@ flowchart LR
     instruction --> coder
 ```
 
-![Agentic Kanban icon](images/icon.png)
-
 The original [quick demo video](https://www.youtube.com/watch?v=Y4a3FnFftKw) and screenshot below are retained as legacy illustrations. Some labels and flows shown there predate the current profiles.
 
 <img width="1042" height="632" alt="Legacy Agentic Kanban workflow illustration" src="https://github.com/user-attachments/assets/19bfc5ac-1ed2-4c10-bc5e-8338fbb95922" />
@@ -53,25 +52,22 @@ The original [quick demo video](https://www.youtube.com/watch?v=Y4a3FnFftKw) and
 
 ## Installation
 
-### VS Code Marketplace
-
-Install [Agentic Kanban from the Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=milzam.agentic-kanban), or run:
-
-```bash
-code --install-extension milzam.agentic-kanban
-```
-
-### Open VSX
-
-Install [Agentic Kanban from Open VSX](https://open-vsx.org/extension/milzam/agentic-kanban) in compatible editors.
-
 ### GitHub Release VSIX
 
-Download `agentic-kanban-<version>.vsix` from [GitHub Releases](https://github.com/milzamsz/vscode-agentic-kanban/releases), then run:
+Download `agentic-kanban-<version>.vsix` from [GitHub Releases](https://github.com/milzamsz/vscode-agentic-kanban/releases), then install it in VS Code:
 
 ```bash
 code --install-extension agentic-kanban-1.2.0.vsix
 ```
+
+To update later, download the newer VSIX from the same release page and run the same command again.
+
+### Other Channels
+
+Marketplace publishing is currently optional for this fork. If those channels are available again, you can also use:
+
+- [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=milzam.agentic-kanban)
+- [Open VSX](https://open-vsx.org/extension/milzam/agentic-kanban)
 
 ### Build From Source
 
@@ -83,6 +79,28 @@ npm run build
 npx @vscode/vsce package
 code --install-extension agentic-kanban-1.2.0.vsix
 ```
+
+## Maintainer Release Flow
+
+GitHub Releases is the primary distribution path for this fork.
+
+1. Update the version in `package.json` and any matching release docs.
+2. Commit the release changes on `main`.
+3. Create the release tag:
+
+```bash
+git tag v1.2.0
+```
+
+4. Push the branch and tag:
+
+```bash
+git push origin main
+git push origin v1.2.0
+```
+
+5. Wait for GitHub Actions to run the release workflow.
+6. Verify the new GitHub Release includes `agentic-kanban-1.2.0.vsix` and that the install command works in VS Code.
 
 ## Quick Start
 
