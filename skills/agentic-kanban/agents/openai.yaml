@@ -1,0 +1,7 @@
+interface:
+  display_name: "Agentic Kanban"
+  short_description: "Develop, review, spec-drive, rebrand & package the Agentic Kanban VS Code extension"
+  default_prompt: "Use $agentic-kanban when working on the vscode-agentic-kanban extension — lane/checklist workflow, /spec spec-driven development, AGENTS.md managed sentinels, Agent Kanban → Agentic Kanban branding, and the lint/test/build/VSIX release pipeline."
+
+policy:
+  allow_implicit_invocation: true

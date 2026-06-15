@@ -1,0 +1,169 @@
+# Agentic Kanban - Instruction
+
+You are working with the **Agentic Kanban** extension.
+
+IMPORTANT: Follow these workspace structure, file format, and workflow rules strictly.
+
+Agentic Kanban structures AI-assisted delivery around fixed workflow profiles. Conversation between you (the agent) and the user happens in task files. Use the chat window only for summaries and lightweight coordination. Planning decisions, reviews, and implementation notes belong in the task file so the workflow remains auditable.
+
+IMPORTANT: Always respond in the task file, not the chat window. Stay in the assigned task file until a new one is given.
+
+## Task Directory Structure
+
+```text
+.agentkanban/
+  .gitignore          # Auto-generated - ignores logs/
+  board.yaml          # Workflow profile, lanes, and policy config
+  changes/
+    <task-slug>/
+      proposal.md
+      design.md
+      tasks.md
+      specs/<capability>/spec.md
+  memory.md           # Persistent memory across tasks (reset via command)
+  INSTRUCTION.md      # This file - managed by the extension
+  tasks/
+    task_<id>_<slug>.md    # Task files (lane stored in frontmatter)
+    todo_<id>_<slug>.md    # Checklist artifact for the task
+    archive/               # Archived tasks (hidden from board)
+  logs/               # Diagnostic logs (gitignored)
+```
+
+## Task File Format
+
+IMPORTANT: The task lane is managed by the user and extension via frontmatter. Do not change the lane implicitly. Use explicit transitions.
+
+Each task is a markdown file with YAML frontmatter. Conversation flows under `### user` and `### agent` headings. The user may add inline comments `[comment: <text>]` on your responses. Check for these before continuing.
+
+```markdown
+---
+title: <Task Title>
+lane: <lane-slug>
+created: <ISO 8601>
+updated: <ISO 8601>
+description: <Brief description>
+labels: [blocked, blocked-by:<slug>]    # optional blocker labels
+---
+
+## Conversation
+
+### user
+
+<message>
+
+### agent
+
+<response> [comment: <inline comment by the user>]
+
+### user
+```
+
+Rules:
+
+- Append new entries at the end. Never modify or delete existing conversation entries.
+- Start each message with `### user` or `### agent` on its own line, with a blank line between messages.
+- After your response, add `### user` on a new line for the user's next entry.
+- Honor inline `[comment: <text>]` annotations from the user.
+- Re-read this `INSTRUCTION.md` at the start of every action.
+- Confirm which task file you are working in at the start of each response. If none is in context, ask the user to select one with `@kanban /task`.
+- If no task file reference is found, ask the user to run `@kanban /task` or `@kanban /refresh`.
+
+## Checklist Artifact
+
+Track execution details with `- [ ]` / `- [x]` checkboxes in the corresponding `todo_*.md` file. This is a checklist artifact, not a workflow lane.
+
+```markdown
+# Iteration <number>
+
+- [ ] Uncompleted item
+- [x] Completed item
+```
+
+Rules:
+
+- Create or update the checklist during planning or implementation when work needs explicit steps.
+- Add new checklist items to the bottom of the current iteration.
+- Mark completed items during or immediately after implementation.
+- For spec-driven tasks linked through `change: .agentkanban/changes/<task-slug>`, use the change `tasks.md` as the authoritative checklist instead of the sibling `todo_*.md`.
+
+## Spec-Driven Development
+
+Some tasks opt into spec-driven development through a `change` frontmatter key pointing at `.agentkanban/changes/<task-slug>`.
+
+For those tasks:
+
+- Read `proposal.md` before planning or implementation.
+- In the Standard profile, also read `design.md` and `specs/<capability>/spec.md`.
+- Treat `tasks.md` as the implementation checklist.
+- Preserve the task-to-change link in frontmatter.
+- When the task reaches `done`, archive and merge the change through the documented workflow; this MVP keeps those steps agent-driven rather than extension-enforced.
+
+## Memory
+
+`.agentkanban/memory.md` persists across tasks. Read it at the start of each task. Update it with project conventions, key decisions, and useful context.
+
+## Technical Document
+
+Maintain `TECHNICAL.md` at workspace root with implementation details for agents and humans. Update the relevant section when behavior or workflow rules change.
+
+## Workflow Profiles
+
+### Lite profile
+
+Lane flow:
+
+`backlog -> in-progress -> done`
+
+Guidance:
+
+- `backlog` is for rough work items that still need lightweight clarification.
+- `in-progress` is where implementation happens.
+- `done` is for completed work.
+
+### Standard profile
+
+Lane flow:
+
+`backlog -> planning -> in-progress -> review -> done`
+
+Guidance:
+
+- `backlog`: the task is still broad and not ready for detailed execution.
+- `planning`: refine scope, write the implementation plan, identify risks, and update the checklist artifact as needed.
+- `in-progress`: implement the approved plan. Moving into `in-progress` is the explicit approval step for the plan. Standard profile expects implementation to happen with a worktree when configured.
+- `review`: implementation review. Either return to `in-progress` for revisions or move to `done` when approved.
+- Use the `blocked` label for general blockers and `blocked-by:<slug>` for task dependencies while keeping the task in its current working lane.
+
+## Action Vocabulary
+
+The user may instruct you with these action words:
+
+| Action | Meaning |
+| --- | --- |
+| `plan` | Clarify requirements, refine scope, and write or update the implementation plan |
+| `checklist` | Create or update the TODO checklist artifact |
+| `implement` | Carry out the approved implementation work |
+| `review` | Perform or prepare an implementation review |
+| `block` | Record blockers on the task and add `blocked` or `blocked-by:<slug>` labels |
+| `unblock` | Remove blocker labels once the task can continue |
+
+Treat `TODO` as the checklist artifact only. Do not treat `todo` as a workflow lane.
+
+## Execution Rules
+
+- Do not implement changes unless the task is in `in-progress`, or the user explicitly asks for a combined transition plus implementation in the same turn.
+- Do not implement changes unless the task is in `in-progress`, or the user explicitly asks for a combined transition plus implementation in the same turn.
+- Do not move a Standard-profile task to `done` without implementation review.
+- Preserve blocker context in the task file when adding or clearing blocker labels.
+- If the user wants to override the workflow, note the reason in the task file.
+- Do not add or commit to version control unless specifically instructed.
+
+## Worktree Guidance
+
+In a worktree workspace, `AGENTS.md` permanently contains the task reference, so `/task` and `/refresh` are usually unnecessary.
+
+When the profile or policy requires worktrees for implementation:
+
+- ensure the task has worktree metadata before implementation starts
+- keep implementation activity inside the worktree
+- preserve the task file and checklist file as the workflow record

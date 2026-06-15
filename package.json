@@ -1,0 +1,158 @@
+{
+    "name": "agentic-kanban",
+    "displayName": "Agentic Kanban",
+    "description": "A profile-driven Kanban board for AI-assisted software development with persistent markdown task conversations.",
+    "version": "1.2.0",
+    "publisher": "milzam",
+    "license": "Elastic-2.0",
+    "icon": "images/icon.png",
+    "homepage": "https://github.com/milzamsz/vscode-agentic-kanban",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/milzamsz/vscode-agentic-kanban.git"
+    },
+    "bugs": {
+        "url": "https://github.com/milzamsz/vscode-agentic-kanban/issues"
+    },
+    "engines": {
+        "vscode": "^1.95.0"
+    },
+    "categories": [
+        "Other"
+    ],
+    "activationEvents": [
+        "onStartupFinished"
+    ],
+    "main": "./dist/extension.js",
+    "contributes": {
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "agent-kanban",
+                    "title": "Agentic Kanban",
+                    "icon": "images/kanban-icon.svg"
+                }
+            ]
+        },
+        "views": {
+            "agent-kanban": [
+                {
+                    "type": "webview",
+                    "id": "agentKanban.boardView",
+                    "name": "Board"
+                }
+            ]
+        },
+        "commands": [
+            {
+                "command": "agentKanban.openBoard",
+                "title": "Agentic Kanban: Open Board"
+            },
+            {
+                "command": "agentKanban.newTask",
+                "title": "Agentic Kanban: New Task"
+            },
+            {
+                "command": "agentKanban.resetMemory",
+                "title": "Agentic Kanban: Reset Memory"
+            },
+            {
+                "command": "agentKanban.initialise",
+                "title": "Agentic Kanban: Initialise"
+            }
+        ],
+        "configuration": {
+            "title": "Agentic Kanban",
+            "properties": {
+                "agentKanban.enableLogging": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Enable diagnostic logging to .agentkanban/logs/. Rolling 10 MB files, max 5. Requires reload after changing.",
+                    "scope": "window"
+                },
+                "agentKanban.customInstructionFile": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Path to a custom instruction file injected into the /task workflow. Standard agent files (AGENTS.md, copilot-instructions.md, etc.) are unaffected and continue to work as normal. Relative paths resolve from the workspace root.",
+                    "scope": "resource"
+                },
+                "agentKanban.worktreeRoot": {
+                    "type": "string",
+                    "default": "../{repo}-worktrees",
+                    "description": "Root directory for task worktrees. Use {repo} as a placeholder for the repository name. Relative paths resolve from the workspace root.",
+                    "scope": "resource"
+                },
+                "agentKanban.worktreeOpenBehavior": {
+                    "type": "string",
+                    "enum": [
+                        "current",
+                        "new"
+                    ],
+                    "default": "current",
+                    "description": "Whether to open worktrees in the current window or a new window.",
+                    "scope": "resource"
+                },
+                "agentKanban.enforceWorktrees": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Require a git worktree before using /refresh. When enabled, the command prompts to create a worktree if one doesn't exist.",
+                    "scope": "resource"
+                }
+            }
+        },
+        "chatParticipants": [
+            {
+                "id": "agentKanban.chat",
+                "name": "kanban",
+                "fullName": "Agentic Kanban",
+                "description": "Interact with profile-driven Kanban tasks",
+                "isSticky": false,
+                "commands": [
+                    {
+                        "name": "new",
+                        "description": "<task title>"
+                    },
+                    {
+                        "name": "task",
+                        "description": "<task name>"
+                    },
+                    {
+                        "name": "refresh",
+                        "description": "Re-inject agent context for the selected task"
+                    },
+                    {
+                        "name": "spec",
+                        "description": "[capability] - scaffold spec-driven change artifacts for the selected task"
+                    },
+                    {
+                        "name": "worktree",
+                        "description": "Create, open, or remove a git worktree for the selected task"
+                    }
+                ]
+            }
+        ]
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run build",
+        "build": "node build.mjs",
+        "watch": "node build.mjs --watch",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "lint": "tsc --noEmit"
+    },
+    "devDependencies": {
+        "@tailwindcss/postcss": "^4.2.1",
+        "@types/node": "^20.11.0",
+        "@types/vscode": "^1.95.0",
+        "autoprefixer": "^10.4.27",
+        "esbuild": "^0.27.0",
+        "postcss": "^8.5.8",
+        "tailwindcss": "^4.2.1",
+        "typescript": "^5.7.0",
+        "vitest": "^3.0.0",
+        "yaml": "^2.7.0"
+    },
+    "dependencies": {
+        "yaml": "^2.7.0"
+    }
+}

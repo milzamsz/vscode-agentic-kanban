@@ -1,0 +1,614 @@
+import * as vscode from 'vscode';
+import type { TaskStore } from './TaskStore';
+import type { BoardConfigStore } from './BoardConfigStore';
+import type { WorktreeService } from './WorktreeService';
+import type { LogService } from './LogService';
+import { NO_OP_LOGGER } from './LogService';
+import { TransitionService } from './TransitionService';
+import {
+    getFirstLane,
+    isProtectedLane,
+    isReservedLane,
+    PROTECTED_LANES,
+    slugifyLane,
+    type Priority,
+} from './types';
+
+export class KanbanEditorPanel {
+    public static readonly VIEW_TYPE = 'agentKanban.boardPanel';
+    public static currentPanel: KanbanEditorPanel | undefined;
+
+    private readonly _panel: vscode.WebviewPanel;
+    private readonly _logger: LogService;
+    private readonly _worktreeService: WorktreeService | undefined;
+    private _disposables: vscode.Disposable[] = [];
+    private _webviewReady = false;
+    private _pendingMessages: unknown[] = [];
+    private _isInitialised: boolean;
+    private readonly _transitionService = new TransitionService();
+
+    // ── Public API ───────────────────────────────────────────────────────────
+
+    /** Create a new panel, or reveal the existing one. */
+    public static createOrShow(
+        extensionUri: vscode.Uri,
+        taskStore: TaskStore,
+        boardConfigStore: BoardConfigStore,
+        logger?: LogService,
+        isInitialised = true,
+        worktreeService?: WorktreeService,
+    ): KanbanEditorPanel {
+        const column =
+            vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
+
+        if (KanbanEditorPanel.currentPanel) {
+            KanbanEditorPanel.currentPanel._panel.reveal(column);
+            return KanbanEditorPanel.currentPanel;
+        }
+
+        const panel = vscode.window.createWebviewPanel(
+            KanbanEditorPanel.VIEW_TYPE,
+            'Agentic Kanban',
+            column,
+            {
+                enableScripts: true,
+                retainContextWhenHidden: true,
+                localResourceRoots: [
+                    vscode.Uri.joinPath(extensionUri, 'dist', 'webview'),
+                ],
+            },
+        );
+
+        panel.iconPath = {
+            light: vscode.Uri.joinPath(extensionUri, 'images', 'kanban-icon.svg'),
+            dark: vscode.Uri.joinPath(extensionUri, 'images', 'kanban-icon.svg'),
+        };
+
+        KanbanEditorPanel.currentPanel = new KanbanEditorPanel(
+            panel,
+            extensionUri,
+            taskStore,
+            boardConfigStore,
+            logger,
+            isInitialised,
+            worktreeService,
+        );
+        return KanbanEditorPanel.currentPanel;
+    }
+
+    /** Revive a panel after VS Code restart (called by the serialiser). */
+    public static revive(
+        panel: vscode.WebviewPanel,
+        extensionUri: vscode.Uri,
+        taskStore: TaskStore,
+        boardConfigStore: BoardConfigStore,
+        logger?: LogService,
+        isInitialised = true,
+        worktreeService?: WorktreeService,
+    ): void {
+        KanbanEditorPanel.currentPanel = new KanbanEditorPanel(
+            panel,
+            extensionUri,
+            taskStore,
+            boardConfigStore,
+            logger,
+            isInitialised,
+            worktreeService,
+        );
+    }
+
+    /** Push fresh board state to the webview. */
+    public async refresh(): Promise<void> {
+        await this._sendState();
+    }
+
+    /** Update initialised state and push to webview. */
+    public setInitialised(flag: boolean): void {
+        this._isInitialised = flag;
+        this._sendState();
+    }
+
+    /** Tell the webview to open the create-task modal. */
+    public triggerCreateModal(): void {
+        const msg = { type: 'openCreateModal' };
+        if (this._webviewReady) {
+            this._panel.webview.postMessage(msg);
+        } else {
+            this._pendingMessages.push(msg);
+        }
+    }
+
+    // ── Constructor ──────────────────────────────────────────────────────────
+
+    private constructor(
+        panel: vscode.WebviewPanel,
+        private readonly _extensionUri: vscode.Uri,
+        private readonly _taskStore: TaskStore,
+        private readonly _boardConfigStore: BoardConfigStore,
+        logger?: LogService,
+        isInitialised = true,
+        worktreeService?: WorktreeService,
+    ) {
+        this._panel = panel;
+        this._logger = logger ?? NO_OP_LOGGER;
+        this._isInitialised = isInitialised;
+        this._worktreeService = worktreeService;
+
+        // Enforce options (important when reviving a deserialized panel)
+        this._panel.webview.options = {
+            enableScripts: true,
+            localResourceRoots: [
+                vscode.Uri.joinPath(this._extensionUri, 'dist', 'webview'),
+            ],
+        };
+
+        this._setWebviewHtml();
+
+        this._panel.webview.onDidReceiveMessage(
+            async (message) => {
+                this._logger.info('boardPanel', `Message: ${message.type}`);
+                await this._handleMessage(message);
+            },
+            undefined,
+            this._disposables,
+        );
+
+        // Subscribe to store changes so the panel always reflects current data
+        this._disposables.push(this._taskStore.onDidChange(() => this._sendState()));
+        this._disposables.push(this._boardConfigStore.onDidChange(() => this._sendState()));
+
+        this._panel.onDidDispose(() => this._dispose(), undefined, this._disposables);
+    }
+
+    // ── Webview HTML ─────────────────────────────────────────────────────────
+
+    private _setWebviewHtml(): void {
+        const webview = this._panel.webview;
+
+        const scriptUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(this._extensionUri, 'dist', 'webview', 'board.js'),
+        );
+        const styleUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(this._extensionUri, 'dist', 'webview', 'board.css'),
+        );
+
+        this._panel.webview.html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'none'; style-src ${webview.cspSource}; script-src ${webview.cspSource};">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="${styleUri}">
+    <title>Agentic Kanban</title>
+</head>
+<body>
+    <div id="app"></div>
+    <script src="${scriptUri}"></script>
+</body>
+</html>`;
+    }
+
+    // ── State ────────────────────────────────────────────────────────────────
+
+    private async _sendState(): Promise<void> {
+        const tasks = this._taskStore.getAll()
+            .filter(t => !this._taskStore.isArchived(t))
+            .sort((a, b) => {
+                const sa = a.sortOrder ?? Date.parse(a.created);
+                const sb = b.sortOrder ?? Date.parse(b.created);
+                return sa - sb;
+            });
+        const config = this._boardConfigStore.get();
+        await this._panel.webview.postMessage({
+            type: 'stateUpdate',
+            state: { tasks, config, isInitialised: this._isInitialised },
+        });
+    }
+
+    // ── Message Handlers ─────────────────────────────────────────────────────
+
+    private async _handleMessage(message: any): Promise<void> {
+        switch (message.type) {
+            case 'ready':
+                await this._sendState();
+                this._webviewReady = true;
+                for (const msg of this._pendingMessages) {
+                    this._panel.webview.postMessage(msg);
+                }
+                this._pendingMessages = [];
+                break;
+
+            case 'initialise':
+                await vscode.commands.executeCommand('agentKanban.initialise');
+                break;
+
+            case 'openTask': {
+                const task = this._taskStore.get(message.taskId);
+                if (task) {
+                    const uri = this._taskStore.getTaskUri(message.taskId);
+                    const doc = await vscode.workspace.openTextDocument(uri);
+                    await vscode.window.showTextDocument(doc, {
+                        viewColumn: vscode.ViewColumn.Active,
+                    });
+                }
+                break;
+            }
+
+            case 'openTodo': {
+                const uri = this._taskStore.getTodoUri(message.taskId);
+                try {
+                    const doc = await vscode.workspace.openTextDocument(uri);
+                    await vscode.window.showTextDocument(doc, {
+                        viewColumn: vscode.ViewColumn.Active,
+                    });
+                } catch {
+                    vscode.window.showInformationMessage('No checklist file exists for this task yet. The TODO artifact will be created during planning or implementation work.');
+                }
+                break;
+            }
+
+            case 'moveTask': {
+                const task = this._taskStore.get(message.taskId);
+                if (task) {
+                    if (typeof message.sortOrder === 'number') {
+                        task.sortOrder = message.sortOrder;
+                    }
+                    if (task.lane === message.lane) {
+                        await this._taskStore.save(task);
+                    } else {
+                        await this._applyLaneTransition(task, message.lane);
+                    }
+                }
+                break;
+            }
+
+            case 'newTask': {
+                // Legacy — now handled by createTask from the webview modal.
+                // Keep for backwards compat if the sidebar still sends this.
+                const title = await vscode.window.showInputBox({
+                    prompt: 'Enter task title',
+                    placeHolder: 'Task title',
+                    validateInput: (v) => (v.trim() ? null : 'Title cannot be empty'),
+                });
+                if (!title) {
+                    break;
+                }
+                const config = this._boardConfigStore.get();
+                const firstLane = getFirstLane(config.profile);
+                const task = this._taskStore.createTask(title.trim(), firstLane);
+                await this._taskStore.save(task);
+                break;
+            }
+
+            case 'createTask': {
+                const title = (message.title ?? '').trim();
+                if (!title) {
+                    break;
+                }
+                const lane = message.lane || getFirstLane(this._boardConfigStore.get().profile);
+                const task = this._taskStore.createTask(title, lane);
+                // Assign sortOrder: place at end of target lane
+                const laneTasks = this._taskStore.getAll()
+                    .filter((t) => t.lane === lane)
+                    .sort((a, b) => (a.sortOrder ?? Date.parse(a.created)) - (b.sortOrder ?? Date.parse(b.created)));
+                const lastOrder = laneTasks.length > 0
+                    ? (laneTasks[laneTasks.length - 1].sortOrder ?? Date.parse(laneTasks[laneTasks.length - 1].created))
+                    : 0;
+                task.sortOrder = lastOrder + 1;
+                task.priority = message.priority as Priority | undefined;
+                task.assignee = message.assignee as string | undefined;
+                task.labels = message.labels as string[] | undefined;
+                task.dueDate = message.dueDate as string | undefined;
+                task.description = (message.description ?? '').trim();
+
+                // Build custom body with description as first [user] entry
+                let body: string;
+                if (task.description) {
+                    body = `\n## Conversation\n\n### user\n\n${task.description}\n\n`;
+                } else {
+                    body = '\n## Conversation\n\n### user\n\n';
+                }
+                await this._taskStore.saveWithBody(task, body);
+                break;
+            }
+
+            case 'addLane': {
+                const config = this._boardConfigStore.get();
+                const laneName = await vscode.window.showInputBox({
+                    prompt: 'Enter lane name',
+                    placeHolder: 'Lane name',
+                    validateInput: (v) => {
+                        const slug = slugifyLane(v);
+                        if (!slug) {
+                            return 'Name cannot be empty';
+                        }
+                        if (isProtectedLane(slug)) {
+                            return `"${slug}" is a reserved lane name`;
+                        }
+                        if (isReservedLane(slug)) {
+                            return `"${slug}" is reserved and cannot be used as a lane name`;
+                        }
+                        if (config.lanes.includes(slug)) {
+                            return `A lane named "${slug}" already exists`;
+                        }
+                        return null;
+                    },
+                });
+                if (laneName) {
+                    const slug = slugifyLane(laneName);
+                    if (slug) {
+                        config.lanes.push(slug);
+                        await this._boardConfigStore.update({ lanes: config.lanes });
+                    }
+                }
+                break;
+            }
+
+            case 'removeLane': {
+                const config = this._boardConfigStore.get();
+                const laneSlug = message.laneId as string;
+                if (isProtectedLane(laneSlug)) {
+                    vscode.window.showWarningMessage(
+                        `The ${laneSlug.toUpperCase()} lane cannot be removed.`,
+                    );
+                    break;
+                }
+                const laneTasks = this._taskStore
+                    .getAll()
+                    .filter((t) => t.lane === laneSlug);
+                if (laneTasks.length > 0) {
+                    const confirm = await vscode.window.showWarningMessage(
+                        `Removing this lane will archive ${laneTasks.length} task${laneTasks.length === 1 ? '' : 's'}. Continue?`,
+                        { modal: true },
+                        'Yes',
+                    );
+                    if (confirm !== 'Yes') {
+                        break;
+                    }
+                    for (const task of laneTasks) {
+                        await this._taskStore.archiveTask(task.id);
+                    }
+                }
+                config.lanes = config.lanes.filter((l) => l !== laneSlug);
+                await this._boardConfigStore.update({ lanes: config.lanes });
+                break;
+            }
+
+            case 'renameLane': {
+                const config = this._boardConfigStore.get();
+                const oldSlug = message.laneId as string;
+                if (!config.lanes.includes(oldSlug)) {
+                    break;
+                }
+                if (isProtectedLane(oldSlug)) {
+                    vscode.window.showWarningMessage(
+                        `The ${oldSlug.toUpperCase()} lane cannot be renamed.`,
+                    );
+                    break;
+                }
+                const newName = await vscode.window.showInputBox({
+                    prompt: 'Rename lane',
+                    value: oldSlug.replace(/-/g, ' '),
+                    validateInput: (v) => {
+                        const newSlug = slugifyLane(v);
+                        if (!newSlug) {
+                            return 'Name cannot be empty';
+                        }
+                        if (PROTECTED_LANES.includes(newSlug as (typeof PROTECTED_LANES)[number])) {
+                            return `Cannot rename to "${newSlug}" — that name is reserved`;
+                        }
+                        if (isReservedLane(newSlug)) {
+                            return `"${newSlug}" is reserved and cannot be used as a lane name`;
+                        }
+                        if (newSlug !== oldSlug && config.lanes.includes(newSlug)) {
+                            return `A lane named "${newSlug}" already exists`;
+                        }
+                        return null;
+                    },
+                });
+                if (newName) {
+                    const newSlug = slugifyLane(newName);
+                    if (newSlug && newSlug !== oldSlug) {
+                        // Update lane in frontmatter for all tasks in this lane
+                        const tasksInLane = this._taskStore.getAll().filter(t => t.lane === oldSlug);
+                        for (const task of tasksInLane) {
+                            await this._taskStore.moveTaskToLane(task.id, newSlug);
+                        }
+                        // Update config
+                        const idx = config.lanes.indexOf(oldSlug);
+                        if (idx !== -1) {
+                            config.lanes[idx] = newSlug;
+                        }
+                        await this._boardConfigStore.update({ lanes: config.lanes });
+                    }
+                }
+                break;
+            }
+
+            case 'deleteTask':
+                await this._taskStore.delete(message.taskId);
+                break;
+
+            case 'moveLane': {
+                const config = this._boardConfigStore.get();
+                const fromIndex = config.lanes.indexOf(message.sourceLaneId);
+                const toIndex = config.lanes.indexOf(message.targetLaneId);
+                if (fromIndex !== -1 && toIndex !== -1 && fromIndex !== toIndex) {
+                    const [moved] = config.lanes.splice(fromIndex, 1);
+                    config.lanes.splice(toIndex, 0, moved);
+                    await this._boardConfigStore.update({ lanes: config.lanes });
+                }
+                break;
+            }
+
+            case 'updateTaskMeta': {
+                const task = this._taskStore.get(message.taskId);
+                if (!task) {
+                    break;
+                }
+                // Update optional fields (undefined clears them from YAML)
+                task.priority = message.priority as Priority | undefined;
+                task.assignee = message.assignee as string | undefined;
+                task.labels = message.labels as string[] | undefined;
+                task.dueDate = message.dueDate as string | undefined;
+                if (message.lane && message.lane !== task.lane) {
+                    await this._applyLaneTransition(task, message.lane);
+                } else {
+                    await this._taskStore.save(task);
+                }
+                break;
+            }
+
+            case 'addUser':
+                await this._boardConfigStore.addUser(message.name);
+                break;
+
+            case 'addLabel':
+                await this._boardConfigStore.addLabel(message.name);
+                break;
+
+            case 'sendToChat': {
+                const task = this._taskStore.get(message.taskId);
+                if (task) {
+                    await vscode.commands.executeCommand(
+                        'workbench.action.chat.open',
+                        { query: `@kanban /task ${task.title}` },
+                    );
+                }
+                break;
+            }
+
+            case 'archiveTask': {
+                const task = this._taskStore.get(message.taskId);
+                if (task) {
+                    const hadWorktree = task.worktree;
+                    await this._taskStore.archiveTask(message.taskId);
+                    if (hadWorktree) {
+                        this._promptWorktreeRemoval(task);
+                    }
+                }
+                break;
+            }
+
+            case 'createWorktree': {
+                if (!this._worktreeService) { break; }
+                const task = this._taskStore.get(message.taskId);
+                if (!task) { break; }
+                try {
+                    const taskUri = this._taskStore.getTaskUri(task.id);
+                    const taskRelPath = vscode.workspace.asRelativePath(taskUri);
+                    const worktreeInfo = await this._worktreeService.create(task.id, task.title, taskRelPath);
+                    task.worktree = worktreeInfo;
+                    await this._taskStore.save(task);
+
+                    // Copy updated task file (with worktree metadata) into the worktree
+                    try {
+                        const savedBytes = await vscode.workspace.fs.readFile(taskUri);
+                        const worktreeTaskUri = vscode.Uri.joinPath(vscode.Uri.file(worktreeInfo.path), taskRelPath);
+                        await vscode.workspace.fs.writeFile(worktreeTaskUri, savedBytes);
+                    } catch (syncErr: any) {
+                        this._logger.warn('kanbanEditorPanel', `Failed to sync task file to worktree: ${syncErr.message}`);
+                    }
+
+                    await this._worktreeService.openInVSCode(worktreeInfo.path);
+                } catch (err: any) {
+                    vscode.window.showErrorMessage(`Failed to create worktree: ${err.message}`);
+                }
+                break;
+            }
+
+            case 'openWorktree': {
+                if (!this._worktreeService) { break; }
+                const task = this._taskStore.get(message.taskId);
+                if (!task?.worktree) { break; }
+                const exists = await this._worktreeService.exists(task.worktree.path);
+                if (exists) {
+                    await this._worktreeService.openInVSCode(task.worktree.path);
+                } else {
+                    vscode.window.showWarningMessage('Worktree directory no longer exists.');
+                    task.worktree = undefined;
+                    await this._taskStore.save(task);
+                }
+                break;
+            }
+        }
+    }
+
+    // ── Worktree removal prompt ────────────────────────────────────────────
+
+    /**
+     * Non-blocking prompt to remove a task's worktree when moving to done/archive.
+     * The lane move has already happened — this is best-effort cleanup.
+     */
+    private _promptWorktreeRemoval(task: import('./types').Task): void {
+        if (!this._worktreeService || !task.worktree) { return; }
+
+        const worktreePath = task.worktree.path;
+
+        // Fire-and-forget — doesn't block the lane move
+        this._worktreeService.exists(worktreePath).then(async (exists) => {
+            if (!exists) {
+                // Stale metadata — silently clear
+                task.worktree = undefined;
+                await this._taskStore.save(task);
+                return;
+            }
+
+            const answer = await vscode.window.showInformationMessage(
+                `Task "${task.title}" has a git worktree at ${worktreePath}. Remove it?`,
+                'Yes', 'No',
+            );
+
+            if (answer === 'Yes') {
+                try {
+                    await this._worktreeService!.remove(task.worktree!);
+                    task.worktree = undefined;
+                    await this._taskStore.save(task);
+                } catch (err: any) {
+                    vscode.window.showErrorMessage(`Failed to remove worktree: ${err.message}`);
+                }
+            }
+        });
+    }
+
+    // ── Disposal ─────────────────────────────────────────────────────────────
+
+    private async _applyLaneTransition(task: import('./types').Task, newLane: string): Promise<boolean> {
+        const result = this._transitionService.validate({ task, toLane: newLane }, this._boardConfigStore.get());
+        if (result.warnings.length > 0) {
+            void vscode.window.showWarningMessage(result.warnings.join(' '));
+        }
+        if (!result.ok) {
+            void vscode.window.showErrorMessage(result.errors.join(' '));
+            return false;
+        }
+
+        await this._taskStore.moveTaskToLane(task.id, newLane);
+        if ((newLane === 'done' || newLane === 'archive') && task.worktree) {
+            this._promptWorktreeRemoval(task);
+        }
+        return true;
+    }
+
+    private _dispose(): void {
+        KanbanEditorPanel.currentPanel = undefined;
+        this._panel.dispose();
+        for (const d of this._disposables) {
+            d.dispose();
+        }
+        this._disposables = [];
+    }
+}
+
+function getNonce(): string {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let nonce = '';
+    for (let i = 0; i < 32; i++) {
+        nonce += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return nonce;
+}
+
+// Keep getNonce available for potential future use (linter may warn otherwise)
+void getNonce;

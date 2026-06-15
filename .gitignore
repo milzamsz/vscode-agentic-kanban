@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Publish package files
+*.vsix
+.agentkanban/
+.vsix-inspect/
+%l*
+
+# Developer tooling
+
+.devtool/
