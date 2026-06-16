@@ -5,6 +5,7 @@ import type { WorktreeService } from '../WorktreeService';
 import type { LogService } from '../LogService';
 import { NO_OP_LOGGER } from '../LogService';
 import { DONE_LANE, getFirstLane } from '../types';
+import { getDefaultProfile, isEnforceWorktrees } from '../settings';
 
 /** Relative path within the workspace for the instruction file. */
 const INSTRUCTION_REL_PATH = '.agentkanban/INSTRUCTION.md';
@@ -341,7 +342,7 @@ export class ChatParticipant {
 
         // Auto-initialise if not yet set up (using @kanban /new implies consent)
         if (!this.getIsInitialised()) {
-            await vscode.commands.executeCommand('agentKanban.initialise');
+            await vscode.commands.executeCommand('agentKanban.initialise', getDefaultProfile());
         }
 
         await this.syncInstructionFile();
@@ -605,6 +606,12 @@ export class ChatParticipant {
         if (!task || task.lane === DONE_LANE) {
             this.lastSelectedTaskId = undefined;
             response.markdown('Previously selected task is no longer active. Use `@kanban /task <task name>` to select a new one.');
+            return;
+        }
+
+        if (isEnforceWorktrees() && !task.worktree && !this.isInTaskWorktree(task)) {
+            response.markdown('This task requires a git worktree before `/refresh` can continue.\n\n');
+            response.markdown('Use `@kanban /worktree` to create one for the selected task.');
             return;
         }
 

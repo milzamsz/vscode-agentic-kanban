@@ -57,6 +57,7 @@ const window = {
     showInformationMessage: async (..._args: any[]) => undefined,
     showErrorMessage: async (..._args: any[]) => undefined,
     showInputBox: async (_options?: any) => undefined,
+    showQuickPick: async (_items: any, _options?: any) => undefined,
     showWarningMessage: async (..._args: any[]) => undefined,
     showTextDocument: async (_doc: any, _options?: any) => undefined,
     registerWebviewViewProvider: (_viewId: string, _provider: any) => ({ dispose: () => { } }),

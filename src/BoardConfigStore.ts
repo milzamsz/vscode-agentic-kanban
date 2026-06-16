@@ -42,7 +42,7 @@ export class BoardConfigStore {
         this._onDidChange.fire();
     }
 
-    async initialise(profile: WorkflowProfile): Promise<void> {
+    async initialise(profile: WorkflowProfile, overrides?: Partial<BoardConfig>): Promise<void> {
         try {
             await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(this.workspaceUri, '.agentkanban'));
         } catch {
@@ -59,7 +59,11 @@ export class BoardConfigStore {
                 this.logger.info('boardConfig', 'Rewrote legacy board config to canonical format');
             }
         } catch {
-            this.config = normaliseBoardConfig({ profile, profileVersion: PROFILE_VERSION });
+            this.config = normaliseBoardConfig({
+                profile,
+                profileVersion: PROFILE_VERSION,
+                ...overrides,
+            });
             await this.save();
         }
 

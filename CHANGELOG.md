@@ -2,6 +2,14 @@
 
 All notable changes to Agentic Kanban will be documented here.
 
+## [1.3.0] - 2026-06-16
+
+- Expose board profile and worktree configuration options in VS Code settings.
+- Seed new `board.yaml` files from user settings.
+- Add "Apply Settings to Board Config" command to update existing boards with a modal confirmation safeguard for potential lane conflicts.
+- Wire `agentKanban.enforceWorktrees` setting into the `/refresh` workflow as a soft gate.
+- Centralize workspace settings resolution and add helper test suites.
+
 ## [1.2.0] - 2026-06-15
 
 - Add opt-in spec-driven development with `@kanban /spec`.

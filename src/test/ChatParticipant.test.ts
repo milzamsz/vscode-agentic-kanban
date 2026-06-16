@@ -3,7 +3,7 @@ import { ChatParticipant } from '../agents/ChatParticipant';
 import { TaskStore } from '../TaskStore';
 import { BoardConfigStore } from '../BoardConfigStore';
 import type { Task, BoardConfig } from '../types';
-import { Uri, workspace, window } from 'vscode';
+import { Uri, commands, workspace, window } from 'vscode';
 
 // Helpers to build mock request/response objects
 function mockRequest(command: string | undefined, prompt: string) {
@@ -164,6 +164,11 @@ describe('ChatParticipant', () => {
     });
 
     describe('handleNew', () => {
+        beforeEach(() => {
+            vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(new TextEncoder().encode('# Template'));
+            vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);
+        });
+
         it('should show usage when no title given', async () => {
             const response = mockResponse();
             await participant.handleRequest(mockRequest('new', ''), {} as any, response, mockToken);
@@ -197,6 +202,34 @@ describe('ChatParticipant', () => {
             await participant.handleRequest(mockRequest('new', 'New Feature'), {} as any, response, mockToken);
 
             expect(response.messages.some((m: string) => m.includes('/task'))).toBe(true);
+        });
+
+        it('should auto-initialise with the configured default profile', async () => {
+            const uninitialisedParticipant = new ChatParticipant(
+                taskStore,
+                boardConfigStore,
+                extensionUri,
+                () => false,
+            );
+            vi.spyOn(workspace, 'getConfiguration').mockReturnValue({
+                get: (key: string, defaultValue?: any) => key === 'defaultProfile' ? 'lite' : defaultValue,
+                update: async () => { },
+            } as any);
+            const execSpy = vi.spyOn(commands, 'executeCommand').mockResolvedValue(undefined);
+            vi.spyOn(taskStore, 'createTask').mockReturnValue({
+                id: 'task_new_default',
+                title: 'Default Profile Task',
+                lane: 'todo',
+                created: '',
+                updated: '',
+                description: '',
+            });
+            vi.spyOn(taskStore, 'save').mockResolvedValue(undefined);
+
+            const response = mockResponse();
+            await uninitialisedParticipant.handleRequest(mockRequest('new', 'Default Profile Task'), {} as any, response, mockToken);
+
+            expect(execSpy).toHaveBeenCalledWith('agentKanban.initialise', 'lite');
         });
     });
 
@@ -1071,6 +1104,44 @@ describe('ChatParticipant', () => {
             expect(response.messages.some((m: string) => m.includes('Auto WT Refresh'))).toBe(true);
             expect(response.messages.some((m: string) => m.includes('Worktree workspace'))).toBe(true);
             expect(participant.lastSelectedTaskId).toBe('task_autowt');
+        });
+
+        it('should gate refresh when enforceWorktrees is enabled and the task has no worktree', async () => {
+            participant.lastSelectedTaskId = task.id;
+            vi.spyOn(workspace, 'getConfiguration').mockReturnValue({
+                get: (key: string, defaultValue?: any) => key === 'enforceWorktrees' ? true : defaultValue,
+                update: async () => { },
+            } as any);
+
+            const response = mockResponse();
+            await participant.handleRequest(mockRequest('refresh', ''), {} as any, response, mockToken);
+
+            expect(response.messages.some((m: string) => m.includes('requires a git worktree'))).toBe(true);
+            expect(response.messages.some((m: string) => m.includes('@kanban /worktree'))).toBe(true);
+            expect(response.messages.every((m: string) => !m.includes('REFRESH'))).toBe(true);
+        });
+
+        it('should allow refresh when enforceWorktrees is enabled but the task already has a worktree', async () => {
+            const wtTask: Task = {
+                id: 'task_gate_wt',
+                title: 'Refresh With Worktree',
+                lane: 'doing',
+                created: '2026-01-01T00:00:00.000Z',
+                updated: '2026-01-01T00:00:00.000Z',
+                description: '',
+                worktree: { branch: 'agentkanban/gated', path: '/other-workspace', created: '' },
+            };
+            (taskStore as any).tasks.set(wtTask.id, wtTask);
+            participant.lastSelectedTaskId = wtTask.id;
+            vi.spyOn(workspace, 'getConfiguration').mockReturnValue({
+                get: (key: string, defaultValue?: any) => key === 'enforceWorktrees' ? true : defaultValue,
+                update: async () => { },
+            } as any);
+
+            const response = mockResponse();
+            await participant.handleRequest(mockRequest('refresh', ''), {} as any, response, mockToken);
+
+            expect(response.messages.some((m: string) => m.includes('REFRESH'))).toBe(true);
         });
     });
 

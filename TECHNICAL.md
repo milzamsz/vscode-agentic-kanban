@@ -177,11 +177,13 @@ task: task_20260308_abc123_oauth2
 - Normalises profile lanes to the built-in Lite and Standard lane sets
 - Drops the legacy `blocked` lane when loading older Standard configs and rewrites them under `profileVersion: 3`
 - Creates default config (3 lanes: `todo`, `doing`, `done`) if file doesn't exist
+- `initialise(profile, overrides?)` applies settings-based overrides only when creating a fresh board; existing `board.yaml` files remain authoritative
 - `init()` creates the `.agentkanban/` directory, ensures `.gitignore` exists, then loads or creates `board.yaml`
 - On `init()`, auto-migrates old `{id, name}` object format to flat slug list
 - `reconcileMetadata(tasks)` — scans task assignees/labels and adds any missing values to board.yaml
 - `ensureGitignore()` — creates `.agentkanban/.gitignore` (ignoring `logs/`) if it doesn't already exist. Idempotent; never overwrites a user-edited file.
 - `update()` accepts partial config for incremental changes
+- `enforcement` and `reviewPolicy` are still stored in `board.yaml` but remain inert by design; the new settings do not expose them
 - Fires `onDidChange` event
 
 ## Webview Architecture
@@ -256,7 +258,7 @@ When `agentKanban.customInstructionFile` is set, `handleTask()` resolves the pat
 #### /new Flow
 
 1. Clear `lastSelectedTaskId` (resets followups)
-2. Auto-initialise via `agentKanban.initialise` if workspace not yet set up
+2. Auto-initialise via `agentKanban.initialise` with the configured `agentKanban.defaultProfile` if workspace not yet set up
 3. Ensure `.agentkanban/INSTRUCTION.md` exists
 4. Create the task file
 5. Report path and suggest `@kanban /task <title>` to start working
@@ -266,10 +268,11 @@ When `agentKanban.customInstructionFile` is set, `handleTask()` resolves the pat
 1. If `lastSelectedTaskId` is not set: auto-detect linked task via `findLinkedWorktreeTask()` (worktree workspace support)
 2. If still no task: list active tasks and prompt user to run `/task` first
 3. Look up task; if done/missing, clear selection and prompt re-selection
-4. Sync INSTRUCTION.md and AGENTS.md (uses worktree-enhanced sentinel if task has a worktree)
-5. Attach INSTRUCTION.md and task file as `response.reference()` URIs for persistent context
-6. Open the task file in editor (preserveFocus keeps cursor in chat input)
-7. Output: INSTRUCTION.md reference, **REFRESH** label + task title, task file path, worktree hint (if applicable), additional context
+4. If `agentKanban.enforceWorktrees` is enabled and the task has no linked worktree, stop with a soft gate message pointing to `@kanban /worktree`
+5. Sync INSTRUCTION.md and AGENTS.md (uses worktree-enhanced sentinel if task has a worktree)
+6. Attach INSTRUCTION.md and task file as `response.reference()` URIs for persistent context
+7. Open the task file in editor (preserveFocus keeps cursor in chat input)
+8. Output: INSTRUCTION.md reference, **REFRESH** label + task title, task file path, worktree hint (if applicable), additional context
 
 #### /spec Flow
 
@@ -391,7 +394,7 @@ Registered on the chat participant in `extension.ts` via `participant.followupPr
 5. Register `BoardViewProvider` for sidebar
 6. Register `KanbanEditorPanel` serialiser and `openBoard`/`newTask` commands
 7. Register `ChatParticipant` as `@kanban` with followup provider
-8. Register commands: `openTask`, `resetMemory`, `initialise`
+8. Register commands: `openTask`, `resetMemory`, `initialise`, `applySettingsToBoardConfig`
 9. Create file watchers: `.agentkanban/tasks/**/*.md` (debounced 200ms) and `.agentkanban/board.yaml`
 10. Register `SlashCommandProvider` for `/` completions in task markdown files
 10. Register `SlashCommandProvider` for `/` completions in task markdown files
@@ -406,6 +409,7 @@ Registered on the chat participant in `extension.ts` via `participant.followupPr
 | `agentKanban.newTask` | Opens the board and triggers the create-task modal |
 | `agentKanban.openTask` | Opens a task's `.md` file in the editor |
 | `agentKanban.resetMemory` | Resets `.agentkanban/memory.md` to `# Memory\n` |
+| `agentKanban.applySettingsToBoardConfig` | Applies the current VS Code board settings to `board.yaml`, warning before profile changes that leave tasks in missing lanes |
 | `agentKanban.initialise` | Full first-time setup — creates dirs, writes config & instruction files |
 
 ### Stale Worktree Cleanup
@@ -442,8 +446,11 @@ Manages git worktree lifecycle for Agentic Kanban tasks. Wraps `git worktree add
 
 | Setting | Default | Description |
 |---------|---------|-------------|
+| `agentKanban.defaultProfile` | `standard` | Profile used when initialising a new board. Existing `board.yaml` stays authoritative until settings are applied explicitly. |
+| `agentKanban.worktreeRequiredForImplementation` | `profile-default` | Seeds or applies `worktreePolicy.requiredForImplementation`; `profile-default` keeps the built-in Lite or Standard default. |
 | `agentKanban.worktreeRoot` | `../{repo}-worktrees` | Root directory for worktrees. `{repo}` is replaced with the repository name. |
 | `agentKanban.worktreeOpenBehavior` | `current` | Open worktree in `current` window or a `new` window. |
+| `agentKanban.enforceWorktrees` | `false` | Soft-gates `/refresh` until the selected task has a linked worktree. |
 
 ### Branch Naming
 

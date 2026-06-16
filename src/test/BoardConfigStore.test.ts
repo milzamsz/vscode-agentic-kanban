@@ -272,6 +272,27 @@ describe('BoardConfigStore', () => {
             expect(boardYamlCall).toBeDefined();
         });
 
+        it('should write override values into a new board config', async () => {
+            vi.spyOn(workspace.fs, 'stat').mockRejectedValue(new Error('not found'));
+            vi.spyOn(workspace.fs, 'readFile').mockRejectedValue(new Error('not found'));
+            vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined);
+            const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);
+
+            const store = new BoardConfigStore(workspaceUri);
+            await store.initialise('lite', {
+                worktreePolicy: { requiredForImplementation: true },
+            });
+
+            const boardYamlCall = writeSpy.mock.calls.find(
+                ([uri]) => (uri as any).fsPath.endsWith('board.yaml'),
+            );
+            expect(boardYamlCall).toBeDefined();
+
+            const saved = new TextDecoder().decode(boardYamlCall![1] as Uint8Array);
+            expect(saved).toContain('profile: lite');
+            expect(saved).toContain('requiredForImplementation: true');
+        });
+
         it('should not overwrite board.yaml when it already exists', async () => {
             vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 1, ctime: 0, mtime: 0, size: 10 } as any);
             vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(
@@ -287,6 +308,32 @@ describe('BoardConfigStore', () => {
                 ([uri]) => (uri as any).fsPath.endsWith('board.yaml'),
             );
             expect(boardYamlCall).toBeUndefined();
+        });
+
+        it('should keep an existing board config authoritative even when overrides are passed', async () => {
+            const existing = BoardConfigStore.serialise({
+                ...DEFAULT_BOARD_CONFIG,
+                profile: 'standard',
+                lanes: PROFILE_LANES.standard,
+                worktreePolicy: { requiredForImplementation: false },
+            });
+
+            vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 1, ctime: 0, mtime: 0, size: 10 } as any);
+            vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(new TextEncoder().encode(existing));
+            vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined);
+            const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);
+
+            const store = new BoardConfigStore(workspaceUri);
+            await store.initialise('lite', {
+                worktreePolicy: { requiredForImplementation: true },
+            });
+
+            const boardYamlCall = writeSpy.mock.calls.find(
+                ([uri]) => (uri as any).fsPath.endsWith('board.yaml'),
+            );
+            expect(boardYamlCall).toBeUndefined();
+            expect(store.get().profile).toBe('standard');
+            expect(store.get().worktreePolicy).toEqual({ requiredForImplementation: false });
         });
 
         it('should rewrite existing legacy board.yaml during initialise', async () => {

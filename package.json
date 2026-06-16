@@ -2,7 +2,7 @@
     "name": "agentic-kanban",
     "displayName": "Agentic Kanban",
     "description": "A profile-driven Kanban board for AI-assisted software development with persistent markdown task conversations.",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "publisher": "milzam",
     "license": "Elastic-2.0",
     "icon": "images/icon.png",
@@ -59,6 +59,10 @@
             {
                 "command": "agentKanban.initialise",
                 "title": "Agentic Kanban: Initialise"
+            },
+            {
+                "command": "agentKanban.applySettingsToBoardConfig",
+                "title": "Agentic Kanban: Apply Settings to Board Config"
             }
         ],
         "configuration": {
@@ -74,6 +78,27 @@
                     "type": "string",
                     "default": "",
                     "description": "Path to a custom instruction file injected into the /task workflow. Standard agent files (AGENTS.md, copilot-instructions.md, etc.) are unaffected and continue to work as normal. Relative paths resolve from the workspace root.",
+                    "scope": "resource"
+                },
+                "agentKanban.defaultProfile": {
+                    "type": "string",
+                    "enum": [
+                        "lite",
+                        "standard"
+                    ],
+                    "default": "standard",
+                    "description": "Workflow profile used when initialising a new board. Existing board.yaml files stay authoritative until you apply settings explicitly.",
+                    "scope": "resource"
+                },
+                "agentKanban.worktreeRequiredForImplementation": {
+                    "type": "string",
+                    "enum": [
+                        "profile-default",
+                        "required",
+                        "optional"
+                    ],
+                    "default": "profile-default",
+                    "description": "Seed the board worktree requirement when initialising or applying settings. Profile default keeps the built-in Lite or Standard behavior.",
                     "scope": "resource"
                 },
                 "agentKanban.worktreeRoot": {

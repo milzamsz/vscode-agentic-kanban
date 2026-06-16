@@ -9,6 +9,11 @@ import { WorktreeService } from './WorktreeService';
 import { SlashCommandProvider } from './SlashCommandProvider';
 import { LogService, NO_OP_LOGGER } from './LogService';
 import { DEFAULT_PROFILE, type WorkflowProfile } from './types';
+import {
+    countTasksOutsideProfileLanes,
+    getDefaultProfile,
+    resolveWorktreePolicy,
+} from './settings';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
@@ -124,7 +129,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     // Full first-time setup — creates dirs, writes config & instruction files.
     const doInitialise = async (profile: WorkflowProfile) => {
-        await boardConfigStore.initialise(profile);
+        await boardConfigStore.initialise(profile, {
+            worktreePolicy: resolveWorktreePolicy(profile),
+        });
         await taskStore.initialise();
         await chatParticipantHandler.syncInstructionFile();
         await chatParticipantHandler.syncAgentsMdSection();
@@ -137,11 +144,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     context.subscriptions.push(
         vscode.commands.registerCommand('agentKanban.initialise', async (requestedProfile?: WorkflowProfile) => {
+            const defaultProfile = getDefaultProfile();
+            const quickPickItems = [
+                { label: 'Lite', description: 'backlog -> in-progress -> done', value: 'lite' as WorkflowProfile },
+                { label: 'Standard', description: 'backlog -> planning -> in-progress -> review -> done', value: 'standard' as WorkflowProfile },
+            ].sort((a, b) => a.value === defaultProfile ? -1 : b.value === defaultProfile ? 1 : 0);
+
             const selectedProfile = requestedProfile ? { value: requestedProfile } : await vscode.window.showQuickPick(
-                [
-                    { label: 'Lite', description: 'backlog -> in-progress -> done', value: 'lite' as WorkflowProfile },
-                    { label: 'Standard', description: 'backlog -> planning -> in-progress -> review -> done', value: 'standard' as WorkflowProfile },
-                ],
+                quickPickItems,
                 {
                     title: 'Choose an Agentic Kanban workflow profile',
                     ignoreFocusOut: true,
@@ -152,6 +162,37 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             }
             await doInitialise(selectedProfile.value ?? DEFAULT_PROFILE);
             vscode.window.showInformationMessage('Agentic Kanban initialised successfully.');
+        }),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('agentKanban.applySettingsToBoardConfig', async () => {
+            if (!isInitialised) {
+                vscode.window.showWarningMessage('Initialise Agentic Kanban before applying board settings.');
+                return;
+            }
+
+            const targetProfile = getDefaultProfile();
+            const activeTasks = taskStore.getAll().filter((task) => !taskStore.isArchived(task));
+            const conflicts = countTasksOutsideProfileLanes(activeTasks, targetProfile);
+
+            if (boardConfigStore.get().profile !== targetProfile && conflicts.length > 0) {
+                const summary = conflicts.map((entry) => `${entry.count} in ${entry.lane}`).join(', ');
+                const confirmation = await vscode.window.showWarningMessage(
+                    `Switching the board profile to ${targetProfile} leaves tasks in lanes missing from that profile: ${summary}. Continue?`,
+                    { modal: true },
+                    'Apply Settings',
+                );
+                if (confirmation !== 'Apply Settings') {
+                    return;
+                }
+            }
+
+            await boardConfigStore.update({
+                profile: targetProfile,
+                worktreePolicy: resolveWorktreePolicy(targetProfile),
+            });
+            vscode.window.showInformationMessage('Agentic Kanban settings applied to board.yaml.');
         }),
     );
 

@@ -2,17 +2,15 @@
 
 <img src="images/icon.png" alt="Agentic Kanban icon" width="256" />
 
-A profile-driven Kanban board for durable, agent-assisted software development in VS Code.
+Spec-driven, agent-assisted software delivery in VS Code, with every plan, checklist, conversation, blocker, and specification kept as durable, version-control-friendly Markdown.
 
-![Version 1.2.0](https://img.shields.io/badge/version-1.2.0-2563eb)
+![Version 1.3.0](https://img.shields.io/badge/version-1.3.0-2563eb)
 [![Elastic License 2.0](https://img.shields.io/badge/license-Elastic%202.0%20source--available-f59e0b)](LICENSE)
 [![GitHub Release](https://img.shields.io/github/v/release/milzamsz/vscode-agentic-kanban?label=GitHub%20Release)](https://github.com/milzamsz/vscode-agentic-kanban/releases)
 
-A maintained fork of the original extension. See [Credits](#credits).
+Agentic Kanban pairs a visual board with the `@kanban` chat participant, Git worktrees, and a reusable agent skill so humans and coding agents share one workflow. Tasks move through fixed delivery lanes, `/spec` attaches spec-driven artifacts to a task, and the skill drives dependency-aware lane sweeps that stay coherent across long agent sessions.
 
-Agentic Kanban keeps delivery state, plans, checklists, conversations, blockers, and optional specifications in version-control-friendly Markdown. It integrates a visual board with the `@kanban` chat participant, Git worktrees, and layered agent instructions so humans and coding agents can share one durable workflow.
-
-> **Key concept:** fixed delivery lanes plus Markdown task records create a human-in-the-loop workflow that stays coherent across long agent sessions.
+> **Key concept:** fixed lanes plus Markdown task records create a human-in-the-loop, spec-driven workflow that an agent can drive end to end.
 
 ```mermaid
 flowchart LR
@@ -34,21 +32,148 @@ flowchart LR
     instruction --> coder
 ```
 
-The original [quick demo video](https://www.youtube.com/watch?v=Y4a3FnFftKw) and screenshot below are retained as legacy illustrations. Some labels and flows shown there predate the current profiles.
+## How It Works
 
-<img width="1042" height="632" alt="Legacy Agentic Kanban workflow illustration" src="https://github.com/user-attachments/assets/19bfc5ac-1ed2-4c10-bc5e-8338fbb95922" />
+Agentic Kanban is built for agentic, spec-driven development (SDD):
 
-## Features
+1. **One durable workflow.** Board state lives entirely in Markdown under `.agentkanban/`. Humans edit cards on the board; agents read and write the same task files. Nothing is hidden in an opaque database.
+2. **Fixed lanes per profile.** A task always sits in a known lane (`backlog`, `planning`, `in-progress`, `review`, `done`). Lane transitions are explicit, so the workflow stays coherent even across long agent sessions.
+3. **Spec artifacts per task.** `/spec` attaches a proposal, design, checklist, and delta specification to the selected task. `tasks.md` becomes the authoritative checklist the agent works against.
+4. **Dependency-aware lane sweeps.** The reusable agent skill processes every ready task in a lane in one pass: a task is ready only when all its `dependsOn` tasks are in `done`. Independent ready tasks run in parallel; dependent chains stay ordered.
+5. **Layered context injection.** A managed `AGENTS.md` section, chat references, and `/refresh` keep the active task, checklist, and spec artifacts in front of the agent on every turn.
 
-- **Profile-driven Kanban board:** Lite uses `backlog -> in-progress -> done`; Standard uses `backlog -> planning -> in-progress -> review -> done`. Standard has one implementation review lane and no blocked lane.
-- **Markdown task records:** Each task is a readable `.md` file with YAML frontmatter and `### user`, `### agent`, and `[comment: ...]` conversation markers.
-- **`@kanban` chat participant:** Create, select, refresh, spec-drive, and isolate tasks without adding a custom LLM loop.
-- **Layered agent context:** A managed `AGENTS.md` section, chat references, `/refresh`, and open task files reinforce workflow context across long sessions.
-- **Git worktree flow:** Give a task its own `agentkanban/<task-slug>` branch and working directory while preserving task-specific instructions.
-- **Dependencies and blockers:** `dependsOn` is the authoritative dependency list; `blocked` and `blocked-by:<slug>` labels keep blockers visible on cards without changing lanes.
-- **Spec-driven development:** `/spec` creates task-linked proposal, design, checklist, and delta-spec artifacts appropriate to the selected profile.
-- **Reusable agent skill:** `skills/agentic-kanban/` contains workflow guidance and stage prompts for Codex, Claude, Antigravity, and repo-local use.
-- **Version-control friendly:** Board configuration, tasks, conversations, checklists, memory, and specifications are plain text files that can be reviewed with normal Git tools.
+The board is for humans. The skill plus `@kanban` chat commands are for agents. Both operate on the same files.
+
+## Quick Start
+
+1. Install the extension (see [Installation](#installation)).
+2. Open a workspace in VS Code and click the **Agentic Kanban** icon in the Activity Bar.
+3. Initialise the workspace and choose a profile: **Lite** for fast paths, **Standard** for the full spec-driven lifecycle.
+4. Create and select a task:
+
+   ```text
+   @kanban /new Add OAuth2 login
+   @kanban /task Add OAuth2
+   ```
+
+5. Attach spec artifacts and work the lanes:
+
+   ```text
+   @kanban /spec auth
+   ```
+
+   Refine the proposal, design, and checklist in `planning`, implement in `in-progress`, verify in `review`, then archive in `done`.
+6. Re-inject context whenever a long chat drifts:
+
+   ```text
+   @kanban /refresh
+   ```
+
+For the agent-driven version of this loop, install the [reusable skill](#driving-it-with-an-agent) and point your agent at the stage prompts.
+
+> `TODO` is a checklist artifact (`- [ ]` items in `tasks.md` or a `todo_*.md` file). It is **not** a lane.
+
+## Worked Example
+
+A single feature taken end to end on the **Standard** profile. Each step is an explicit lane transition; the agent records its work in the task file.
+
+**1. Create and select the task** (lands in `backlog`):
+
+```text
+@kanban /new Add OAuth2 login
+@kanban /task Add OAuth2
+```
+
+**2. Attach spec artifacts** with `/spec`. On Standard this scaffolds:
+
+```text
+.agentkanban/changes/add-oauth2-login/
+  proposal.md
+  design.md
+  tasks.md
+  specs/auth/spec.md
+```
+
+```text
+@kanban /spec auth
+```
+
+The task frontmatter is linked with `change: .agentkanban/changes/add-oauth2-login`.
+
+**3. `backlog -> planning`.** Refine `proposal.md` (why + scope), `design.md` (approach), and the `specs/auth/spec.md` delta (`### Requirement:` blocks with `#### Scenario:` GIVEN / WHEN / THEN), then build the `tasks.md` checklist. Moving out of `planning` is the explicit plan-approval step.
+
+**4. Model a dependency.** Suppose OAuth2 needs token storage first. Create that task and mark the dependency on the OAuth2 task:
+
+```yaml
+dependsOn:
+  - establish-auth-storage
+labels:
+  - blocked-by:establish-auth-storage
+```
+
+The skill's guardrail keeps "Add OAuth2 login" out of any sweep until `establish-auth-storage` reaches `done`. Independent ready tasks in the same lane are swept in parallel; this dependent chain stays ordered.
+
+**5. `planning -> in-progress`.** Standard requires a worktree for implementation:
+
+```text
+@kanban /worktree
+```
+
+The extension commits the task record, creates an `agentkanban/add-oauth2-login` branch and worktree, and writes task-aware guidance into the worktree's `AGENTS.md`. Implement against the approved artifacts and check off `tasks.md` as work lands.
+
+**6. `in-progress -> review`.** Verify the implementation against the proposal, design, delta spec, and checklist. Run lint, tests, and build; fix findings before advancing.
+
+**7. `review -> done`.** Archive the change and merge the accepted delta into `.agentkanban/specs/auth/spec.md`, then merge the worktree branch through your normal Git flow and remove the worktree.
+
+Each transition maps to a stage prompt in the reusable skill, so an agent can run this loop for one task or sweep a whole lane at once.
+
+## Driving It With an Agent
+
+The repository includes `skills/agentic-kanban/`, a reusable workflow skill that turns the board into an agent-operable system. It provides:
+
+- profile and lane rules;
+- stage prompts for planning, implementation, review, blocking, and completion;
+- dependency-aware lane sweeps (process all ready tasks in a lane in one pass);
+- spec-driven development guidance;
+- worktree, verification, branding, and packaging references.
+
+The skill works with Codex, Claude, Antigravity, or as repo-local instructions for any compatible agent. It is intentionally excluded from the VSIX package.
+
+For a shared cross-tool installation, place the canonical copy at:
+
+```text
+~/.agents/skills/agentic-kanban/
+```
+
+Then link each tool's discovery directory to that canonical copy:
+
+```text
+~/.codex/skills/agentic-kanban
+~/.claude/skills/agentic-kanban
+~/.antigravity/skills/agentic-kanban
+```
+
+On Unix-like systems:
+
+```bash
+mkdir -p ~/.agents/skills ~/.codex/skills ~/.claude/skills ~/.antigravity/skills
+cp -R skills/agentic-kanban ~/.agents/skills/
+ln -s ~/.agents/skills/agentic-kanban ~/.codex/skills/agentic-kanban
+ln -s ~/.agents/skills/agentic-kanban ~/.claude/skills/agentic-kanban
+ln -s ~/.agents/skills/agentic-kanban ~/.antigravity/skills/agentic-kanban
+```
+
+On Windows PowerShell, directory junctions avoid Developer Mode requirements:
+
+```powershell
+New-Item -ItemType Directory -Force "$HOME\.agents\skills", "$HOME\.codex\skills", "$HOME\.claude\skills", "$HOME\.antigravity\skills"
+Copy-Item -Recurse ".\skills\agentic-kanban" "$HOME\.agents\skills\"
+New-Item -ItemType Junction -Path "$HOME\.codex\skills\agentic-kanban" -Target "$HOME\.agents\skills\agentic-kanban"
+New-Item -ItemType Junction -Path "$HOME\.claude\skills\agentic-kanban" -Target "$HOME\.agents\skills\agentic-kanban"
+New-Item -ItemType Junction -Path "$HOME\.antigravity\skills\agentic-kanban" -Target "$HOME\.agents\skills\agentic-kanban"
+```
+
+Remove or rename an existing destination before creating a link at the same path. For VS Code, a repo-local copy under the project's skill directory also works.
 
 ## Installation
 
@@ -57,7 +182,7 @@ The original [quick demo video](https://www.youtube.com/watch?v=Y4a3FnFftKw) and
 Download `agentic-kanban-<version>.vsix` from [GitHub Releases](https://github.com/milzamsz/vscode-agentic-kanban/releases), then install it in VS Code:
 
 ```bash
-code --install-extension agentic-kanban-1.2.0.vsix
+code --install-extension agentic-kanban-1.3.0.vsix
 ```
 
 To update later, download the newer VSIX from the same release page and run the same command again.
@@ -77,44 +202,8 @@ cd vscode-agentic-kanban
 npm ci
 npm run build
 npx @vscode/vsce package
-code --install-extension agentic-kanban-1.2.0.vsix
+code --install-extension agentic-kanban-1.3.0.vsix
 ```
-
-## Maintainer Release Flow
-
-GitHub Releases is the primary distribution path for this fork.
-
-1. Update the version in `package.json` and any matching release docs.
-2. Commit the release changes on `main`.
-3. Create the release tag:
-
-```bash
-git tag v1.2.0
-```
-
-4. Push the branch and tag:
-
-```bash
-git push origin main
-git push origin v1.2.0
-```
-
-5. Wait for GitHub Actions to run the release workflow.
-6. Verify the new GitHub Release includes `agentic-kanban-1.2.0.vsix` and that the install command works in VS Code.
-
-## Quick Start
-
-1. Open a workspace in VS Code.
-2. Click the Agentic Kanban icon in the Activity Bar.
-3. Initialise the workspace and choose Lite or Standard.
-4. Create a task from the board or run `@kanban /new <title>`.
-5. Select it with `@kanban /task <task name>`.
-6. Work through the profile lanes using the task file as the durable conversation record.
-7. Run `@kanban /refresh` when a long chat needs its task and workflow context re-injected.
-
-Suggested action vocabulary: `plan`, `checklist`, `implement`, `review`, `block`, and `unblock`.
-
-`TODO` means a checklist artifact. It is not a lane.
 
 ## Workflow Profiles
 
@@ -157,44 +246,6 @@ stateDiagram-v2
         stay on the task as labels
     end note
 ```
-
-## Ways of Working
-
-### Main Workspace
-
-Use this flow for small and medium tasks when editing the current working tree is appropriate:
-
-1. Run `@kanban /task <task name>`.
-2. Plan, implement, or review according to the current lane.
-3. Run `@kanban /refresh` if context drifts.
-
-The extension references the workflow instructions and selected task in chat, opens the task file, and updates the managed `AGENTS.md` section.
-
-### Git Worktree
-
-Use this flow for larger, riskier, or parallel work:
-
-1. Select a task with `@kanban /task <task name>`.
-2. Run `@kanban /worktree`, or use the worktree action on the board.
-3. The extension commits the current task record, creates an `agentkanban/<task-slug>` branch and worktree, and writes task-specific guidance into the worktree's `AGENTS.md`.
-4. Work in the isolated VS Code workspace.
-5. Merge through your normal Git workflow, then remove the worktree when it is no longer needed.
-
-In a linked worktree, `/task`, `/refresh`, and `/spec` can auto-detect the associated task. Use `@kanban /worktree open` to reopen it and `@kanban /worktree remove` to remove the worktree and branch.
-
-## Chat Commands
-
-| Command | Usage | Description |
-| --- | --- | --- |
-| `/new` | `@kanban /new <title>` | Create a task |
-| `/task` | `@kanban /task <task name>` | Select and open an active task |
-| `/refresh` | `@kanban /refresh [context]` | Re-inject workflow and selected-task context |
-| `/spec` | `@kanban /spec [capability]` | Scaffold task-linked spec-driven development artifacts |
-| `/worktree` | `@kanban /worktree` | Create a worktree for the selected task |
-| `/worktree open` | `@kanban /worktree open` | Open the selected task's existing worktree |
-| `/worktree remove` | `@kanban /worktree remove` | Remove the selected task's worktree and branch |
-
-Task matching is fuzzy and case-insensitive. Tasks in `done` are excluded from active task selection.
 
 ## Spec-Driven Development
 
@@ -252,6 +303,44 @@ flowchart TD
     main --> review
     review --> done["Done: archive change and merge accepted deltas"]
 ```
+
+## Chat Commands
+
+| Command | Usage | Description |
+| --- | --- | --- |
+| `/new` | `@kanban /new <title>` | Create a task |
+| `/task` | `@kanban /task <task name>` | Select and open an active task |
+| `/refresh` | `@kanban /refresh [context]` | Re-inject workflow and selected-task context |
+| `/spec` | `@kanban /spec [capability]` | Scaffold task-linked spec-driven development artifacts |
+| `/worktree` | `@kanban /worktree` | Create a worktree for the selected task |
+| `/worktree open` | `@kanban /worktree open` | Open the selected task's existing worktree |
+| `/worktree remove` | `@kanban /worktree remove` | Remove the selected task's worktree and branch |
+
+Task matching is fuzzy and case-insensitive. Tasks in `done` are excluded from active task selection.
+
+## Ways of Working
+
+### Main Workspace
+
+Use this flow for small and medium tasks when editing the current working tree is appropriate:
+
+1. Run `@kanban /task <task name>`.
+2. Plan, implement, or review according to the current lane.
+3. Run `@kanban /refresh` if context drifts.
+
+The extension references the workflow instructions and selected task in chat, opens the task file, and updates the managed `AGENTS.md` section.
+
+### Git Worktree
+
+Use this flow for larger, riskier, or parallel work:
+
+1. Select a task with `@kanban /task <task name>`.
+2. Run `@kanban /worktree`, or use the worktree action on the board.
+3. The extension commits the current task record, creates an `agentkanban/<task-slug>` branch and worktree, and writes task-specific guidance into the worktree's `AGENTS.md`.
+4. Work in the isolated VS Code workspace.
+5. Merge through your normal Git workflow, then remove the worktree when it is no longer needed.
+
+In a linked worktree, `/task`, `/refresh`, and `/spec` can auto-detect the associated task. Use `@kanban /worktree open` to reopen it and `@kanban /worktree remove` to remove the worktree and branch.
 
 ## Task Files
 
@@ -350,63 +439,45 @@ Agentic Kanban uses several context layers:
 
 `.agentkanban/INSTRUCTION.md` is managed by the extension and refreshed from the bundled template. Put custom permanent guidance in your own `AGENTS.md` content, `CLAUDE.md`, repository rules, or the configured custom instruction file.
 
-## Reusable Agent Skill
-
-The repository includes `skills/agentic-kanban/`, a reusable workflow skill with:
-
-- profile and lane rules;
-- stage prompts for planning, implementation, review, blocking, and completion;
-- dependency-aware lane sweeps;
-- spec-driven development guidance;
-- worktree, verification, branding, and packaging references.
-
-The skill is useful with Codex, Claude, Antigravity, or as repo-local instructions for any compatible agent. It is intentionally excluded from the VSIX package.
-
-For a shared cross-tool installation, place the canonical copy at:
-
-```text
-~/.agents/skills/agentic-kanban/
-```
-
-Then link each tool's discovery directory to that canonical copy:
-
-```text
-~/.codex/skills/agentic-kanban
-~/.claude/skills/agentic-kanban
-~/.antigravity/skills/agentic-kanban
-```
-
-On Unix-like systems:
-
-```bash
-mkdir -p ~/.agents/skills ~/.codex/skills ~/.claude/skills ~/.antigravity/skills
-cp -R skills/agentic-kanban ~/.agents/skills/
-ln -s ~/.agents/skills/agentic-kanban ~/.codex/skills/agentic-kanban
-ln -s ~/.agents/skills/agentic-kanban ~/.claude/skills/agentic-kanban
-ln -s ~/.agents/skills/agentic-kanban ~/.antigravity/skills/agentic-kanban
-```
-
-On Windows PowerShell, directory junctions avoid Developer Mode requirements:
-
-```powershell
-New-Item -ItemType Directory -Force "$HOME\.agents\skills", "$HOME\.codex\skills", "$HOME\.claude\skills", "$HOME\.antigravity\skills"
-Copy-Item -Recurse ".\skills\agentic-kanban" "$HOME\.agents\skills\"
-New-Item -ItemType Junction -Path "$HOME\.codex\skills\agentic-kanban" -Target "$HOME\.agents\skills\agentic-kanban"
-New-Item -ItemType Junction -Path "$HOME\.claude\skills\agentic-kanban" -Target "$HOME\.agents\skills\agentic-kanban"
-New-Item -ItemType Junction -Path "$HOME\.antigravity\skills\agentic-kanban" -Target "$HOME\.agents\skills\agentic-kanban"
-```
-
-Remove or rename an existing destination before creating a link at the same path.
-
 ## Configuration
 
 | Setting | Scope | Default | Description |
 | --- | --- | --- | --- |
 | `agentKanban.enableLogging` | Window | `false` | Enable rolling diagnostic logs under `.agentkanban/logs/`; reload after changing |
 | `agentKanban.customInstructionFile` | Resource | empty | Additional instruction file for `/task`; relative paths resolve from the workspace root |
+| `agentKanban.defaultProfile` | Resource | `standard` | Profile used when initialising a new board; existing `board.yaml` files stay authoritative until settings are applied explicitly |
+| `agentKanban.worktreeRequiredForImplementation` | Resource | `profile-default` | Seeds `worktreePolicy.requiredForImplementation` when a board is created or when settings are applied to an existing board |
 | `agentKanban.worktreeRoot` | Resource | `../{repo}-worktrees` | Worktree root; `{repo}` is replaced with the repository name |
 | `agentKanban.worktreeOpenBehavior` | Resource | `current` | Open worktrees in the `current` or a `new` window |
 | `agentKanban.enforceWorktrees` | Resource | `false` | Require a task worktree before `/refresh`, prompting for creation when absent |
+
+### Board Configuration
+
+VS Code settings seed `board.yaml`; they do not silently override it. `board.yaml` remains the committed project source of truth for the board profile, lanes, and worktree policy shared by humans and agents.
+
+Use **Agentic Kanban: Apply Settings to Board Config** when you want the current workspace settings to update an existing `board.yaml`. If the target profile would leave tasks in lanes that do not exist in that profile, the command warns before applying the change.
+
+## Maintainer Release Flow
+
+GitHub Releases is the primary distribution path for this fork.
+
+1. Update the version in `package.json` and any matching release docs.
+2. Commit the release changes on `main`.
+3. Create the release tag:
+
+```bash
+git tag v1.3.0
+```
+
+4. Push the branch and tag:
+
+```bash
+git push origin main
+git push origin v1.3.0
+```
+
+5. Wait for GitHub Actions to run the release workflow.
+6. Verify the new GitHub Release includes `agentic-kanban-1.3.0.vsix` and that the install command works in VS Code.
 
 ## Development
 
@@ -439,6 +510,8 @@ Use [GitHub Issues](https://github.com/milzamsz/vscode-agentic-kanban/issues) fo
 Please keep workflow behavior documented, add focused tests for code changes, and run the full verification sequence before opening a pull request. Contributions are accepted under the repository's Elastic License 2.0 terms, so review the license before submitting work.
 
 ## Credits
+
+Agentic Kanban is a maintained fork of the original extension.
 
 - [appsoftwareltd/vscode-agent-kanban](https://github.com/appsoftwareltd/vscode-agent-kanban), the original VS Code extension by appsoftware.com.
 - [Fission-AI/OpenSpec](https://github.com/Fission-AI/OpenSpec), whose specification format informs the compatible `/spec` artifacts.
