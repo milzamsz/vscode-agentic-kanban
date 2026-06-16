@@ -2,6 +2,10 @@
 
 All notable changes to Agentic Kanban will be documented here.
 
+## [1.3.2] - 2026-06-16
+
+- Prepend a documented reference comment header to serialized `board.yaml` configuration files, detailing profile settings, enforcement rules, and reviewer roles.
+
 ## [1.3.1] - 2026-06-16
 
 - Wire `enforcement` and `reviewPolicy` configurations to make them functional in board lane transitions.

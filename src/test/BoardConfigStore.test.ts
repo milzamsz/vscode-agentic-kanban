@@ -18,6 +18,25 @@ describe('BoardConfigStore', () => {
             expect(result).toEqual(DEFAULT_BOARD_CONFIG);
         });
 
+        it('should prepend a documented comment header that deserialise ignores', () => {
+            const yaml = BoardConfigStore.serialise(DEFAULT_BOARD_CONFIG);
+
+            expect(yaml.startsWith('# ===')).toBe(true);
+            expect(yaml).toContain('Agentic Kanban board configuration');
+            expect(yaml).toContain('reviewPolicy.<low|medium|high|critical>');
+            // No em dashes in the managed header (product copy rule).
+            expect(yaml).not.toContain('—');
+            // Header is comment-only, so it survives a round-trip cleanly.
+            expect(BoardConfigStore.deserialise(yaml)).toEqual(DEFAULT_BOARD_CONFIG);
+        });
+
+        it('should not re-add the header as data on a second serialise round-trip', () => {
+            const once = BoardConfigStore.serialise(DEFAULT_BOARD_CONFIG);
+            const twice = BoardConfigStore.serialise(BoardConfigStore.deserialise(once));
+
+            expect(twice).toEqual(once);
+        });
+
         it('should round-trip config with an explicit lite profile', () => {
             const config: BoardConfig = {
                 profile: 'lite',

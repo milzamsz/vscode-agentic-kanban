@@ -14,6 +14,27 @@ const CONFIG_PATH = '.agentkanban/board.yaml';
 const GITIGNORE_PATH = '.agentkanban/.gitignore';
 const GITIGNORE_CONTENT = '# Agentic Kanban - auto-generated\nlogs/\n';
 
+// Fixed reference header prepended to every serialised board.yaml. Regenerated
+// on each save, so it always survives a canonical rewrite. Documents every
+// editable field in place; inline per-field comments are not used because the
+// yaml stringify path cannot emit them. No em dashes (product copy rule).
+const CONFIG_HEADER = [
+    '# ===============================================================',
+    '# Agentic Kanban board configuration (managed file)',
+    '# Edit the values below; this header is regenerated on every save.',
+    '#',
+    '# profile: standard | lite        (lanes derive from profile)',
+    '# enforcement.mode: strict | warn  (strict blocks illegal moves; warn allows and warns)',
+    '#   overrides.allowed: true | false',
+    '#   overrides.actors: [human] | [human, agent] | [agent]',
+    '#   overrides.requireReason: true | false',
+    '# reviewPolicy.<low|medium|high|critical>.<planning|implementation>:',
+    '#   self-agent | independent-agent | independent-agent+human',
+    '# worktreePolicy.requiredForImplementation: true | false',
+    '# ===============================================================',
+    '',
+].join('\n');
+
 export class BoardConfigStore {
     private config: BoardConfig = normaliseBoardConfig(DEFAULT_BOARD_CONFIG);
     private readonly configUri: vscode.Uri;
@@ -168,7 +189,7 @@ export class BoardConfigStore {
             reviewPolicy: normalised.reviewPolicy,
             worktreePolicy: normalised.worktreePolicy,
         };
-        return stringify(payload, { lineWidth: 0 });
+        return CONFIG_HEADER + stringify(payload, { lineWidth: 0 });
     }
 
     static deserialise(text: string): BoardConfig {

@@ -4,7 +4,7 @@
 
 Spec-driven, agent-assisted software delivery in VS Code, with every plan, checklist, conversation, blocker, and specification kept as durable, version-control-friendly Markdown.
 
-![Version 1.3.1](https://img.shields.io/badge/version-1.3.1-2563eb)
+![Version 1.3.2](https://img.shields.io/badge/version-1.3.2-2563eb)
 [![Elastic License 2.0](https://img.shields.io/badge/license-Elastic%202.0%20source--available-f59e0b)](LICENSE)
 [![GitHub Release](https://img.shields.io/github/v/release/milzamsz/vscode-agentic-kanban?label=GitHub%20Release)](https://github.com/milzamsz/vscode-agentic-kanban/releases)
 
@@ -182,7 +182,7 @@ Remove or rename an existing destination before creating a link at the same path
 Download `agentic-kanban-<version>.vsix` from [GitHub Releases](https://github.com/milzamsz/vscode-agentic-kanban/releases), then install it in VS Code:
 
 ```bash
-code --install-extension agentic-kanban-1.3.1.vsix
+code --install-extension agentic-kanban-1.3.2.vsix
 ```
 
 To update later, download the newer VSIX from the same release page and run the same command again.
@@ -202,7 +202,7 @@ cd vscode-agentic-kanban
 npm ci
 npm run build
 npx @vscode/vsce package
-code --install-extension agentic-kanban-1.3.1.vsix
+code --install-extension agentic-kanban-1.3.2.vsix
 ```
 
 ## Workflow Profiles
@@ -467,18 +467,18 @@ GitHub Releases is the primary distribution path for this fork.
 3. Create the release tag:
 
 ```bash
-git tag v1.3.1
+git tag v1.3.2
 ```
 
 4. Push the branch and tag:
 
 ```bash
 git push origin main
-git push origin v1.3.1
+git push origin v1.3.2
 ```
 
 5. Wait for GitHub Actions to run the release workflow.
-6. Verify the new GitHub Release includes `agentic-kanban-1.3.1.vsix` and that the install command works in VS Code.
+6. Verify the new GitHub Release includes `agentic-kanban-1.3.2.vsix` and that the install command works in VS Code.
 
 ## Development
 
