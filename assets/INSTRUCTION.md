@@ -14,12 +14,14 @@ IMPORTANT: Always respond in the task file, not the chat window. Stay in the ass
 .agentkanban/
   .gitignore          # Auto-generated - ignores logs/
   board.yaml          # Workflow profile, lanes, and policy config
+  specs/
+    <capability>/spec.md   # capability contract — one per capability, shared across tasks
   changes/
     <task-slug>/
       proposal.md
       design.md
       tasks.md
-      specs/<capability>/spec.md
+    archive/<task-slug>/   # archived change folders (via @kanban /archive)
   memory.md           # Persistent memory across tasks (reset via command)
   INSTRUCTION.md      # This file - managed by the extension
   tasks/
@@ -88,15 +90,19 @@ Rules:
 
 ## Spec-Driven Development
 
-Some tasks opt into spec-driven development through a `change` frontmatter key pointing at `.agentkanban/changes/<task-slug>`.
+Some tasks opt into spec-driven development. They carry two frontmatter keys: a `change` pointing at
+`.agentkanban/changes/<task-slug>` (the per-task proposal/design/tasks) and a `spec` pointing at the
+shared capability contract `.agentkanban/specs/<capability>/spec.md`.
 
 For those tasks:
 
-- Read `proposal.md` before planning or implementation.
-- In the Standard profile, also read `design.md` and `specs/<capability>/spec.md`.
-- Treat `tasks.md` as the implementation checklist.
-- Preserve the task-to-change link in frontmatter.
-- When the task reaches `done`, archive and merge the change through the documented workflow; this MVP keeps those steps agent-driven rather than extension-enforced.
+- Read the capability `spec.md` (behavior + acceptance criteria) and `proposal.md` before planning or implementation.
+- In the Standard profile, also read `design.md`.
+- Treat the change `tasks.md` as the authoritative checklist (not the sibling `todo_*.md`).
+- The capability spec lives once under `.agentkanban/specs/` and is referenced, not duplicated per change.
+- Preserve the task-to-change and task-to-spec links in frontmatter.
+- A task is `done` only when its behavior is proven to run and the spec's acceptance criteria are met.
+- When the task reaches `done`, archive the change with `@kanban /archive [slug]`; the capability spec stays in `specs/`. Archiving and validation remain agent-driven.
 
 ## Memory
 

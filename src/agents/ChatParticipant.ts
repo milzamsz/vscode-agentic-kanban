@@ -23,6 +23,9 @@ export const AGENTS_MD_REL_PATH = 'AGENTS.md';
 /** Relative root for spec-driven change artifacts. */
 const CHANGES_REL_PATH = '.agentkanban/changes';
 
+/** Relative root for capability specs (referenced by tasks via the `spec` key). */
+const SPECS_REL_PATH = '.agentkanban/specs';
+
 export const AGENTS_MD_BEGIN = '<!-- BEGIN AGENTIC KANBAN \u2014 DO NOT EDIT THIS SECTION -->';
 export const AGENTS_MD_END = '<!-- END AGENTIC KANBAN -->';
 
@@ -53,6 +56,7 @@ interface AgentsTaskContext {
     taskRelPath: string;
     todoRelPath?: string;
     changeRelPath?: string;
+    specRelPath?: string;
     priority?: Priority;
 }
 
@@ -104,6 +108,7 @@ export function buildWorktreeAgentsMdSection(
     priority?: Priority,
     reviewPolicy: ReviewPolicy = DEFAULT_REVIEW_POLICY,
     enforcementMode: 'strict' | 'warn' = DEFAULT_ENFORCEMENT.standard.mode,
+    specRelPath?: string,
 ): string {
     const lines = [
         AGENTS_MD_BEGIN,
@@ -112,14 +117,19 @@ export function buildWorktreeAgentsMdSection(
         `**Active Task:** ${taskTitle}`,
         `**Task File:** \`${taskRelPath}\``,
     ];
-    if (todoRelPath) {
+    if (changeRelPath) {
+        // Spec-driven tasks use `<change>/tasks.md` as the authoritative checklist.
+        lines.push(`**Checklist File:** \`${changeRelPath}/tasks.md\``);
+    } else if (todoRelPath) {
         lines.push(`**Checklist File:** \`${todoRelPath}\``);
     }
     if (changeRelPath) {
         lines.push(`**Spec Change:** \`${changeRelPath}\``);
         lines.push(`**Spec Proposal:** \`${changeRelPath}/proposal.md\``);
         lines.push(`**Spec Tasks:** \`${changeRelPath}/tasks.md\``);
-        lines.push(`**Spec Delta:** \`${changeRelPath}/specs/<capability>/spec.md\``);
+    }
+    if (specRelPath) {
+        lines.push(`**Capability Spec:** \`${specRelPath}\``);
     }
     lines.push(
         '',
@@ -194,13 +204,17 @@ export class ChatParticipant {
             case 'worktree':
                 await this.handleWorktree(prompt, response);
                 return;
+            case 'archive':
+                await this.handleArchive(prompt, response);
+                return;
             default: {
-                response.markdown('Available commands: `/new`, `/task`, `/refresh`, `/spec`, `/worktree`\n\n');
+                response.markdown('Available commands: `/new`, `/task`, `/refresh`, `/spec`, `/worktree`, `/archive`\n\n');
                 response.markdown('- `@kanban /spec [capability]` - Scaffold spec-driven change artifacts for the selected task\n');
                 response.markdown('- `@kanban /new <task title>` — Create a new task\n');
                 response.markdown('- `@kanban /task <task name>` — Select a task to work on\n');
                 response.markdown('- `@kanban /refresh` — Re-inject agent context for the selected task\n');
                 response.markdown('- `@kanban /worktree` — Create a git worktree for the selected task\n');
+                response.markdown('- `@kanban /archive [slug]` — Move a completed change folder to changes/archive/\n');
                 response.markdown('- `@kanban /worktree open` — Open the task worktree for the selected task in VS Code\n');
                 response.markdown('- `@kanban /worktree remove` — Remove the task worktree\n');
                 return;
@@ -279,6 +293,7 @@ export class ChatParticipant {
                     worktreeTask.priority,
                     config.reviewPolicy ?? DEFAULT_REVIEW_POLICY,
                     config.enforcement?.mode ?? DEFAULT_ENFORCEMENT[config.profile].mode,
+                    worktreeTask.specRelPath,
                 )
                 : buildAgentsMdSection(
                     config.enforcement?.mode ?? DEFAULT_ENFORCEMENT[config.profile].mode,
@@ -329,6 +344,7 @@ export class ChatParticipant {
                 taskRelPath,
                 todoRelPath,
                 changeRelPath: this.getChangeRelPath(linkedTask),
+                specRelPath: this.getSpecRelPath(linkedTask),
                 priority: linkedTask.priority,
             });
             this.logger.info('chatParticipant', `Synced worktree AGENTS.md for task: ${linkedTask.title}`);
@@ -482,6 +498,7 @@ export class ChatParticipant {
                 taskRelPath,
                 todoRelPath,
                 changeRelPath: this.getChangeRelPath(task),
+                specRelPath: this.getSpecRelPath(task),
                 priority: task.priority,
             });
         }
@@ -568,7 +585,9 @@ export class ChatParticipant {
         const changeSlug = this.getTaskSlug(task);
         const capability = this.slugifySpecPart(prompt.trim() || changeSlug) || changeSlug;
         const changeRelPath = `${CHANGES_REL_PATH}/${changeSlug}`;
+        const specRelPath = `${SPECS_REL_PATH}/${capability}/spec.md`;
         const changeUri = this.uriFromRelativePath(workspaceFolder.uri, changeRelPath);
+        const specUri = this.uriFromRelativePath(workspaceFolder.uri, specRelPath);
         const config = this.boardConfigStore.get();
 
         try {
@@ -582,19 +601,21 @@ export class ChatParticipant {
             await this.writeTemplateIfMissing('proposal.md', proposalUri, task, changeSlug, capability, created, reused);
             await this.writeTemplateIfMissing('tasks.md', tasksUri, task, changeSlug, capability, created, reused);
 
+            // Capability spec lives once under .agentkanban/specs/<capability>/ and is
+            // referenced (not duplicated) by the task via the `spec` frontmatter key.
+            await vscode.workspace.fs.createDirectory(
+                this.uriFromRelativePath(workspaceFolder.uri, `${SPECS_REL_PATH}/${capability}`),
+            );
+            await this.writeTemplateIfMissing('spec.md', specUri, task, changeSlug, capability, created, reused);
+
             let designUri: vscode.Uri | undefined;
-            let deltaSpecUri: vscode.Uri | undefined;
             if (config.profile === 'standard') {
                 designUri = vscode.Uri.joinPath(changeUri, 'design.md');
                 await this.writeTemplateIfMissing('design.md', designUri, task, changeSlug, capability, created, reused);
-
-                const specDirUri = vscode.Uri.joinPath(changeUri, 'specs', capability);
-                await vscode.workspace.fs.createDirectory(specDirUri);
-                deltaSpecUri = vscode.Uri.joinPath(specDirUri, 'spec.md');
-                await this.writeTemplateIfMissing('spec.md', deltaSpecUri, task, changeSlug, capability, created, reused);
             }
 
-            task.extras = { ...(task.extras ?? {}), change: changeRelPath };
+            task.change = changeRelPath;
+            task.spec = specRelPath;
             await this.taskStore.save(task);
 
             const taskUri = this.taskStore.getTaskUri(task.id);
@@ -605,11 +626,12 @@ export class ChatParticipant {
                 taskRelPath,
                 todoRelPath,
                 changeRelPath,
+                specRelPath,
                 priority: task.priority,
             });
 
             response.reference(taskUri);
-            for (const uri of [proposalUri, tasksUri, designUri, deltaSpecUri].filter(Boolean) as vscode.Uri[]) {
+            for (const uri of [proposalUri, tasksUri, designUri, specUri].filter(Boolean) as vscode.Uri[]) {
                 response.reference(uri);
             }
 
@@ -618,6 +640,7 @@ export class ChatParticipant {
 
             response.markdown(`Spec change scaffolded for **${task.title}**\n\n`);
             response.markdown(`Change: \`${changeRelPath}\`\n\n`);
+            response.markdown(`Capability spec: \`${specRelPath}\`\n\n`);
             response.markdown(`Profile: \`${config.profile}\`\n\n`);
             if (created.length > 0) {
                 response.markdown('Created:\n');
@@ -637,6 +660,59 @@ export class ChatParticipant {
         } catch (err: any) {
             response.markdown(`Failed to scaffold spec change: ${err.message}`);
             this.logger.warn('chatParticipant', `Spec scaffold failed for ${task.id}: ${err.message}`);
+        }
+    }
+
+    /**
+     * Handle the /archive command. Moves a completed change folder
+     * `.agentkanban/changes/<slug>` to `.agentkanban/changes/archive/<slug>`.
+     * Slug comes from the prompt, else from the selected task's `change`. The
+     * capability spec under `.agentkanban/specs/` is left in place (it is shared).
+     */
+    private async handleArchive(prompt: string, response: vscode.ChatResponseStream): Promise<void> {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            response.markdown('No workspace folder is open.');
+            return;
+        }
+
+        let slug = prompt.trim();
+        if (!slug && this.lastSelectedTaskId) {
+            const task = this.taskStore.get(this.lastSelectedTaskId);
+            const changeRel = task ? this.getChangeRelPath(task) : undefined;
+            if (changeRel) {
+                slug = changeRel.split('/').filter(Boolean).pop() ?? '';
+            }
+        }
+        if (!slug) {
+            response.markdown('Usage: `@kanban /archive <change-slug>` (or select a spec-driven task first with `/task`).');
+            return;
+        }
+
+        const sourceRel = `${CHANGES_REL_PATH}/${slug}`;
+        const destRel = `${CHANGES_REL_PATH}/archive/${slug}`;
+        const sourceUri = this.uriFromRelativePath(workspaceFolder.uri, sourceRel);
+        const destUri = this.uriFromRelativePath(workspaceFolder.uri, destRel);
+
+        if (!(await this.exists(sourceUri))) {
+            response.markdown(`No change folder at \`${sourceRel}\`.`);
+            return;
+        }
+        if (await this.exists(destUri)) {
+            response.markdown(`Archive target \`${destRel}\` already exists — resolve it manually.`);
+            return;
+        }
+
+        try {
+            await vscode.workspace.fs.createDirectory(
+                this.uriFromRelativePath(workspaceFolder.uri, `${CHANGES_REL_PATH}/archive`),
+            );
+            await vscode.workspace.fs.rename(sourceUri, destUri, { overwrite: false });
+            response.markdown(`Archived change \`${slug}\`:\n- \`${sourceRel}\` → \`${destRel}\`\n\nThe capability spec under \`${SPECS_REL_PATH}/\` was left in place (shared across tasks).`);
+            this.logger.info('chatParticipant', `Archived change ${slug}`);
+        } catch (err: any) {
+            response.markdown(`Failed to archive change \`${slug}\`: ${err.message}`);
+            this.logger.warn('chatParticipant', `Archive failed for ${slug}: ${err.message}`);
         }
     }
 
@@ -696,6 +772,7 @@ export class ChatParticipant {
                 taskRelPath: refreshTaskRelPath,
                 todoRelPath: refreshTodoRelPath,
                 changeRelPath: this.getChangeRelPath(task),
+                specRelPath: this.getSpecRelPath(task),
                 priority: task.priority,
             });
         }
@@ -965,8 +1042,13 @@ export class ChatParticipant {
         return { task: undefined, freeText: prompt };
     }
 
-    private getChangeRelPath(task: { extras?: Record<string, unknown> }): string | undefined {
-        const value = task.extras?.change;
+    private getChangeRelPath(task: { change?: string; extras?: Record<string, unknown> }): string | undefined {
+        const value = task.change ?? task.extras?.change;
+        return typeof value === 'string' && value.trim() ? value : undefined;
+    }
+
+    private getSpecRelPath(task: { spec?: string; extras?: Record<string, unknown> }): string | undefined {
+        const value = task.spec ?? task.extras?.spec;
         return typeof value === 'string' && value.trim() ? value : undefined;
     }
 

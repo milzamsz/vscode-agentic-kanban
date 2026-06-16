@@ -326,16 +326,46 @@ describe('TaskStore', () => {
             ].join('\n');
 
             const parsed = TaskStore.deserialise(md);
-            expect(parsed!.extras).toEqual({ dependsOn: ['task_a', 'task_b'], customKey: 'hello' });
+            // dependsOn is now a first-class field; only genuinely unknown keys stay in extras.
+            expect(parsed!.dependsOn).toEqual(['task_a', 'task_b']);
+            expect(parsed!.extras).toEqual({ customKey: 'hello' });
 
-            // Re-serialising keeps the unknown keys.
+            // Re-serialising keeps both the first-class and unknown keys.
             const out = TaskStore.serialise(parsed!);
             expect(out).toContain('dependsOn:');
             expect(out).toContain('- task_a');
             expect(out).toContain('customKey: hello');
 
             const reparsed = TaskStore.deserialise(out);
-            expect(reparsed!.extras).toEqual({ dependsOn: ['task_a', 'task_b'], customKey: 'hello' });
+            expect(reparsed!.dependsOn).toEqual(['task_a', 'task_b']);
+            expect(reparsed!.extras).toEqual({ customKey: 'hello' });
+        });
+
+        it('should treat change and spec as first-class keys (not extras) and round-trip them', () => {
+            const md = [
+                '---',
+                'title: Spec task',
+                'lane: planning',
+                'created: 2026-06-16T10:00:00.000Z',
+                'updated: 2026-06-16T10:00:00.000Z',
+                'change: .agentkanban/changes/foo',
+                'spec: .agentkanban/specs/cap/spec.md',
+                '---',
+                '',
+                '## Conversation',
+            ].join('\n');
+
+            const parsed = TaskStore.deserialise(md);
+            expect(parsed!.change).toBe('.agentkanban/changes/foo');
+            expect(parsed!.spec).toBe('.agentkanban/specs/cap/spec.md');
+            expect(parsed!.extras).toBeUndefined();
+
+            const out = TaskStore.serialise(parsed!);
+            expect(out).toContain('change: .agentkanban/changes/foo');
+            expect(out).toContain('spec: .agentkanban/specs/cap/spec.md');
+            const reparsed = TaskStore.deserialise(out);
+            expect(reparsed!.change).toBe('.agentkanban/changes/foo');
+            expect(reparsed!.spec).toBe('.agentkanban/specs/cap/spec.md');
         });
 
         it('should leave extras undefined when there are no unknown keys', () => {
@@ -614,6 +644,32 @@ describe('TaskStore', () => {
             expect(taskUri.fsPath).toContain('tasks');
             expect(taskUri.fsPath).not.toContain('archive');
             expect(taskUri.fsPath).toContain('task_20260308_abc123_test.md');
+        });
+
+        it('getChecklistUri resolves a spec-driven task to its change tasks.md', () => {
+            const uri = { scheme: 'file', fsPath: '/test', path: '/test', toString: () => '/test' } as any;
+            const store = new TaskStore(uri);
+            const task: Task = {
+                id: 'task_x', title: 'X', lane: 'in-progress', created: '', updated: '',
+                description: '', change: '.agentkanban/changes/foo',
+            };
+            (store as any).tasks.set(task.id, task);
+
+            const uriOut = store.getChecklistUri('task_x');
+            expect(uriOut.fsPath.replace(/\\/g, '/')).toContain('.agentkanban/changes/foo/tasks.md');
+        });
+
+        it('getChecklistUri falls back to todo_<id>.md when no change is set', () => {
+            const uri = { scheme: 'file', fsPath: '/test', path: '/test', toString: () => '/test' } as any;
+            const store = new TaskStore(uri);
+            const task: Task = {
+                id: 'task_20260616_abc123_y', title: 'Y', lane: 'backlog',
+                created: '', updated: '', description: '',
+            };
+            (store as any).tasks.set(task.id, task);
+
+            const uriOut = store.getChecklistUri('task_20260616_abc123_y');
+            expect(uriOut.fsPath).toContain('todo_20260616_abc123_y.md');
         });
     });
 

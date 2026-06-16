@@ -310,6 +310,29 @@
         line-height: 1.2;
     }
 
+    /* ── Spec-driven / progress / warning badges ─── */
+    .spec-badge {
+        @apply text-xs font-semibold rounded px-1.5 py-0.5 inline-block;
+        line-height: 1.2;
+        background: var(--vscode-badge-background, #2d4f67);
+        color: var(--vscode-badge-foreground, #cfe3f0);
+        letter-spacing: 0.04em;
+    }
+
+    .progress-badge {
+        @apply text-xs font-medium rounded px-1.5 py-0.5 inline-block;
+        line-height: 1.2;
+        background: var(--vscode-editorWidget-background, #2a2a2a);
+        color: var(--vscode-descriptionForeground, #b8b8b8);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .warn-badge {
+        @apply text-xs font-semibold inline-block;
+        line-height: 1.2;
+        color: var(--vscode-editorWarning-foreground, #d7a000);
+    }
+
     .priority-critical {
         background: #fecdd3;
         color: #9f1239;

@@ -1,18 +1,24 @@
 # Design: {{TASK_TITLE}}
 
+> Behavior + acceptance: `.agentkanban/specs/{{CAPABILITY}}/spec.md`. Complete this during the
+> `planning` stage before moving to `in-progress`. Ground every claim in real code (`path:line`).
+
+## Key facts (verified)
+
+- What the code actually does today at the touch points (quote `path:line`). Do not assume.
+
 ## Approach
 
-Describe the technical approach, affected modules, data flow, and compatibility concerns.
+- The chosen technical approach, step by step. Affected modules, data flow, interfaces/contracts.
 
-## Interfaces
+## Decisions
 
-Document any public commands, settings, file formats, schemas, or API contracts changed by this proposal.
+- Each decision + the rejected alternative, in one line.
 
 ## Risks
 
-- List implementation risks and mitigations.
+- Implementation risks + mitigations.
 
-## Verification
+## Open questions
 
-- List the tests and manual checks required before the change can move to done.
-
+- Anything unresolved that needs an answer before/at implementation.

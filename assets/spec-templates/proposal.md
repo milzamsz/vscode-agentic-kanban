@@ -1,20 +1,23 @@
-# Change Proposal: {{TASK_TITLE}}
+# Proposal: {{TASK_TITLE}}
 
-## Why
+**Capability:** {{CAPABILITY}} (`.agentkanban/specs/{{CAPABILITY}}/spec.md`)
+
+## Problem
 
 {{TASK_DESCRIPTION}}
 
-## What Changes
+State the problem as observable behavior that is missing or wrong today — not the solution.
 
-- Describe the intended behavior change.
-- Name affected capabilities and user-visible workflows.
-- Keep scope focused on this task.
+## Outcome
 
-## Out Of Scope
+The behavior that must be true once this change ships (proven to run, not just persisted).
 
-- List related work that this change will not include.
+## Scope
 
-## Change Slug
+- **In:** what this change includes.
+- **Out:** related work this change does not include.
 
-`{{CHANGE_SLUG}}`
+## Acceptance
 
+The subset of the capability spec's acceptance criteria this task satisfies. Full list lives in
+the spec; design.md records the chosen approach.

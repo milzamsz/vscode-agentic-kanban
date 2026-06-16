@@ -200,9 +200,18 @@ export class KanbanEditorPanel {
                 return sa - sb;
             });
         const config = this._boardConfigStore.get();
+        const laneSet = new Set(config.lanes);
+        const enriched = await Promise.all(tasks.map(async (t) => {
+            const derived = await this._taskStore.getDerived(t);
+            return {
+                ...t,
+                ...derived,
+                laneInvalid: !laneSet.has(t.lane) || undefined,
+            };
+        }));
         await this._panel.webview.postMessage({
             type: 'stateUpdate',
-            state: { tasks, config, isInitialised: this._isInitialised },
+            state: { tasks: enriched, config, isInitialised: this._isInitialised },
         });
     }
 
@@ -236,14 +245,14 @@ export class KanbanEditorPanel {
             }
 
             case 'openTodo': {
-                const uri = this._taskStore.getTodoUri(message.taskId);
+                const uri = this._taskStore.getChecklistUri(message.taskId);
                 try {
                     const doc = await vscode.workspace.openTextDocument(uri);
                     await vscode.window.showTextDocument(doc, {
                         viewColumn: vscode.ViewColumn.Active,
                     });
                 } catch {
-                    vscode.window.showInformationMessage('No checklist file exists for this task yet. The TODO artifact will be created during planning or implementation work.');
+                    vscode.window.showInformationMessage('No checklist file exists for this task yet. Spec-driven tasks use `<change>/tasks.md`; others use the sibling `todo_*.md`. It is created during planning or implementation work.');
                 }
                 break;
             }

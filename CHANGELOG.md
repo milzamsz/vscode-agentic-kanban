@@ -2,6 +2,16 @@
 
 All notable changes to Agentic Kanban will be documented here.
 
+## [1.4.0] - 2026-06-16
+
+- Surface spec-driven checklists on the board: the checklist button now opens `<change>/tasks.md` when a task has a `change`, falling back to `todo_<id>.md` otherwise.
+- Show a `SPEC` indicator, a `done/total` checklist-progress badge, and a `⚠` badge (missing `change` folder / `spec` file, or a lane outside the active profile) on task cards.
+- Treat `change`, `spec`, and `dependsOn` as first-class frontmatter keys (typed, ordered) instead of opaque extras; existing files keep round-tripping.
+- Realign `@kanban /spec` to the capability-spec model: it writes one shared `.agentkanban/specs/<capability>/spec.md`, links the task via both `change` and `spec` frontmatter, and no longer scaffolds a nested `changes/<slug>/specs/` delta.
+- Refresh the bundled spec templates (proposal / design / spec / tasks) to the behavior-and-acceptance shape; spec is a living contract, not an OpenSpec delta.
+- Add `@kanban /archive [slug]` to move a completed change folder to `changes/archive/`, leaving the shared capability spec in place.
+- Fold tasks with a lane outside the active profile into the last lane instead of dropping the card.
+
 ## [1.3.2] - 2026-06-16
 
 - Prepend a documented reference comment header to serialized `board.yaml` configuration files, detailing profile settings, enforcement rules, and reviewer roles.

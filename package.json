@@ -2,7 +2,7 @@
     "name": "agentic-kanban",
     "displayName": "Agentic Kanban",
     "description": "A profile-driven Kanban board for AI-assisted software development with persistent markdown task conversations.",
-    "version": "1.3.2",
+    "version": "1.4.0",
     "publisher": "milzam",
     "license": "Elastic-2.0",
     "icon": "images/icon.png",
@@ -163,6 +163,10 @@
                     {
                         "name": "worktree",
                         "description": "Create, open, or remove a git worktree for the selected task"
+                    },
+                    {
+                        "name": "archive",
+                        "description": "[slug] - move a completed change folder to changes/archive/"
                     }
                 ]
             }

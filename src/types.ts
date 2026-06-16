@@ -55,15 +55,33 @@ export interface Task {
     worktree?: WorktreeInfo;
     slug?: string;
     /**
+     * Spec-driven change folder for this task, e.g. `.agentkanban/changes/<slug>`.
+     * When set, the task's authoritative checklist is `<change>/tasks.md`.
+     */
+    change?: string;
+    /**
+     * Capability spec this task implements, e.g. `.agentkanban/specs/<capability>/spec.md`.
+     */
+    spec?: string;
+    /** Slugs of tasks this one depends on (must be `done` before this is ready). */
+    dependsOn?: string[];
+    /**
      * Legacy field used by older builds when `blocked` was a dedicated lane.
      * Read for migration compatibility only; new serialisation never writes it.
      */
     resumeLane?: string;
     /**
      * Unknown frontmatter keys preserved verbatim across save round-trips so
-     * conventions like `dependsOn` are not lost when the extension re-writes a task.
+     * conventions layered on top of the extension are not lost on re-write.
      */
     extras?: Record<string, unknown>;
+    /**
+     * Transient fields computed for board rendering only — never serialised to disk.
+     */
+    checklist?: { done: number; total: number };
+    specMissing?: boolean;
+    changeMissing?: boolean;
+    laneInvalid?: boolean;
 }
 
 export interface BoardConfig {

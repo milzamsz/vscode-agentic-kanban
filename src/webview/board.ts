@@ -227,13 +227,17 @@ function renderBoard(): void {
 
 function buildBoardHtml(): string {
     const { lanes } = state.config;
+    const laneSet = new Set(lanes);
+    // Tasks whose lane is not part of the active profile fold into the last lane
+    // (typically `done`) so a stray/legacy lane value never drops the card.
+    const laneFor = (t: Task): string => (laneSet.has(t.lane) ? t.lane : lanes[lanes.length - 1] ?? t.lane);
     return `
         <div class="toolbar">
             <button id="btn-new-task" class="btn-primary">+ New Task</button>
             <span class="toolbar-profile">${esc((state.config.profile ?? 'standard').toUpperCase())} PROFILE</span>
         </div>
         <div class="board" id="board">
-            ${lanes.map((lane) => buildLaneHtml(lane, state.tasks.filter((t) => t.lane === lane))).join('')}
+            ${lanes.map((lane) => buildLaneHtml(lane, state.tasks.filter((t) => laneFor(t) === lane))).join('')}
         </div>
         ${buildModalHtml()}
         ${buildDiscardConfirmHtml()}
@@ -262,10 +266,26 @@ function buildCardHtml(task: Task): string {
         : '<span class="priority-badge priority-none">No Priority</span>';
     const hasMeta =
         task.assignee || task.dueDate || (task.labels && task.labels.length > 0);
+    const specBadge = task.change
+        ? `<span class="spec-badge" title="Spec-driven task — checklist in ${esc(task.change)}/tasks.md">SPEC</span>`
+        : '';
+    const progressBadge = task.checklist
+        ? `<span class="progress-badge" title="Checklist progress">${task.checklist.done}/${task.checklist.total}</span>`
+        : '';
+    const warnBits: string[] = [];
+    if (task.specMissing) { warnBits.push('spec file missing'); }
+    if (task.changeMissing) { warnBits.push('change folder missing'); }
+    if (task.laneInvalid) { warnBits.push(`lane "${task.lane}" not in profile`); }
+    const warnBadge = warnBits.length > 0
+        ? `<span class="warn-badge" title="${esc(warnBits.join('; '))}">⚠</span>`
+        : '';
     return `
         <div class="card" draggable="true" data-task-id="${esc(task.id)}">
             <div class="card-header">
                 ${priorityBadge}
+                ${specBadge}
+                ${progressBadge}
+                ${warnBadge}
                 <button class="icon-btn card-delete" data-delete-task-id="${esc(task.id)}" title="Delete task">&times;</button>
             </div>
             <div class="card-title">${esc(task.title)}</div>

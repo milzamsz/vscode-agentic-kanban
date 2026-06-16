@@ -70,6 +70,19 @@ function installMockFs(initialFiles: Record<string, string> = {}) {
     vi.spyOn(workspace.fs, 'createDirectory').mockImplementation(async (uri: any) => {
         dirs.add(normalise(uri));
     });
+    vi.spyOn(workspace.fs, 'rename').mockImplementation(async (src: any, dest: any) => {
+        const s = normalise(src);
+        const d = normalise(dest);
+        for (const [k, v] of [...files]) {
+            if (k === s || k.startsWith(s + '/')) {
+                files.delete(k);
+                const nk = d + k.slice(s.length);
+                files.set(nk, v);
+                ensureParents(nk);
+            }
+        }
+        dirs.add(d);
+    });
 
     return {
         files,
@@ -473,11 +486,15 @@ describe('ChatParticipant', () => {
             expect(fs.has('/test-workspace/.agentkanban/changes/auth_feature/proposal.md')).toBe(true);
             expect(fs.has('/test-workspace/.agentkanban/changes/auth_feature/design.md')).toBe(true);
             expect(fs.has('/test-workspace/.agentkanban/changes/auth_feature/tasks.md')).toBe(true);
-            expect(fs.has('/test-workspace/.agentkanban/changes/auth_feature/specs/authentication/spec.md')).toBe(true);
-            expect(task.extras?.change).toBe('.agentkanban/changes/auth_feature');
+            // Capability spec lives once under specs/<capability>/, not nested per change.
+            expect(fs.has('/test-workspace/.agentkanban/specs/authentication/spec.md')).toBe(true);
+            expect(fs.has('/test-workspace/.agentkanban/changes/auth_feature/specs/authentication/spec.md')).toBe(false);
+            expect(task.change).toBe('.agentkanban/changes/auth_feature');
+            expect(task.spec).toBe('.agentkanban/specs/authentication/spec.md');
             expect(fs.text(taskFilePath)).toContain('change: .agentkanban/changes/auth_feature');
+            expect(fs.text(taskFilePath)).toContain('spec: .agentkanban/specs/authentication/spec.md');
             expect(response.references.map((ref: any) => ref.fsPath || ref.path)).toContain('/test-workspace/.agentkanban/changes/auth_feature/proposal.md');
-            expect(response.references.map((ref: any) => ref.fsPath || ref.path)).toContain('/test-workspace/.agentkanban/changes/auth_feature/specs/authentication/spec.md');
+            expect(response.references.map((ref: any) => ref.fsPath || ref.path)).toContain('/test-workspace/.agentkanban/specs/authentication/spec.md');
             expect(response.messages.some((m: string) => m.includes('Spec change scaffolded'))).toBe(true);
         });
 
@@ -516,6 +533,8 @@ describe('ChatParticipant', () => {
             expect(fs.has('/test-workspace/.agentkanban/changes/auth_feature/proposal.md')).toBe(true);
             expect(fs.has('/test-workspace/.agentkanban/changes/auth_feature/tasks.md')).toBe(true);
             expect(fs.has('/test-workspace/.agentkanban/changes/auth_feature/design.md')).toBe(false);
+            // Lite still gets a capability spec (defaults capability to the slug); never nested.
+            expect(fs.has('/test-workspace/.agentkanban/specs/auth_feature/spec.md')).toBe(true);
             expect(fs.has('/test-workspace/.agentkanban/changes/auth_feature/specs/auth_feature/spec.md')).toBe(false);
             expect(response.messages.some((m: string) => m.includes('Profile: `lite`'))).toBe(true);
         });
@@ -585,6 +604,42 @@ describe('ChatParticipant', () => {
             await taskStore.save(task);
 
             expect(fs.text(taskFilePath)).toContain('change: .agentkanban/changes/auth_feature');
+        });
+    });
+
+    describe('handleArchive', () => {
+        it('moves a change folder to changes/archive and leaves the capability spec', async () => {
+            const fs = installMockFs({
+                '/test-workspace/.agentkanban/changes/auth_feature/proposal.md': 'p',
+                '/test-workspace/.agentkanban/changes/auth_feature/tasks.md': 't',
+                '/test-workspace/.agentkanban/specs/authentication/spec.md': 'spec',
+            });
+            const task: Task = {
+                id: 'task_20260615_abc123_auth_feature',
+                title: 'Auth Feature', lane: 'done',
+                created: '2026-06-15T00:00:00.000Z', updated: '2026-06-15T00:00:00.000Z',
+                description: '', slug: 'auth_feature',
+                change: '.agentkanban/changes/auth_feature',
+                spec: '.agentkanban/specs/authentication/spec.md',
+            };
+            (taskStore as any).tasks.set(task.id, task);
+            participant.lastSelectedTaskId = task.id;
+
+            const response = mockResponse();
+            await participant.handleRequest(mockRequest('archive', ''), {} as any, response, mockToken);
+
+            expect(fs.has('/test-workspace/.agentkanban/changes/archive/auth_feature/tasks.md')).toBe(true);
+            expect(fs.has('/test-workspace/.agentkanban/changes/auth_feature/tasks.md')).toBe(false);
+            // Capability spec is shared — left in place.
+            expect(fs.has('/test-workspace/.agentkanban/specs/authentication/spec.md')).toBe(true);
+            expect(response.messages.some((m: string) => m.includes('Archived change'))).toBe(true);
+        });
+
+        it('reports when the change folder is missing', async () => {
+            installMockFs({});
+            const response = mockResponse();
+            await participant.handleRequest(mockRequest('archive', 'no_such_slug'), {} as any, response, mockToken);
+            expect(response.messages.some((m: string) => m.includes('No change folder'))).toBe(true);
         });
     });
 

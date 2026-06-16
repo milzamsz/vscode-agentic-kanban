@@ -18,6 +18,7 @@ const FRONTMATTER_FENCE = '---';
 const KNOWN_FRONTMATTER_KEYS = new Set([
     'title', 'lane', 'created', 'updated', 'description', 'priority', 'assignee',
     'labels', 'dueDate', 'sortOrder', 'slug', 'reviewType', 'resumeLane', 'worktree',
+    'change', 'spec', 'dependsOn',
 ]);
 
 const BLOCKED_LABEL = 'blocked';
@@ -319,6 +320,74 @@ export class TaskStore {
         return vscode.Uri.joinPath(this.tasksUri, todoFilename);
     }
 
+    /**
+     * Resolve the authoritative checklist file for a task. Spec-driven tasks
+     * (with a `change` folder containing tasks.md) use `<change>/tasks.md`; all
+     * others fall back to the sibling `todo_<id>.md`. Returns a URI only — the
+     * caller opens it and handles a missing file.
+     */
+    getChecklistUri(taskId: string): vscode.Uri {
+        const task = this.tasks.get(taskId);
+        const changeRel = task?.change;
+        if (changeRel) {
+            return this.uriFromRel(`${changeRel.replace(/\/+$/, '')}/tasks.md`);
+        }
+        return this.getTodoUri(taskId);
+    }
+
+    /** Resolve a workspace-relative path (slash-separated) to a URI. */
+    private uriFromRel(relPath: string): vscode.Uri {
+        return vscode.Uri.joinPath(this.workspaceUri, ...relPath.split('/').filter(Boolean));
+    }
+
+    private async fileExists(uri: vscode.Uri): Promise<boolean> {
+        try {
+            await vscode.workspace.fs.stat(uri);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Count `- [x]` / `- [ ]` checklist items in the task's resolved checklist
+     * file. Returns null when the file is absent or has no checklist items.
+     */
+    async getChecklistProgress(taskId: string): Promise<{ done: number; total: number } | null> {
+        const uri = this.getChecklistUri(taskId);
+        try {
+            const text = new TextDecoder().decode(await vscode.workspace.fs.readFile(uri));
+            let done = 0;
+            let total = 0;
+            for (const line of text.split('\n')) {
+                const m = /^\s*[-*]\s+\[( |x|X)\]/.exec(line);
+                if (!m) { continue; }
+                total++;
+                if (m[1] !== ' ') { done++; }
+            }
+            return total > 0 ? { done, total } : null;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Compute board-rendering flags for a task: checklist progress, and whether a
+     * declared `change` folder or `spec` file is missing on disk. Non-throwing.
+     */
+    async getDerived(task: Task): Promise<Pick<Task, 'checklist' | 'specMissing' | 'changeMissing'>> {
+        const checklist = (await this.getChecklistProgress(task.id)) ?? undefined;
+        let changeMissing: boolean | undefined;
+        if (task.change) {
+            changeMissing = !(await this.fileExists(this.uriFromRel(task.change))) || undefined;
+        }
+        let specMissing: boolean | undefined;
+        if (task.spec) {
+            specMissing = !(await this.fileExists(this.uriFromRel(task.spec))) || undefined;
+        }
+        return { checklist, specMissing, changeMissing };
+    }
+
     /** Check if a task is stored in the archive directory. */
     isArchived(task: Task): boolean {
         // A task is archived if its file lives in the archive/ subdirectory.
@@ -598,6 +667,15 @@ export class TaskStore {
         if (task.slug) {
             frontmatter.slug = task.slug;
         }
+        if (task.dependsOn?.length) {
+            frontmatter.dependsOn = task.dependsOn;
+        }
+        if (task.change) {
+            frontmatter.change = task.change;
+        }
+        if (task.spec) {
+            frontmatter.spec = task.spec;
+        }
         if (task.worktree) {
             frontmatter.worktree = {
                 branch: task.worktree.branch,
@@ -654,6 +732,9 @@ export class TaskStore {
                 dueDate: (data.dueDate as string) || undefined,
                 sortOrder: typeof data.sortOrder === 'number' ? data.sortOrder : undefined,
                 slug: typeof data.slug === 'string' ? data.slug : undefined,
+                change: typeof data.change === 'string' ? data.change : undefined,
+                spec: typeof data.spec === 'string' ? data.spec : undefined,
+                dependsOn: Array.isArray(data.dependsOn) ? (data.dependsOn as string[]) : undefined,
                 resumeLane: typeof data.resumeLane === 'string' ? data.resumeLane : undefined,
                 worktree: data.worktree && typeof data.worktree === 'object'
                     ? {

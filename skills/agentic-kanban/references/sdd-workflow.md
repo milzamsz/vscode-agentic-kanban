@@ -6,45 +6,51 @@ Agentic Kanban supports an opt-in spec workflow through `@kanban /spec [capabili
 
 ```text
 .agentkanban/
-  specs/<capability>/spec.md
+  specs/<capability>/spec.md        # capability contract — one per capability, shared across tasks
   changes/<task-slug>/
-    proposal.md
-    design.md
-    tasks.md
-    specs/<capability>/spec.md
-  changes/archive/<yyyymmdd>-<task-slug>/
+    proposal.md                     # why + outcome + scope
+    design.md                       # approach (Standard profile)
+    tasks.md                        # authoritative checklist for this task
+  changes/archive/<task-slug>/      # archived change folders (via @kanban /archive)
 ```
 
-The task links to the change through:
+The capability spec lives **once** under `.agentkanban/specs/<capability>/spec.md` and is
+referenced — not duplicated — by each task. A task links to both:
 
 ```yaml
 change: .agentkanban/changes/<task-slug>
+spec: .agentkanban/specs/<capability>/spec.md
 ```
 
 ## Artifact rules
 
-- `proposal.md` explains why the change exists and what is in scope.
-- `design.md` is required for Standard profile tasks.
-- `tasks.md` is the authoritative checklist for spec-driven tasks.
-- `specs/<capability>/spec.md` uses OpenSpec-style delta sections:
-  `## ADDED Requirements`, `## MODIFIED Requirements`, `## REMOVED Requirements`.
-- Requirements use `### Requirement:` and at least one `#### Scenario:` with GIVEN / WHEN / THEN.
+- `spec.md` is the authoritative behavior contract: `## Behavior`, `## Acceptance criteria`
+  (testable checkboxes), `## Verification`, `## Related tasks`. It is a living document, not a
+  per-change delta — multiple tasks may reference and extend the same capability spec.
+- `proposal.md` states the problem, the outcome, and scope (in/out).
+- `design.md` (Standard profile) records the verified key facts, approach, decisions, risks, and open
+  questions — grounded in real code. Authored in `planning`.
+- `tasks.md` is the authoritative checklist for the task (replaces the sibling `todo_*.md`). Group
+  with `## Phase N` or `# Iteration N`.
 
 ## Lane mapping
 
-- Lite profile:
-  `backlog -> in-progress -> done`
-  Use `proposal.md` and `tasks.md`. Skip `design.md` and formal review gates.
-- Standard profile:
-  `backlog -> planning -> in-progress -> review -> done`
-  Build the proposal, design, and delta spec in `planning`.
-  Implement and check off `tasks.md` in `in-progress`.
-  Verify code against spec and tasks in `review`.
+- Lite profile: `backlog -> in-progress -> done`. Use `proposal.md` + `tasks.md`; skip `design.md`
+  and formal review gates.
+- Standard profile: `backlog -> planning -> in-progress -> review -> done`. Write/refine the
+  capability spec, proposal, and design in `planning`; implement and check off `tasks.md` in
+  `in-progress`; verify code against the spec's acceptance criteria in `review`.
 
-Blockers still use `blocked` and `blocked-by:<slug>` labels. They are not a lane.
+Blockers use `blocked` and `blocked-by:<slug>` labels — they are not a lane.
 
 ## Validation and completion
 
-- Validate proposal, design, and delta spec before implementation review.
-- When moving to `done`, archive the change and merge accepted deltas into `.agentkanban/specs/`.
-- This MVP keeps validation, archive, and merge agent-driven rather than extension-enforced.
+- The board surfaces spec-driven tasks: the checklist button opens `<change>/tasks.md`, the card
+  shows a `SPEC` indicator + `done/total` progress, and a `⚠` badge when a declared `change` folder
+  or `spec` file is missing.
+- A task is `done` only when its behavior is proven to run (test output / a real run / a workflow or
+  job id) and the spec's acceptance criteria are met — not when a record was written.
+- On `done`, archive the change with `@kanban /archive [slug]` (moves `changes/<slug>` to
+  `changes/archive/<slug>`). The capability spec stays in `specs/` as the living contract.
+- Validation and the decision to archive remain agent-driven; the extension provides the `/archive`
+  helper and the board surfacing but does not auto-enforce the lifecycle.
