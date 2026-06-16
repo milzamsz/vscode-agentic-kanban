@@ -31,6 +31,7 @@ const CONFIG_HEADER = [
     '# reviewPolicy.<low|medium|high|critical>.<planning|implementation>:',
     '#   self-agent | independent-agent | independent-agent+human',
     '# worktreePolicy.requiredForImplementation: true | false',
+    '# wipLimits.<lane>: <max tasks in that lane>  (e.g. in-progress: 1; omit/0 = no limit)',
     '# ===============================================================',
     '',
 ].join('\n');
@@ -189,6 +190,10 @@ export class BoardConfigStore {
             reviewPolicy: normalised.reviewPolicy,
             worktreePolicy: normalised.worktreePolicy,
         };
+        // Only persist wipLimits when it has entries (keeps lite boards unchanged).
+        if (normalised.wipLimits && Object.keys(normalised.wipLimits).length > 0) {
+            payload.wipLimits = normalised.wipLimits;
+        }
         return CONFIG_HEADER + stringify(payload, { lineWidth: 0 });
     }
 

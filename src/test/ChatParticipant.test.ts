@@ -643,6 +643,47 @@ describe('ChatParticipant', () => {
         });
     });
 
+    describe('scaffoldPrompts / handlePrompts', () => {
+        const PROMPT_NAMES = [
+            'README.md', 'new-task-intake.md', 'stage-backlog-to-planning.md',
+            'stage-planning-to-review.md', 'stage-review-to-in-progress.md',
+            'stage-review-to-done.md', 'stage-blocked-and-resume.md', 'production-readiness-audit.md',
+        ];
+        const seedAssets = (extra: Record<string, string> = {}) => {
+            const files: Record<string, string> = { ...extra };
+            for (const n of PROMPT_NAMES) {
+                files[`/test-extension/assets/prompts/${n}`] = `# bundled ${n}`;
+            }
+            return installMockFs(files);
+        };
+
+        it('writes all bundled prompts on init, skipping ones that already exist', async () => {
+            const fs = seedAssets({
+                '/test-workspace/.agentkanban/prompts/README.md': '# my edited readme',
+            });
+
+            const res = await participant.scaffoldPrompts(false);
+
+            expect(res.skipped).toContain('README.md');
+            expect(res.created).toContain('stage-planning-to-review.md');
+            // Edited file preserved on init.
+            expect(fs.text('/test-workspace/.agentkanban/prompts/README.md')).toBe('# my edited readme');
+            expect(fs.has('/test-workspace/.agentkanban/prompts/stage-planning-to-review.md')).toBe(true);
+        });
+
+        it('/prompts overwrites to the bundled versions', async () => {
+            const fs = seedAssets({
+                '/test-workspace/.agentkanban/prompts/README.md': '# my edited readme',
+            });
+
+            const response = mockResponse();
+            await participant.handleRequest(mockRequest('prompts', ''), {} as any, response, mockToken);
+
+            expect(fs.text('/test-workspace/.agentkanban/prompts/README.md')).toBe('# bundled README.md');
+            expect(response.messages.some((m: string) => m.includes('Refreshed stage-driver prompts'))).toBe(true);
+        });
+    });
+
     describe('resolveTaskFromPrompt', () => {
         beforeEach(() => {
             const tasks: Task[] = [

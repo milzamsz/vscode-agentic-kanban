@@ -11,6 +11,7 @@ import {
     isReservedLane,
     PROTECTED_LANES,
     slugifyLane,
+    wipExceeded,
     type Priority,
 } from './types';
 
@@ -622,6 +623,24 @@ export class KanbanEditorPanel {
 
             await this._appendOverrideComment(task, newLane, reason);
             this._logger.info('kanbanEditorPanel', `Override ${task.id}: ${task.lane} -> ${newLane} (${reason})`);
+        }
+
+        // WIP limit (additive to TransitionService). Skip same-lane reorders.
+        if (task.lane !== newLane) {
+            const nonArchived = this._taskStore.getAll().filter((t) => !this._taskStore.isArchived(t));
+            const breach = wipExceeded(config, nonArchived, newLane, task.id);
+            if (breach) {
+                const msg = `Lane "${breach.lane}" is at its WIP limit (${breach.limit}); ${breach.count} task(s) already there.`;
+                const mode = config.enforcement?.mode ?? 'strict';
+                if (mode === 'warn') {
+                    void vscode.window.showWarningMessage(msg);
+                } else {
+                    const choice = await vscode.window.showErrorMessage(msg, { modal: true }, 'Override');
+                    if (choice !== 'Override') {
+                        return false;
+                    }
+                }
+            }
         }
 
         await this._taskStore.moveTaskToLane(task.id, newLane);

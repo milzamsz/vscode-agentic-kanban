@@ -26,6 +26,21 @@ const CHANGES_REL_PATH = '.agentkanban/changes';
 /** Relative root for capability specs (referenced by tasks via the `spec` key). */
 const SPECS_REL_PATH = '.agentkanban/specs';
 
+/** Relative root for bundled stage-driver prompts. */
+const PROMPTS_REL_PATH = '.agentkanban/prompts';
+
+/** Bundled prompt files written to `.agentkanban/prompts/` on init and via `/prompts`. */
+const PROMPT_FILES = [
+    'README.md',
+    'new-task-intake.md',
+    'stage-backlog-to-planning.md',
+    'stage-planning-to-review.md',
+    'stage-review-to-in-progress.md',
+    'stage-review-to-done.md',
+    'stage-blocked-and-resume.md',
+    'production-readiness-audit.md',
+];
+
 export const AGENTS_MD_BEGIN = '<!-- BEGIN AGENTIC KANBAN \u2014 DO NOT EDIT THIS SECTION -->';
 export const AGENTS_MD_END = '<!-- END AGENTIC KANBAN -->';
 
@@ -207,14 +222,18 @@ export class ChatParticipant {
             case 'archive':
                 await this.handleArchive(prompt, response);
                 return;
+            case 'prompts':
+                await this.handlePrompts(response);
+                return;
             default: {
-                response.markdown('Available commands: `/new`, `/task`, `/refresh`, `/spec`, `/worktree`, `/archive`\n\n');
+                response.markdown('Available commands: `/new`, `/task`, `/refresh`, `/spec`, `/worktree`, `/archive`, `/prompts`\n\n');
                 response.markdown('- `@kanban /spec [capability]` - Scaffold spec-driven change artifacts for the selected task\n');
                 response.markdown('- `@kanban /new <task title>` — Create a new task\n');
                 response.markdown('- `@kanban /task <task name>` — Select a task to work on\n');
                 response.markdown('- `@kanban /refresh` — Re-inject agent context for the selected task\n');
                 response.markdown('- `@kanban /worktree` — Create a git worktree for the selected task\n');
                 response.markdown('- `@kanban /archive [slug]` — Move a completed change folder to changes/archive/\n');
+                response.markdown('- `@kanban /prompts` — Write/refresh the bundled stage-driver prompts in .agentkanban/prompts/\n');
                 response.markdown('- `@kanban /worktree open` — Open the task worktree for the selected task in VS Code\n');
                 response.markdown('- `@kanban /worktree remove` — Remove the task worktree\n');
                 return;
@@ -248,6 +267,43 @@ export class ChatParticipant {
             this.logger.warn('chatParticipant', `Failed to sync INSTRUCTION.md: ${err.message}`);
             return undefined;
         }
+    }
+
+    /**
+     * Write the bundled stage-driver prompts to `.agentkanban/prompts/`.
+     * On init (`overwrite=false`) only missing files are written, so user edits
+     * survive. `@kanban /prompts` calls with `overwrite=true` to refresh them all.
+     */
+    async scaffoldPrompts(overwrite = false): Promise<{ created: string[]; updated: string[]; skipped: string[] }> {
+        const result = { created: [] as string[], updated: [] as string[], skipped: [] as string[] };
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) { return result; }
+
+        const destDir = vscode.Uri.joinPath(workspaceFolder.uri, ...PROMPTS_REL_PATH.split('/'));
+        try {
+            await vscode.workspace.fs.createDirectory(destDir);
+        } catch {
+            // may already exist
+        }
+
+        for (const name of PROMPT_FILES) {
+            const destUri = vscode.Uri.joinPath(destDir, name);
+            const exists = await this.exists(destUri);
+            if (exists && !overwrite) {
+                result.skipped.push(name);
+                continue;
+            }
+            try {
+                const srcUri = vscode.Uri.joinPath(this.extensionUri, 'assets', 'prompts', name);
+                const content = await vscode.workspace.fs.readFile(srcUri);
+                await vscode.workspace.fs.writeFile(destUri, content);
+                (exists ? result.updated : result.created).push(name);
+            } catch (err: any) {
+                this.logger.warn('chatParticipant', `Failed to write prompt ${name}: ${err.message}`);
+            }
+        }
+        this.logger.info('chatParticipant', `Scaffolded prompts: +${result.created.length} ~${result.updated.length} =${result.skipped.length}`);
+        return result;
     }
 
     /**
@@ -714,6 +770,25 @@ export class ChatParticipant {
             response.markdown(`Failed to archive change \`${slug}\`: ${err.message}`);
             this.logger.warn('chatParticipant', `Archive failed for ${slug}: ${err.message}`);
         }
+    }
+
+    /**
+     * Handle the /prompts command. (Re)writes the bundled stage-driver prompts
+     * into `.agentkanban/prompts/`, overwriting to the latest bundled versions.
+     */
+    private async handlePrompts(response: vscode.ChatResponseStream): Promise<void> {
+        const { created, updated, skipped } = await this.scaffoldPrompts(true);
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (created.length === 0 && updated.length === 0) {
+            response.markdown('No prompts were written (no workspace, or the bundled prompts are missing).');
+            return;
+        }
+        response.markdown(`Refreshed stage-driver prompts in \`${PROMPTS_REL_PATH}/\` (${created.length} created, ${updated.length} updated).\n\n`);
+        if (workspaceFolder) {
+            const readmeUri = vscode.Uri.joinPath(workspaceFolder.uri, ...PROMPTS_REL_PATH.split('/'), 'README.md');
+            response.reference(readmeUri);
+        }
+        response.markdown('Start with `stage-planning-to-review.md` (the autonomous default). See `README.md` for the flow.');
     }
 
     /**

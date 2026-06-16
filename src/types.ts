@@ -92,6 +92,8 @@ export interface BoardConfig {
     enforcement?: EnforcementPolicy;
     reviewPolicy?: ReviewPolicy;
     worktreePolicy?: WorktreePolicy;
+    /** Max tasks allowed per lane, e.g. `{ "in-progress": 1 }`. Absent/0 = no limit. */
+    wipLimits?: Record<string, number>;
     lanes: string[];
 }
 
@@ -135,6 +137,27 @@ export const DEFAULT_WORKTREE_POLICY: Record<WorkflowProfile, WorktreePolicy> = 
     standard: { requiredForImplementation: true },
 };
 
+export const DEFAULT_WIP_LIMITS: Record<WorkflowProfile, Record<string, number>> = {
+    lite: {},
+    standard: { 'in-progress': 1 },
+};
+
+/**
+ * Returns the WIP breach for moving a task into `toLane`, or null if within limit.
+ * Caller passes the non-archived task set; `movingId` excludes the task being moved.
+ */
+export function wipExceeded(
+    config: Pick<BoardConfig, 'wipLimits'>,
+    tasks: Array<{ id: string; lane: string }>,
+    toLane: string,
+    movingId?: string,
+): { lane: string; limit: number; count: number } | null {
+    const limit = config.wipLimits?.[toLane];
+    if (!limit || limit <= 0) { return null; }
+    const count = tasks.filter((t) => t.lane === toLane && t.id !== movingId).length;
+    return count >= limit ? { lane: toLane, limit, count } : null;
+}
+
 export const DEFAULT_BOARD_CONFIG: BoardConfig = {
     profile: DEFAULT_PROFILE,
     profileVersion: PROFILE_VERSION,
@@ -144,6 +167,7 @@ export const DEFAULT_BOARD_CONFIG: BoardConfig = {
     enforcement: DEFAULT_ENFORCEMENT[DEFAULT_PROFILE],
     reviewPolicy: DEFAULT_REVIEW_POLICY,
     worktreePolicy: DEFAULT_WORKTREE_POLICY[DEFAULT_PROFILE],
+    wipLimits: DEFAULT_WIP_LIMITS[DEFAULT_PROFILE],
 };
 
 export const DONE_LANE: Lane = 'done';
@@ -173,6 +197,7 @@ export function normaliseBoardConfig(config?: Partial<BoardConfig> | null): Boar
         enforcement: config?.enforcement ?? DEFAULT_ENFORCEMENT[profile],
         reviewPolicy: config?.reviewPolicy ?? DEFAULT_REVIEW_POLICY,
         worktreePolicy: config?.worktreePolicy ?? DEFAULT_WORKTREE_POLICY[profile],
+        wipLimits: config?.wipLimits ?? DEFAULT_WIP_LIMITS[profile],
         lanes: getProfileLanes(profile),
     };
 }

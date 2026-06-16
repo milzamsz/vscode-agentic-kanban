@@ -2,6 +2,12 @@
 
 All notable changes to Agentic Kanban will be documented here.
 
+## [1.5.0] - 2026-06-17
+
+- Bundle stage-driver prompts: written to `.agentkanban/prompts/` on init (missing files only, so edits survive) and refreshable with `@kanban /prompts`. Includes an autonomous `planning → review` driver plus intake, planning, review, revise, blocked, and production-readiness prompts.
+- Add a WIP limit (`wipLimits` in board.yaml; default `in-progress: 1` for the Standard profile). Moving a task into a full lane is blocked (strict) or warned (warn), with the usual human-override path.
+- Update the bundled `INSTRUCTION.md`: `in-progress` is not a separate human gate — an approved task can run hands-off to `review`; the human gates are plan approval and `review → done`. Removed a duplicate execution rule.
+
 ## [1.4.0] - 2026-06-16
 
 - Surface spec-driven checklists on the board: the checklist button now opens `<change>/tasks.md` when a task has a `change`, falling back to `todo_<id>.md` otherwise.

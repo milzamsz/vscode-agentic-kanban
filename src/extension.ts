@@ -136,6 +136,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
         await taskStore.initialise();
         await chatParticipantHandler.syncInstructionFile();
+        await chatParticipantHandler.scaffoldPrompts(false);
         await chatParticipantHandler.syncAgentsMdSection();
         isInitialised = true;
         boardViewProvider.setInitialised(true);
@@ -257,6 +258,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await boardConfigStore.init();
         await taskStore.init();
         await chatParticipantHandler.syncInstructionFile();
+        await chatParticipantHandler.scaffoldPrompts(false);
         await chatParticipantHandler.syncAgentsMdSection();
         // If this workspace is a task worktree, sync the enhanced sentinel
         await chatParticipantHandler.syncWorktreeAgentsMd();

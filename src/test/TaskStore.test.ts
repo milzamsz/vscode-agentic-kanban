@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { TaskStore } from '../TaskStore';
 import type { Task } from '../types';
+import { wipExceeded } from '../types';
 import { Uri, workspace } from 'vscode';
 
 describe('TaskStore', () => {
@@ -1186,5 +1187,28 @@ describe('TaskStore', () => {
         it('should leave non-task filenames unchanged', () => {
             expect(TaskStore.migrateFileName('README.md')).toBe('README.md');
         });
+    });
+});
+
+describe('wipExceeded', () => {
+    const cfg = { wipLimits: { 'in-progress': 1 } };
+    const tasks = [
+        { id: 'a', lane: 'in-progress' },
+        { id: 'b', lane: 'planning' },
+    ];
+
+    it('returns the breach when the target lane is at its limit', () => {
+        const r = wipExceeded(cfg, tasks, 'in-progress', 'b');
+        expect(r).toEqual({ lane: 'in-progress', limit: 1, count: 1 });
+    });
+
+    it('excludes the moving task from the count (no self-breach)', () => {
+        // task 'a' is already in-progress; moving it within the lane must not trip.
+        expect(wipExceeded(cfg, tasks, 'in-progress', 'a')).toBeNull();
+    });
+
+    it('returns null when the lane has no limit', () => {
+        expect(wipExceeded(cfg, tasks, 'planning', 'a')).toBeNull();
+        expect(wipExceeded({ wipLimits: undefined }, tasks, 'in-progress', 'b')).toBeNull();
     });
 });

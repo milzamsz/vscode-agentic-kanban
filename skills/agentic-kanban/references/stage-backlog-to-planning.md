@@ -23,7 +23,7 @@ loop-until-dry, summary) first — they define everything not stated here.
 2. **Implementation plan** (stack skill): approach + key decisions (+ rejected alternatives); data model /
    interfaces / contracts; security model; test strategy; risks + mitigations; rollout/migration if relevant.
 3. **Checklist** (action `checklist`): ordered, small items under `# Iteration 1` in `todo_*.md`.
-4. **Transition:** set `lane: planning`. Move to `in-progress` only after the plan is explicitly approved.
+4. **Transition:** set `lane: planning`. After the plan is approved, the autonomous `planning → review` driver carries it through implementation — do not implement during this backlog→planning pass.
 
 Record discovered work and end-of-pass summary per batch-and-dependencies.md.
 ````

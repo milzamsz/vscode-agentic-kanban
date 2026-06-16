@@ -2,7 +2,7 @@
     "name": "agentic-kanban",
     "displayName": "Agentic Kanban",
     "description": "A profile-driven Kanban board for AI-assisted software development with persistent markdown task conversations.",
-    "version": "1.4.0",
+    "version": "1.5.0",
     "publisher": "milzam",
     "license": "Elastic-2.0",
     "icon": "images/icon.png",
@@ -167,6 +167,10 @@
                     {
                         "name": "archive",
                         "description": "[slug] - move a completed change folder to changes/archive/"
+                    },
+                    {
+                        "name": "prompts",
+                        "description": "write/refresh the bundled stage-driver prompts in .agentkanban/prompts/"
                     }
                 ]
             }

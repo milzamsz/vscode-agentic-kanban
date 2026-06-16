@@ -53,9 +53,10 @@ After a pass, run another ONLY if at least one task advanced. Stop when no remai
 not-ready due to deps, or needing user input). Never spin re-trying the same blocked set. Report what remains.
 
 ## Gates are never skipped
-A sweep advances each task to the **next** lane only. In Standard, never go `in-progress → done` directly:
-the `review` lane (implementation review) must run first. `planning → in-progress` is the explicit
-plan-approval step; do not skip it either.
+The two human gates are **plan approval** (in `planning`) and **`review → done`** (implementation
+review). Never go `in-progress → done` directly — `review` must run first, and never reach `done`
+without it. Between the gates, the autonomous `planning → review` driver may carry an approved task
+through `in-progress` hands-off; `in-progress` itself is not a separate human gate.
 
 ## Batch summary report
 At pass end, write a table (chat + the originating notes):
