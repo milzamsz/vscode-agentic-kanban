@@ -4,7 +4,14 @@ import type { BoardConfigStore } from '../BoardConfigStore';
 import type { WorktreeService } from '../WorktreeService';
 import type { LogService } from '../LogService';
 import { NO_OP_LOGGER } from '../LogService';
-import { DONE_LANE, getFirstLane } from '../types';
+import {
+    DEFAULT_ENFORCEMENT,
+    DEFAULT_REVIEW_POLICY,
+    DONE_LANE,
+    getFirstLane,
+    type Priority,
+    type ReviewPolicy,
+} from '../types';
 import { getDefaultProfile, isEnforceWorktrees } from '../settings';
 
 /** Relative path within the workspace for the instruction file. */
@@ -46,14 +53,58 @@ interface AgentsTaskContext {
     taskRelPath: string;
     todoRelPath?: string;
     changeRelPath?: string;
+    priority?: Priority;
 }
 
 function getWorkflowPrompt(): string {
     return 'Use **plan**, **checklist**, **implement**, or **review** based on the active lane. Move tasks with explicit transitions: `backlog -> planning -> in-progress -> review -> done` for Standard, or `backlog -> in-progress -> done` for Lite.\n\n';
 }
 
+function formatReviewPolicyLines(reviewPolicy: ReviewPolicy): string[] {
+    return [
+        `low: planning=${reviewPolicy.low.planning}, implementation=${reviewPolicy.low.implementation}`,
+        `medium: planning=${reviewPolicy.medium.planning}, implementation=${reviewPolicy.medium.implementation}`,
+        `high: planning=${reviewPolicy.high.planning}, implementation=${reviewPolicy.high.implementation}`,
+        `critical: planning=${reviewPolicy.critical.planning}, implementation=${reviewPolicy.critical.implementation}`,
+    ];
+}
+
+function getPriorityReviewGuidance(priority: Priority | undefined, reviewPolicy: ReviewPolicy): string {
+    const effectivePriority = priority ?? 'medium';
+    const policy = reviewPolicy[effectivePriority === 'none' ? 'medium' : effectivePriority];
+    return `Priority ${effectivePriority}: planning review by ${policy.planning}, implementation review by ${policy.implementation}`;
+}
+
+function buildAgentsMdSection(
+    enforcementMode: 'strict' | 'warn',
+    reviewPolicy: ReviewPolicy,
+): string {
+    return [
+        AGENTS_MD_BEGIN,
+        '## Agentic Kanban',
+        '',
+        'Read `.agentkanban/INSTRUCTION.md` for task workflow rules.',
+        'Read `.agentkanban/memory.md` for project context.',
+        '',
+        `Enforcement mode: \`${enforcementMode}\``,
+        'Review policy:',
+        ...formatReviewPolicyLines(reviewPolicy),
+        '',
+        'If a task file (`.agentkanban/tasks/**/*.md`) was referenced earlier in this conversation, re-read it before responding and always respond in and at the end the task file.',
+        AGENTS_MD_END,
+    ].join('\n');
+}
+
 /** Build a richer AGENTS.md sentinel for worktree-linked workspaces. */
-export function buildWorktreeAgentsMdSection(taskTitle: string, taskRelPath: string, todoRelPath?: string, changeRelPath?: string): string {
+export function buildWorktreeAgentsMdSection(
+    taskTitle: string,
+    taskRelPath: string,
+    todoRelPath?: string,
+    changeRelPath?: string,
+    priority?: Priority,
+    reviewPolicy: ReviewPolicy = DEFAULT_REVIEW_POLICY,
+    enforcementMode: 'strict' | 'warn' = DEFAULT_ENFORCEMENT.standard.mode,
+): string {
     const lines = [
         AGENTS_MD_BEGIN,
         '## Agentic Kanban',
@@ -72,6 +123,8 @@ export function buildWorktreeAgentsMdSection(taskTitle: string, taskRelPath: str
     }
     lines.push(
         '',
+        `Enforcement mode: \`${enforcementMode}\``,
+        getPriorityReviewGuidance(priority, reviewPolicy),
         'Read the task file above before responding.',
         ...(changeRelPath ? ['Read the linked spec change artifacts before planning, implementing, reviewing, or marking done.'] : []),
         'Read `.agentkanban/INSTRUCTION.md` for task workflow rules.',
@@ -216,9 +269,21 @@ export class ChatParticipant {
                 return agentsUri;
             }
 
+            const config = this.boardConfigStore.get();
             const section = worktreeTask
-                ? buildWorktreeAgentsMdSection(worktreeTask.title, worktreeTask.taskRelPath, worktreeTask.todoRelPath, worktreeTask.changeRelPath)
-                : AGENTS_MD_SECTION;
+                ? buildWorktreeAgentsMdSection(
+                    worktreeTask.title,
+                    worktreeTask.taskRelPath,
+                    worktreeTask.todoRelPath,
+                    worktreeTask.changeRelPath,
+                    worktreeTask.priority,
+                    config.reviewPolicy ?? DEFAULT_REVIEW_POLICY,
+                    config.enforcement?.mode ?? DEFAULT_ENFORCEMENT[config.profile].mode,
+                )
+                : buildAgentsMdSection(
+                    config.enforcement?.mode ?? DEFAULT_ENFORCEMENT[config.profile].mode,
+                    config.reviewPolicy ?? DEFAULT_REVIEW_POLICY,
+                );
 
             // Recognise both current and legacy sentinels so an old "Agent Kanban"
             // section is replaced in place with the new "AGENTIC KANBAN" markers.
@@ -264,6 +329,7 @@ export class ChatParticipant {
                 taskRelPath,
                 todoRelPath,
                 changeRelPath: this.getChangeRelPath(linkedTask),
+                priority: linkedTask.priority,
             });
             this.logger.info('chatParticipant', `Synced worktree AGENTS.md for task: ${linkedTask.title}`);
         }
@@ -416,6 +482,7 @@ export class ChatParticipant {
                 taskRelPath,
                 todoRelPath,
                 changeRelPath: this.getChangeRelPath(task),
+                priority: task.priority,
             });
         }
 
@@ -538,6 +605,7 @@ export class ChatParticipant {
                 taskRelPath,
                 todoRelPath,
                 changeRelPath,
+                priority: task.priority,
             });
 
             response.reference(taskUri);
@@ -628,6 +696,7 @@ export class ChatParticipant {
                 taskRelPath: refreshTaskRelPath,
                 todoRelPath: refreshTodoRelPath,
                 changeRelPath: this.getChangeRelPath(task),
+                priority: task.priority,
             });
         }
 

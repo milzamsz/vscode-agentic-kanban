@@ -2,6 +2,14 @@
 
 All notable changes to Agentic Kanban will be documented here.
 
+## [1.3.1] - 2026-06-16
+
+- Wire `enforcement` and `reviewPolicy` configurations to make them functional in board lane transitions.
+- Add strict vs. warning-based transition validation, returning structured transition blocker reasons.
+- Support capture of human override reasons via input boxes, logging them as comments in task files.
+- Inject live `enforcement` and priority-aware `reviewPolicy` context into managed `AGENTS.md` instructions.
+- Add setting option for default board enforcement mode (`agentKanban.enforcementMode`).
+
 ## [1.3.0] - 2026-06-16
 
 - Expose board profile and worktree configuration options in VS Code settings.

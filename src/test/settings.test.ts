@@ -4,9 +4,11 @@ import {
     countTasksOutsideProfileLanes,
     getDefaultProfile,
     isEnforceWorktrees,
+    resolveEnforcement,
     resolveWorktreePolicy,
 } from '../settings';
 import type { Task } from '../types';
+import { DEFAULT_ENFORCEMENT } from '../types';
 
 describe('settings', () => {
     beforeEach(() => {
@@ -59,6 +61,36 @@ describe('settings', () => {
         } as any);
 
         expect(isEnforceWorktrees()).toBe(true);
+    });
+
+    it('maps profile-default enforcement setting to undefined', () => {
+        vi.spyOn(workspace, 'getConfiguration').mockReturnValue({
+            get: (key: string, defaultValue?: unknown) => key === 'enforcementMode' ? 'profile-default' : defaultValue,
+        } as any);
+
+        expect(resolveEnforcement('standard')).toBeUndefined();
+    });
+
+    it('maps strict enforcement setting to a strict policy with profile overrides', () => {
+        vi.spyOn(workspace, 'getConfiguration').mockReturnValue({
+            get: (key: string, defaultValue?: unknown) => key === 'enforcementMode' ? 'strict' : defaultValue,
+        } as any);
+
+        expect(resolveEnforcement('lite')).toEqual({
+            mode: 'strict',
+            overrides: DEFAULT_ENFORCEMENT.lite.overrides,
+        });
+    });
+
+    it('maps warn enforcement setting to a warn policy with profile overrides', () => {
+        vi.spyOn(workspace, 'getConfiguration').mockReturnValue({
+            get: (key: string, defaultValue?: unknown) => key === 'enforcementMode' ? 'warn' : defaultValue,
+        } as any);
+
+        expect(resolveEnforcement('standard')).toEqual({
+            mode: 'warn',
+            overrides: DEFAULT_ENFORCEMENT.standard.overrides,
+        });
     });
 
     it('counts tasks in lanes missing from the target profile', () => {

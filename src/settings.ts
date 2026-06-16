@@ -1,12 +1,14 @@
 import * as vscode from 'vscode';
-import type { Task, WorktreePolicy, WorkflowProfile } from './types';
+import type { EnforcementPolicy, Task, WorktreePolicy, WorkflowProfile } from './types';
 import {
+    DEFAULT_ENFORCEMENT,
     DEFAULT_PROFILE,
     PROFILE_LANES,
     normaliseProfile,
 } from './types';
 
 type WorktreeRequirementSetting = 'profile-default' | 'required' | 'optional';
+type EnforcementModeSetting = 'profile-default' | 'strict' | 'warn';
 
 interface LaneConflict {
     lane: string;
@@ -31,6 +33,20 @@ export function resolveWorktreePolicy(_profile: WorkflowProfile): WorktreePolicy
     }
     if (setting === 'optional') {
         return { requiredForImplementation: false };
+    }
+    return undefined;
+}
+
+export function resolveEnforcement(profile: WorkflowProfile): EnforcementPolicy | undefined {
+    const setting = getConfig().get<EnforcementModeSetting>(
+        'enforcementMode',
+        'profile-default',
+    );
+    if (setting === 'strict' || setting === 'warn') {
+        return {
+            mode: setting,
+            overrides: DEFAULT_ENFORCEMENT[profile].overrides,
+        };
     }
     return undefined;
 }

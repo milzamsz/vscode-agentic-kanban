@@ -2,7 +2,7 @@
     "name": "agentic-kanban",
     "displayName": "Agentic Kanban",
     "description": "A profile-driven Kanban board for AI-assisted software development with persistent markdown task conversations.",
-    "version": "1.3.0",
+    "version": "1.3.1",
     "publisher": "milzam",
     "license": "Elastic-2.0",
     "icon": "images/icon.png",
@@ -99,6 +99,17 @@
                     ],
                     "default": "profile-default",
                     "description": "Seed the board worktree requirement when initialising or applying settings. Profile default keeps the built-in Lite or Standard behavior.",
+                    "scope": "resource"
+                },
+                "agentKanban.enforcementMode": {
+                    "type": "string",
+                    "enum": [
+                        "profile-default",
+                        "strict",
+                        "warn"
+                    ],
+                    "default": "profile-default",
+                    "description": "Seed or apply the board enforcement mode. Profile default keeps Lite in warn mode and Standard in strict mode.",
                     "scope": "resource"
                 },
                 "agentKanban.worktreeRoot": {

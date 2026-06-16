@@ -183,7 +183,7 @@ task: task_20260308_abc123_oauth2
 - `reconcileMetadata(tasks)` — scans task assignees/labels and adds any missing values to board.yaml
 - `ensureGitignore()` — creates `.agentkanban/.gitignore` (ignoring `logs/`) if it doesn't already exist. Idempotent; never overwrites a user-edited file.
 - `update()` accepts partial config for incremental changes
-- `enforcement` and `reviewPolicy` are still stored in `board.yaml` but remain inert by design; the new settings do not expose them
+- `enforcement` and `reviewPolicy` are live board policy fields; transition validation, override prompts, and injected AGENTS.md guidance all read the current `board.yaml` values
 - Fires `onDidChange` event
 
 ## Webview Architecture
@@ -447,6 +447,7 @@ Manages git worktree lifecycle for Agentic Kanban tasks. Wraps `git worktree add
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `agentKanban.defaultProfile` | `standard` | Profile used when initialising a new board. Existing `board.yaml` stays authoritative until settings are applied explicitly. |
+| `agentKanban.enforcementMode` | `profile-default` | Seeds or applies `enforcement.mode`; `profile-default` keeps Lite in `warn` mode and Standard in `strict` mode while preserving profile-specific override rules. |
 | `agentKanban.worktreeRequiredForImplementation` | `profile-default` | Seeds or applies `worktreePolicy.requiredForImplementation`; `profile-default` keeps the built-in Lite or Standard default. |
 | `agentKanban.worktreeRoot` | `../{repo}-worktrees` | Root directory for worktrees. `{repo}` is replaced with the repository name. |
 | `agentKanban.worktreeOpenBehavior` | `current` | Open worktree in `current` window or a `new` window. |

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { TaskStore } from './TaskStore';
+import { TaskStore } from './TaskStore';
 import type { BoardConfigStore } from './BoardConfigStore';
 import type { WorktreeService } from './WorktreeService';
 import type { LogService } from './LogService';
@@ -575,13 +575,44 @@ export class KanbanEditorPanel {
     // ── Disposal ─────────────────────────────────────────────────────────────
 
     private async _applyLaneTransition(task: import('./types').Task, newLane: string): Promise<boolean> {
-        const result = this._transitionService.validate({ task, toLane: newLane }, this._boardConfigStore.get());
+        const config = this._boardConfigStore.get();
+        const result = this._transitionService.validate({ task, toLane: newLane }, config);
         if (result.warnings.length > 0) {
             void vscode.window.showWarningMessage(result.warnings.join(' '));
         }
         if (!result.ok) {
-            void vscode.window.showErrorMessage(result.errors.join(' '));
-            return false;
+            const overrides = config.enforcement?.overrides;
+            const canHumanOverride = overrides?.allowed && overrides.actors.includes('human');
+            if (!canHumanOverride) {
+                void vscode.window.showErrorMessage(result.errors.join(' '));
+                return false;
+            }
+
+            const overrideChoice = await vscode.window.showErrorMessage(
+                result.errors.join(' '),
+                { modal: true },
+                'Override',
+            );
+            if (overrideChoice !== 'Override') {
+                return false;
+            }
+
+            let reason = 'no reason provided';
+            if (overrides.requireReason) {
+                const enteredReason = await vscode.window.showInputBox({
+                    prompt: `Reason for override from ${task.lane} to ${newLane}`,
+                    placeHolder: 'Explain why this override is needed',
+                    validateInput: (value) => value.trim() ? null : 'Override reason is required',
+                    ignoreFocusOut: true,
+                });
+                if (!enteredReason) {
+                    return false;
+                }
+                reason = enteredReason.trim();
+            }
+
+            await this._appendOverrideComment(task, newLane, reason);
+            this._logger.info('kanbanEditorPanel', `Override ${task.id}: ${task.lane} -> ${newLane} (${reason})`);
         }
 
         await this._taskStore.moveTaskToLane(task.id, newLane);
@@ -589,6 +620,31 @@ export class KanbanEditorPanel {
             this._promptWorktreeRemoval(task);
         }
         return true;
+    }
+
+    private async _appendOverrideComment(
+        task: import('./types').Task,
+        newLane: string,
+        reason: string,
+    ): Promise<void> {
+        const taskUri = this._taskStore.getTaskUri(task.id);
+        let body = '\n## Conversation\n\n### user\n\n';
+        try {
+            const existing = await vscode.workspace.fs.readFile(taskUri);
+            const existingText = new TextDecoder().decode(existing);
+            const parsed = TaskStore.splitFrontmatter(existingText);
+            if (parsed.body) {
+                body = parsed.body;
+            }
+        } catch {
+            // Keep default body if the file is unexpectedly missing.
+        }
+
+        const line = `[comment: override ${task.lane} -> ${newLane}: ${reason}]`;
+        const separator = body.endsWith('\n') ? '' : '\n';
+        const updatedBody = `${body}${separator}\n${line}\n`;
+        const content = new TextEncoder().encode(TaskStore.serialise(task, updatedBody));
+        await vscode.workspace.fs.writeFile(taskUri, content);
     }
 
     private _dispose(): void {

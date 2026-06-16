@@ -10,6 +10,7 @@ export interface TransitionResult {
     ok: boolean;
     warnings: string[];
     errors: string[];
+    blockedReasons: string[];
 }
 
 const LITE_TRANSITIONS: Record<string, string[]> = {
@@ -31,19 +32,30 @@ export class TransitionService {
         const { task, toLane } = request;
         const warnings: string[] = [];
         const errors: string[] = [];
+        const blockedReasons: string[] = [];
         const fromLane = task.lane;
+        const enforcementMode = config.enforcement?.mode ?? 'strict';
+
+        const addBlockingRule = (message: string) => {
+            if (enforcementMode === 'warn') {
+                warnings.push(message);
+                return;
+            }
+            errors.push(message);
+            blockedReasons.push(message);
+        };
 
         if (fromLane === toLane) {
-            return { ok: true, warnings, errors };
+            return { ok: true, warnings, errors, blockedReasons };
         }
 
         const allowed = this.getAllowedTargets(fromLane, config);
         if (!allowed.includes(toLane)) {
-            errors.push(`Cannot move from ${fromLane} to ${toLane} in the ${config.profile} profile.`);
+            addBlockingRule(`Cannot move from ${fromLane} to ${toLane} in the ${config.profile} profile.`);
         }
 
         if (toLane === 'in-progress' && config.worktreePolicy?.requiredForImplementation && !task.worktree) {
-            errors.push('This profile requires a worktree before a task can enter IN PROGRESS.');
+            addBlockingRule('This profile requires a worktree before a task can enter IN PROGRESS.');
         }
 
         if (config.profile === 'standard' && toLane === 'review' && !task.description.trim()) {
@@ -58,6 +70,7 @@ export class TransitionService {
             ok: errors.length === 0,
             warnings,
             errors,
+            blockedReasons,
         };
     }
 

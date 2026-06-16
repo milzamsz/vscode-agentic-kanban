@@ -167,3 +167,14 @@ When the profile or policy requires worktrees for implementation:
 - ensure the task has worktree metadata before implementation starts
 - keep implementation activity inside the worktree
 - preserve the task file and checklist file as the workflow record
+
+## Board Policy
+
+The active board policy is injected through `AGENTS.md`.
+
+- `enforcement.mode: strict` means transition failures block unless a human override is used.
+- `enforcement.mode: warn` means transition failures are surfaced as warnings and the move can continue.
+- `reviewPolicy` tells the agent who should review planning and implementation work for each task priority.
+- `self-agent` means the active coding agent can perform that review.
+- `independent-agent` means a different agent should review that stage.
+- `independent-agent+human` means a different agent review plus human review is required.

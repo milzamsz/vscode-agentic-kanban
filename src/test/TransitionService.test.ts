@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { TransitionService } from '../TransitionService';
 import type { BoardConfig, Task } from '../types';
-import { PROFILE_LANES } from '../types';
+import { DEFAULT_ENFORCEMENT, PROFILE_LANES } from '../types';
 
 const service = new TransitionService();
 
@@ -9,6 +9,7 @@ const standardConfig: BoardConfig = {
     profile: 'standard',
     profileVersion: 3,
     lanes: PROFILE_LANES.standard,
+    enforcement: DEFAULT_ENFORCEMENT.standard,
     worktreePolicy: { requiredForImplementation: true },
 };
 
@@ -74,5 +75,52 @@ describe('TransitionService', () => {
         }, standardConfig);
 
         expect(result.ok).toBe(true);
+    });
+
+    it('returns blocked reasons in strict mode for illegal transitions', () => {
+        const result = service.validate({
+            task: makeTask({ lane: 'planning', worktree: undefined }),
+            toLane: 'review',
+        }, standardConfig);
+
+        expect(result.ok).toBe(false);
+        expect(result.blockedReasons).toEqual([
+            'Cannot move from planning to review in the standard profile.',
+        ]);
+    });
+
+    it('downgrades blocking transition problems to warnings in warn mode', () => {
+        const result = service.validate({
+            task: makeTask({ lane: 'planning', worktree: undefined }),
+            toLane: 'review',
+        }, {
+            ...standardConfig,
+            enforcement: {
+                ...DEFAULT_ENFORCEMENT.standard,
+                mode: 'warn',
+            },
+        });
+
+        expect(result.ok).toBe(true);
+        expect(result.errors).toEqual([]);
+        expect(result.warnings).toContain('Cannot move from planning to review in the standard profile.');
+        expect(result.blockedReasons).toEqual([]);
+    });
+
+    it('downgrades worktree-required checks to warnings in warn mode', () => {
+        const result = service.validate({
+            task: makeTask({ lane: 'planning', worktree: undefined }),
+            toLane: 'in-progress',
+        }, {
+            ...standardConfig,
+            enforcement: {
+                ...DEFAULT_ENFORCEMENT.standard,
+                mode: 'warn',
+            },
+        });
+
+        expect(result.ok).toBe(true);
+        expect(result.warnings).toContain('This profile requires a worktree before a task can enter IN PROGRESS.');
+        expect(result.blockedReasons).toEqual([]);
     });
 });

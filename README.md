@@ -4,7 +4,7 @@
 
 Spec-driven, agent-assisted software delivery in VS Code, with every plan, checklist, conversation, blocker, and specification kept as durable, version-control-friendly Markdown.
 
-![Version 1.3.0](https://img.shields.io/badge/version-1.3.0-2563eb)
+![Version 1.3.1](https://img.shields.io/badge/version-1.3.1-2563eb)
 [![Elastic License 2.0](https://img.shields.io/badge/license-Elastic%202.0%20source--available-f59e0b)](LICENSE)
 [![GitHub Release](https://img.shields.io/github/v/release/milzamsz/vscode-agentic-kanban?label=GitHub%20Release)](https://github.com/milzamsz/vscode-agentic-kanban/releases)
 
@@ -182,7 +182,7 @@ Remove or rename an existing destination before creating a link at the same path
 Download `agentic-kanban-<version>.vsix` from [GitHub Releases](https://github.com/milzamsz/vscode-agentic-kanban/releases), then install it in VS Code:
 
 ```bash
-code --install-extension agentic-kanban-1.3.0.vsix
+code --install-extension agentic-kanban-1.3.1.vsix
 ```
 
 To update later, download the newer VSIX from the same release page and run the same command again.
@@ -202,7 +202,7 @@ cd vscode-agentic-kanban
 npm ci
 npm run build
 npx @vscode/vsce package
-code --install-extension agentic-kanban-1.3.0.vsix
+code --install-extension agentic-kanban-1.3.1.vsix
 ```
 
 ## Workflow Profiles
@@ -446,6 +446,7 @@ Agentic Kanban uses several context layers:
 | `agentKanban.enableLogging` | Window | `false` | Enable rolling diagnostic logs under `.agentkanban/logs/`; reload after changing |
 | `agentKanban.customInstructionFile` | Resource | empty | Additional instruction file for `/task`; relative paths resolve from the workspace root |
 | `agentKanban.defaultProfile` | Resource | `standard` | Profile used when initialising a new board; existing `board.yaml` files stay authoritative until settings are applied explicitly |
+| `agentKanban.enforcementMode` | Resource | `profile-default` | Seeds `enforcement.mode` when a board is created or when settings are applied to an existing board; `profile-default` keeps Lite in `warn` mode and Standard in `strict` mode |
 | `agentKanban.worktreeRequiredForImplementation` | Resource | `profile-default` | Seeds `worktreePolicy.requiredForImplementation` when a board is created or when settings are applied to an existing board |
 | `agentKanban.worktreeRoot` | Resource | `../{repo}-worktrees` | Worktree root; `{repo}` is replaced with the repository name |
 | `agentKanban.worktreeOpenBehavior` | Resource | `current` | Open worktrees in the `current` or a `new` window |
@@ -453,9 +454,9 @@ Agentic Kanban uses several context layers:
 
 ### Board Configuration
 
-VS Code settings seed `board.yaml`; they do not silently override it. `board.yaml` remains the committed project source of truth for the board profile, lanes, and worktree policy shared by humans and agents.
+VS Code settings seed `board.yaml`; they do not silently override it. `board.yaml` remains the committed project source of truth for the board profile, lanes, enforcement mode, review policy, and worktree policy shared by humans and agents.
 
-Use **Agentic Kanban: Apply Settings to Board Config** when you want the current workspace settings to update an existing `board.yaml`. If the target profile would leave tasks in lanes that do not exist in that profile, the command warns before applying the change.
+Use **Agentic Kanban: Apply Settings to Board Config** when you want the current workspace settings to update an existing `board.yaml`. If the target profile would leave tasks in lanes that do not exist in that profile, the command warns before applying the change. Human overrides still respect the board's `enforcement.overrides` policy, and agent guidance is refreshed from the live `enforcement` and `reviewPolicy` values in `board.yaml`.
 
 ## Maintainer Release Flow
 
@@ -466,18 +467,18 @@ GitHub Releases is the primary distribution path for this fork.
 3. Create the release tag:
 
 ```bash
-git tag v1.3.0
+git tag v1.3.1
 ```
 
 4. Push the branch and tag:
 
 ```bash
 git push origin main
-git push origin v1.3.0
+git push origin v1.3.1
 ```
 
 5. Wait for GitHub Actions to run the release workflow.
-6. Verify the new GitHub Release includes `agentic-kanban-1.3.0.vsix` and that the install command works in VS Code.
+6. Verify the new GitHub Release includes `agentic-kanban-1.3.1.vsix` and that the install command works in VS Code.
 
 ## Development
 

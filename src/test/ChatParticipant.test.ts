@@ -3,6 +3,7 @@ import { ChatParticipant } from '../agents/ChatParticipant';
 import { TaskStore } from '../TaskStore';
 import { BoardConfigStore } from '../BoardConfigStore';
 import type { Task, BoardConfig } from '../types';
+import { DEFAULT_ENFORCEMENT, DEFAULT_REVIEW_POLICY, PROFILE_LANES } from '../types';
 import { Uri, commands, workspace, window } from 'vscode';
 
 // Helpers to build mock request/response objects
@@ -1226,6 +1227,60 @@ describe('ChatParticipant', () => {
             expect(written).not.toContain('**Active Task:**');
             expect(written).toContain('INSTRUCTION.md');
             expect(written).toContain('memory.md');
+        });
+    });
+
+    describe('agent policy injection', () => {
+        beforeEach(() => {
+            vi.spyOn(workspace.fs, 'readFile').mockRejectedValue(new Error('not found'));
+        });
+
+        it('should include enforcement mode and review policy in the standard AGENTS section', async () => {
+            const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);
+            vi.spyOn(boardConfigStore, 'get').mockReturnValue({
+                profile: 'standard',
+                profileVersion: 3,
+                lanes: PROFILE_LANES.standard,
+                enforcement: DEFAULT_ENFORCEMENT.standard,
+                reviewPolicy: DEFAULT_REVIEW_POLICY,
+            } as BoardConfig);
+
+            await participant.syncAgentsMdSection();
+
+            const content = new TextDecoder().decode(writeSpy.mock.calls[0][1] as Uint8Array);
+            expect(content).toContain('Enforcement mode: `strict`');
+            expect(content).toContain('high: planning=independent-agent, implementation=independent-agent');
+        });
+
+        it('should include task-priority review guidance in the worktree AGENTS section', async () => {
+            const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);
+            vi.spyOn(boardConfigStore, 'get').mockReturnValue({
+                profile: 'standard',
+                profileVersion: 3,
+                lanes: PROFILE_LANES.standard,
+                enforcement: DEFAULT_ENFORCEMENT.standard,
+                reviewPolicy: DEFAULT_REVIEW_POLICY,
+            } as BoardConfig);
+            const highTask: Task = {
+                id: 'task_high_1',
+                title: 'High Priority Task',
+                lane: 'planning',
+                created: '2026-06-16T00:00:00.000Z',
+                updated: '2026-06-16T00:00:00.000Z',
+                description: 'Task scope',
+                priority: 'high',
+            };
+            (taskStore as any).tasks.set(highTask.id, highTask);
+
+            await participant.syncAgentsMdSection({
+                title: highTask.title,
+                taskRelPath: '.agentkanban/tasks/task_high_1.md',
+                todoRelPath: '.agentkanban/tasks/todo_high_1.md',
+                priority: highTask.priority,
+            } as any);
+
+            const content = new TextDecoder().decode(writeSpy.mock.calls[0][1] as Uint8Array);
+            expect(content).toContain('Priority high: planning review by independent-agent, implementation review by independent-agent');
         });
     });
 

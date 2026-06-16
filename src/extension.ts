@@ -12,6 +12,7 @@ import { DEFAULT_PROFILE, type WorkflowProfile } from './types';
 import {
     countTasksOutsideProfileLanes,
     getDefaultProfile,
+    resolveEnforcement,
     resolveWorktreePolicy,
 } from './settings';
 
@@ -130,6 +131,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Full first-time setup — creates dirs, writes config & instruction files.
     const doInitialise = async (profile: WorkflowProfile) => {
         await boardConfigStore.initialise(profile, {
+            enforcement: resolveEnforcement(profile),
             worktreePolicy: resolveWorktreePolicy(profile),
         });
         await taskStore.initialise();
@@ -190,6 +192,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
             await boardConfigStore.update({
                 profile: targetProfile,
+                enforcement: resolveEnforcement(targetProfile),
                 worktreePolicy: resolveWorktreePolicy(targetProfile),
             });
             vscode.window.showInformationMessage('Agentic Kanban settings applied to board.yaml.');
