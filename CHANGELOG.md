@@ -2,6 +2,14 @@
 
 All notable changes to Agentic Kanban will be documented here.
 
+## [1.6.0] - 2026-06-17
+
+- Add a visual dependency graph dialog to the Kanban board, rendering task connections and supporting details navigation.
+- Implement configurable transition policies (`requireChecklistForInProgress`, `requireSpecForInProgress`, etc.) in `board.yaml`.
+- Integrate automatic verification check execution (test, lint, and build commands) when moving tasks from `in-progress` to `review` on the board.
+- Introduce the `@kanban /sweep [lane]` chat command to automatically run verification policies against all ready tasks in a lane, advancing passing tasks and marking failing ones as blocked.
+- Enhance board search/filter keyboard shortcuts (Cmd/Ctrl+K to focus, Escape to clear queries).
+
 ## [1.5.0] - 2026-06-17
 
 - Bundle stage-driver prompts: written to `.agentkanban/prompts/` on init (missing files only, so edits survive) and refreshable with `@kanban /prompts`. Includes an autonomous `planning → review` driver plus intake, planning, review, revise, blocked, and production-readiness prompts.

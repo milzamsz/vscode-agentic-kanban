@@ -17,6 +17,8 @@ interface BoardState {
 // ── State ────────────────────────────────────────────────────────────────────
 
 let state: BoardState = { tasks: [], config: { profile: 'standard', profileVersion: 3, lanes: [] } };
+let searchQuery = '';
+let searchFilter: 'all' | 'title' | 'labels' | 'description' = 'all';
 let draggedTaskId: string | null = null;
 let draggedLaneId: string | null = null;
 let isDragging = false;
@@ -225,23 +227,79 @@ function renderBoard(): void {
     }
 }
 
+/** Filter a task against the current search query and filter mode. */
+function taskMatchesSearch(task: Task): boolean {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    switch (searchFilter) {
+        case 'title':
+            return task.title.toLowerCase().includes(q);
+        case 'labels':
+            return (task.labels ?? []).some((l) => l.toLowerCase().includes(q));
+        case 'description':
+            return (task.description ?? '').toLowerCase().includes(q);
+        case 'all':
+        default:
+            return (
+                task.title.toLowerCase().includes(q) ||
+                (task.description ?? '').toLowerCase().includes(q) ||
+                (task.labels ?? []).some((l) => l.toLowerCase().includes(q))
+            );
+    }
+}
+
 function buildBoardHtml(): string {
     const { lanes } = state.config;
     const laneSet = new Set(lanes);
     // Tasks whose lane is not part of the active profile fold into the last lane
     // (typically `done`) so a stray/legacy lane value never drops the card.
     const laneFor = (t: Task): string => (laneSet.has(t.lane) ? t.lane : lanes[lanes.length - 1] ?? t.lane);
+    const filteredTasks = state.tasks.filter(taskMatchesSearch);
+    const isSearchActive = searchQuery.length > 0;
+    const totalTasks = state.tasks.length;
+    const foundCount = filteredTasks.length;
+    const ICON_SEARCH = '<svg class="search-icon-svg" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="7.5" r="5"/><path d="M11.5 11.5L16 16"/></svg>';
+    const filterModes: Array<{ key: typeof searchFilter; label: string }> = [
+        { key: 'all', label: 'All' },
+        { key: 'title', label: 'Title' },
+        { key: 'labels', label: 'Labels' },
+        { key: 'description', label: 'Desc' },
+    ];
     return `
         <div class="toolbar">
             <button id="btn-new-task" class="btn-primary">+ New Task</button>
+            <button id="btn-dep-graph" class="btn-secondary">Dependencies</button>
+            <div class="search-area">
+                <div class="search-input-row">
+                    ${ICON_SEARCH}
+                    <input type="text" class="search-input" id="search-input"
+                           placeholder="Search tasks or labels..."
+                           value="${esc(searchQuery)}"
+                           autocomplete="off" spellcheck="false">
+                    <button class="search-clear-btn" id="search-clear-btn"${isSearchActive ? '' : ' hidden'}
+                            title="Clear search">&times;</button>
+                </div>
+                <div class="search-filters" id="search-filters">
+                    ${filterModes.map((m) => `
+                        <button class="filter-btn${searchFilter === m.key ? ' active' : ''}"
+                                data-search-filter="${m.key}">${m.label}</button>
+                    `).join('')}
+                </div>
+            </div>
             <span class="toolbar-profile">${esc((state.config.profile ?? 'standard').toUpperCase())} PROFILE</span>
         </div>
+        ${isSearchActive ? `
+        <div class="search-results-bar" id="search-results-bar">
+            <span>Found ${foundCount} task${foundCount !== 1 ? 's' : ''}${foundCount < totalTasks ? ' of ' + totalTasks : ''}</span>
+            <button class="btn-link" id="search-clear-btn2">Clear search</button>
+        </div>` : ''}
         <div class="board" id="board">
-            ${lanes.map((lane) => buildLaneHtml(lane, state.tasks.filter((t) => laneFor(t) === lane))).join('')}
+            ${lanes.map((lane) => buildLaneHtml(lane, filteredTasks.filter((t) => laneFor(t) === lane))).join('')}
         </div>
         ${buildModalHtml()}
         ${buildDiscardConfirmHtml()}
         ${buildConfirmDialogHtml()}
+        ${buildDepGraphModalHtml()}
     `;
 }
 
@@ -435,7 +493,18 @@ function setupEventListeners(): void {
         if ((e.target as HTMLElement)?.id === 'modal-duedate') {
             clearDateError();
         }
+        if ((e.target as HTMLElement)?.id === 'search-input') {
+            handleSearchInput(e.target as HTMLInputElement);
+        }
     });
+}
+
+function handleSearchInput(input: HTMLInputElement): void {
+    searchQuery = input.value;
+    if (searchQuery === '') {
+        searchFilter = 'all';
+    }
+    renderBoard();
 }
 
 function handleClick(e: MouseEvent): void {
@@ -443,6 +512,14 @@ function handleClick(e: MouseEvent): void {
 
     if ((t as HTMLElement).id === 'btn-new-task') {
         openCreateModal();
+        return;
+    }
+    if ((t as HTMLElement).id === 'btn-dep-graph') {
+        openDepGraph();
+        return;
+    }
+    if ((t as HTMLElement).id === 'dep-graph-close' || (t as HTMLElement).id === 'dep-graph-backdrop') {
+        closeDepGraph();
         return;
     }
     if ((t as HTMLElement).id === 'modal-close') {
@@ -487,6 +564,26 @@ function handleClick(e: MouseEvent): void {
         }
         return;
     }
+    // ── Search handlers ──
+    if ((t as HTMLElement).id === 'search-clear-btn' || (t as HTMLElement).id === 'search-clear-btn2') {
+        searchQuery = '';
+        searchFilter = 'all';
+        renderBoard();
+        const si = document.getElementById('search-input') as HTMLInputElement | null;
+        if (si) { si.focus(); }
+        return;
+    }
+    const filterBtn = t.closest('[data-search-filter]') as HTMLElement | null;
+    if (filterBtn) {
+        searchFilter = filterBtn.dataset.searchFilter as typeof searchFilter;
+        renderBoard();
+        // Keep focus on the search input
+        const si = document.getElementById('search-input') as HTMLInputElement | null;
+        if (si) { si.focus(); }
+        return;
+    }
+    // ── End search handlers ──
+
     if ((t as HTMLElement).id === 'btn-add-label-tag') {
         addLabelTag();
         return;
@@ -574,7 +671,19 @@ function handleClick(e: MouseEvent): void {
 function handleDblClick(_e: MouseEvent): void {}
 
 function handleKeydown(e: KeyboardEvent): void {
+    // Ctrl/Cmd+K to focus search input
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        const si = document.getElementById('search-input') as HTMLInputElement | null;
+        if (si) { si.focus(); si.select(); }
+        return;
+    }
     if (e.key === 'Escape') {
+        const depBackdrop = document.getElementById('dep-graph-backdrop');
+        if (depBackdrop && !depBackdrop.hasAttribute('hidden')) {
+            closeDepGraph();
+            return;
+        }
         const overlay = document.getElementById('datepicker-overlay');
         if (overlay && !overlay.hasAttribute('hidden')) {
             overlay.setAttribute('hidden', '');
@@ -582,9 +691,21 @@ function handleKeydown(e: KeyboardEvent): void {
         }
         if (confirmTaskId) {
             hideArchiveConfirm();
-        } else {
-            closeModal();
+            return;
         }
+        // Escape clears search if active and modal is closed
+        if (searchQuery) {
+            const modalBackdrop = document.getElementById('modal-backdrop');
+            if (modalBackdrop && !modalBackdrop.hasAttribute('hidden')) {
+                closeModal();
+            } else {
+                searchQuery = '';
+                searchFilter = 'all';
+                renderBoard();
+            }
+            return;
+        }
+        closeModal();
         return;
     }
     if (e.key === 'Enter' && (e.target as Element).id === 'modal-label-input') {
@@ -1344,5 +1465,188 @@ function renderCalendar(): void {
             <div>Su</div><div>Mo</div><div>Tu</div><div>We</div><div>Th</div><div>Fr</div><div>Sa</div>
         </div>
         <div class="dp-grid">${cells}</div>
+    `;
+}
+
+function openDepGraph(): void {
+    document.getElementById('dep-graph-backdrop')?.removeAttribute('hidden');
+    renderDepGraph();
+}
+
+function closeDepGraph(): void {
+    document.getElementById('dep-graph-backdrop')?.setAttribute('hidden', '');
+}
+
+function renderDepGraph(): void {
+    const container = document.getElementById('dep-graph-svg-container');
+    if (!container) {
+        return;
+    }
+
+    const depthMap: Record<string, number> = {};
+    function getTaskDepth(taskId: string, visited: Set<string> = new Set()): number {
+        if (visited.has(taskId)) {
+            return 0;
+        }
+        if (taskId in depthMap) {
+            return depthMap[taskId];
+        }
+        visited.add(taskId);
+        const task = state.tasks.find((t) => t.id === taskId);
+        if (!task || !task.dependsOn || task.dependsOn.length === 0) {
+            depthMap[taskId] = 0;
+            return 0;
+        }
+        let maxDepDepth = -1;
+        for (const depId of task.dependsOn) {
+            const d = getTaskDepth(depId, new Set(visited));
+            if (d > maxDepDepth) {
+                maxDepDepth = d;
+            }
+        }
+        const depth = maxDepDepth + 1;
+        depthMap[taskId] = depth;
+        return depth;
+    }
+
+    for (const task of state.tasks) {
+        getTaskDepth(task.id);
+    }
+
+    const columns: Record<number, Task[]> = {};
+    for (const task of state.tasks) {
+        const depth = depthMap[task.id] ?? 0;
+        if (!columns[depth]) {
+            columns[depth] = [];
+        }
+        columns[depth].push(task);
+    }
+
+    const columnIds = Object.keys(columns)
+        .map(Number)
+        .sort((a, b) => a - b);
+
+    if (columnIds.length === 0) {
+        container.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--vscode-descriptionForeground);">No tasks to display in the dependency graph.</div>';
+        return;
+    }
+
+    const columnWidth = 260;
+    const rowHeight = 100;
+    const cardWidth = 200;
+    const cardHeight = 70;
+    const padding = 50;
+
+    const maxTasks = Math.max(...Object.values(columns).map((col) => col.length));
+    const totalHeight = Math.max(400, maxTasks * rowHeight + padding * 2);
+    const totalWidth = columnIds.length * columnWidth + padding * 2;
+
+    const positions: Record<string, { x: number; y: number }> = {};
+    for (const depth of columnIds) {
+        const colTasks = columns[depth];
+        const N = colTasks.length;
+        const startOffset = (totalHeight - N * rowHeight) / 2;
+        const colIdx = columnIds.indexOf(depth);
+
+        colTasks.forEach((task, i) => {
+            const x = padding + colIdx * columnWidth;
+            const y = startOffset + i * rowHeight + (rowHeight - cardHeight) / 2;
+            positions[task.id] = { x, y };
+        });
+    }
+
+    let svgContent = `
+        <svg width="${totalWidth}" height="${totalHeight}" style="display: block; overflow: visible;">
+            <defs>
+                <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                    <path d="M 0 1.5 L 6 5 L 0 8.5 z" fill="var(--vscode-editorLink-activeForeground, #3b82f6)" />
+                </marker>
+            </defs>
+    `;
+
+    for (const task of state.tasks) {
+        if (!task.dependsOn) {
+            continue;
+        }
+        const posT = positions[task.id];
+        if (!posT) {
+            continue;
+        }
+
+        for (const depId of task.dependsOn) {
+            const posD = positions[depId];
+            if (!posD) {
+                continue;
+            }
+
+            const x1 = posD.x + cardWidth;
+            const y1 = posD.y + cardHeight / 2;
+            const x2 = posT.x;
+            const y2 = posT.y + cardHeight / 2;
+
+            const controlOffset = Math.abs(x2 - x1) / 2;
+            const path = `M ${x1} ${y1} C ${x1 + controlOffset} ${y1}, ${x2 - controlOffset} ${y2}, ${x2} ${y2}`;
+
+            svgContent += `
+                <path class="dep-graph-edge" d="${path}" marker-end="url(#arrow)" />
+            `;
+        }
+    }
+
+    for (const task of state.tasks) {
+        const pos = positions[task.id];
+        if (!pos) {
+            continue;
+        }
+
+        const escTitle = esc(task.title);
+        const escLane = esc(displayLane(task.lane));
+        const priorityBadge = task.priority && task.priority !== 'none'
+            ? `<span class="dep-graph-priority-badge ${esc(task.priority)}">${esc(task.priority)}</span>`
+            : '';
+
+        svgContent += `
+            <foreignObject x="${pos.x}" y="${pos.y}" width="${cardWidth}" height="${cardHeight}">
+                <div class="dep-graph-card ${esc(task.lane)}" data-dep-task-id="${esc(task.id)}">
+                    <div class="dep-graph-card-title" title="${escTitle}">${escTitle}</div>
+                    <div class="dep-graph-card-meta">
+                        <span class="dep-graph-lane-badge">${escLane}</span>
+                        ${priorityBadge}
+                    </div>
+                </div>
+            </foreignObject>
+        `;
+    }
+
+    svgContent += `</svg>`;
+    container.innerHTML = svgContent;
+
+    const cards = container.querySelectorAll('.dep-graph-card');
+    cards.forEach((card) => {
+        card.addEventListener('click', (e) => {
+            const taskId = (e.currentTarget as HTMLElement).dataset.depTaskId;
+            if (taskId) {
+                closeDepGraph();
+                openModal(taskId);
+            }
+        });
+    });
+}
+
+function buildDepGraphModalHtml(): string {
+    return `
+        <div class="modal-backdrop" id="dep-graph-backdrop" hidden>
+            <div class="modal dep-graph-modal" id="dep-graph-modal" role="dialog" aria-modal="true">
+                <div class="modal-header">
+                    <h3 class="modal-title">Dependency Graph</h3>
+                    <button class="icon-btn" id="dep-graph-close" title="Close">&times;</button>
+                </div>
+                <div class="modal-body dep-graph-body" style="overflow: auto; max-height: 70vh;">
+                    <div id="dep-graph-svg-container" style="position: relative; width: 100%; min-height: 400px;">
+                        <!-- SVG graph will be rendered here dynamically -->
+                    </div>
+                </div>
+            </div>
+        </div>
     `;
 }

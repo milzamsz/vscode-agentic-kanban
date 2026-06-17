@@ -6,6 +6,20 @@ import type { Task, BoardConfig } from '../types';
 import { DEFAULT_ENFORCEMENT, DEFAULT_REVIEW_POLICY, PROFILE_LANES } from '../types';
 import { Uri, commands, workspace, window } from 'vscode';
 
+const execMock = vi.hoisted(() => vi.fn());
+vi.mock('child_process', () => {
+    const { promisify } = require('util');
+    const fn = (cmd: string, opts: any, cb: any) => {
+        const callback = typeof opts === 'function' ? opts : cb;
+        execMock(cmd, opts).then(
+            (r: any) => callback ? callback(null, r?.stdout ?? '', r?.stderr ?? '') : null,
+            (e: any) => callback ? callback(e) : null,
+        );
+    };
+    fn[promisify.custom] = execMock;
+    return { exec: fn };
+});
+
 // Helpers to build mock request/response objects
 function mockRequest(command: string | undefined, prompt: string) {
     return { command, prompt } as any;
@@ -1836,6 +1850,82 @@ describe('ChatParticipant', () => {
 
             expect(response.messages.some((m: string) => m.includes('WT Task Auto'))).toBe(true);
             expect(response.messages.some((m: string) => m.includes('Worktree workspace'))).toBe(true);
+        });
+    });
+
+    describe('/sweep command', () => {
+        beforeEach(() => {
+            execMock.mockReset();
+            execMock.mockResolvedValue({ stdout: '', stderr: '' });
+        });
+
+        it('should perform sweep of planning lane and run verification successfully', async () => {
+            const task: Task = {
+                id: 'task_sweep_1',
+                title: 'Sweep Task 1',
+                lane: 'planning',
+                created: '2026-01-01T00:00:00.000Z',
+                updated: '2026-01-01T00:00:00.000Z',
+                description: '',
+            };
+            (taskStore as any).tasks.set(task.id, task);
+            installMockFs({
+                '/test-workspace/.agentkanban/tasks/task_sweep_1.md': '---\ntitle: Sweep Task 1\nlane: planning\n---\n## Conversation\n\n### user\n\n',
+            });
+
+            const config = boardConfigStore.get();
+            config.policies = {
+                verification: {
+                    testCommand: 'npm run test',
+                    lintCommand: 'npm run lint',
+                },
+            };
+
+            const response = mockResponse();
+            await participant.handleRequest(mockRequest('sweep', 'planning'), {} as any, response, mockToken);
+
+            expect(execMock).toHaveBeenCalledTimes(2);
+            expect(execMock).toHaveBeenNthCalledWith(1, 'npm run test', expect.anything());
+            expect(execMock).toHaveBeenNthCalledWith(2, 'npm run lint', expect.anything());
+
+            const updatedTask = taskStore.get(task.id);
+            expect(updatedTask?.lane).toBe('review');
+            expect(updatedTask?.labels ?? []).not.toContain('blocked');
+            expect(response.messages.some((m: string) => m.includes('Verification passed'))).toBe(true);
+        });
+
+        it('should move task back and label blocked when verification fails', async () => {
+            const task: Task = {
+                id: 'task_sweep_2',
+                title: 'Sweep Task 2',
+                lane: 'planning',
+                created: '2026-01-01T00:00:00.000Z',
+                updated: '2026-01-01T00:00:00.000Z',
+                description: '',
+            };
+            (taskStore as any).tasks.set(task.id, task);
+            installMockFs({
+                '/test-workspace/.agentkanban/tasks/task_sweep_2.md': '---\ntitle: Sweep Task 2\nlane: planning\n---\n## Conversation\n\n### user\n\n',
+            });
+
+            const config = boardConfigStore.get();
+            config.policies = {
+                verification: {
+                    testCommand: 'npm run test-fail',
+                },
+            };
+
+            execMock.mockRejectedValue(new Error('Test command failed'));
+
+            const response = mockResponse();
+            await participant.handleRequest(mockRequest('sweep', 'planning'), {} as any, response, mockToken);
+
+            expect(execMock).toHaveBeenCalledTimes(1);
+
+            const updatedTask = taskStore.get(task.id);
+            expect(updatedTask?.lane).toBe('planning');
+            expect(updatedTask?.labels).toContain('blocked');
+            expect(response.messages.some((m: string) => m.includes('Verification failed'))).toBe(true);
         });
     });
 });

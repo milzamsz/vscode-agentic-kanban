@@ -78,6 +78,100 @@
         background-color: var(--vscode-sideBar-background);
     }
 
+    /* ── Search ──────────────────────────────────── */
+    .search-area {
+        @apply flex flex-1 flex-col;
+    }
+
+    .search-input-row {
+        @apply relative flex items-center;
+    }
+
+    .search-input-row .search-icon-svg {
+        @apply absolute left-2;
+        width: 14px;
+        height: 14px;
+        color: var(--vscode-descriptionForeground);
+    }
+
+    .search-input {
+        @apply pl-8 pr-8 py-1 rounded border;
+        background-color: var(--vscode-input-background);
+        color: var(--vscode-input-foreground);
+        border-color: var(--vscode-input-border);
+        font-size: 13px;
+        width: 220px;
+    }
+
+    .search-input:focus {
+        outline: none;
+        border-color: var(--vscode-focusBorder);
+        background-color: var(--vscode-input-optionBackground);
+    }
+
+    .search-clear-btn {
+        @apply absolute right-2;
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        padding: 2px 6px;
+        border-radius: 3px;
+        color: var(--vscode-descriptionForeground);
+        font-size: 14px;
+    }
+
+    .search-clear-btn:hover {
+        background-color: var(--vscode-list-hoverBackground);
+        color: var(--vscode-foreground);
+    }
+
+    .search-filters {
+        @apply flex gap-1 mt-1;
+    }
+
+    .filter-btn {
+        @apply px-2 py-0.5 text-xs rounded;
+        background-color: var(--vscode-button-secondaryBackground);
+        color: var(--vscode-button-secondaryForeground);
+        border: 1px solid var(--vscode-button-secondaryBackground);
+        cursor: pointer;
+        transition: all 0.15s ease;
+    }
+
+    .filter-btn:hover {
+        background-color: var(--vscode-button-secondaryHoverBackground);
+    }
+
+    .filter-btn.active {
+        background-color: var(--vscode-button-background);
+        color: var(--vscode-button-foreground);
+        border-color: var(--vscode-button-background);
+    }
+
+    .search-results-bar {
+        @apply flex items-center justify-between px-4 py-1.5 text-xs flex-shrink-0;
+        background-color: var(--vscode-editorInfo-background);
+        border-bottom: 1px solid var(--vscode-widget-border);
+    }
+
+    .search-results-bar span {
+        color: var(--vscode-editorInfo-foreground);
+    }
+
+    .search-results-bar .btn-link {
+        color: var(--vscode-textLink-foreground);
+        text-decoration: underline;
+        cursor: pointer;
+        padding: 0;
+        background: transparent;
+        border: none;
+        font-size: 13px;
+    }
+
+    .search-results-bar .btn-link:hover {
+        color: var(--vscode-textLink-activeForeground);
+    }
+
     /* ── Buttons ─────────────────────────────────── */
     .btn-primary {
         @apply px-3 py-1 rounded text-xs font-medium cursor-pointer border-0 transition-colors;
@@ -674,5 +768,107 @@
 
     .confirm-archive-btn:hover {
         background-color: var(--vscode-button-hoverBackground);
+    }
+
+    /* ── Dependency Graph ────────────────────────── */
+    .dep-graph-modal {
+        max-width: 90vw !important;
+        width: 1000px;
+    }
+    
+    .dep-graph-body {
+        background: var(--vscode-editor-background);
+        border: 1px solid var(--vscode-widget-border);
+        border-radius: 4px;
+        padding: 16px;
+    }
+    
+    .dep-graph-card {
+        background: var(--vscode-editorWidget-background);
+        border: 1px solid var(--vscode-widget-border);
+        border-radius: 6px;
+        padding: 8px 12px;
+        box-sizing: border-box;
+        cursor: pointer;
+        user-select: none;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        height: 100%;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+    }
+    
+    .dep-graph-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+        border-color: var(--vscode-focusBorder);
+    }
+    
+    .dep-graph-card-title {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--vscode-editor-foreground);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        line-height: 1.3;
+    }
+    
+    .dep-graph-card-meta {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 4px;
+    }
+    
+    .dep-graph-lane-badge {
+        font-size: 8px;
+        text-transform: uppercase;
+        padding: 1px 4px;
+        border-radius: 3px;
+        background: rgba(255, 255, 255, 0.1);
+        color: var(--vscode-descriptionForeground);
+        font-weight: bold;
+    }
+    
+    .dep-graph-priority-badge {
+        font-size: 8px;
+        text-transform: uppercase;
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-weight: bold;
+    }
+    
+    .dep-graph-priority-badge.critical {
+        background: #ef4444;
+        color: white;
+    }
+    .dep-graph-priority-badge.high {
+        background: #f97316;
+        color: white;
+    }
+    .dep-graph-priority-badge.medium {
+        background: #eab308;
+        color: black;
+    }
+    .dep-graph-priority-badge.low {
+        background: #3b82f6;
+        color: white;
+    }
+    
+    .dep-graph-edge {
+        fill: none;
+        stroke: var(--vscode-editorLink-activeForeground, #3b82f6);
+        stroke-width: 2px;
+        opacity: 0.6;
+        transition: opacity 0.2s, stroke-width 0.2s;
+    }
+    
+    .dep-graph-edge:hover {
+        opacity: 1;
+        stroke-width: 3px;
     }
 }

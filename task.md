@@ -34,5 +34,5 @@ Status: [x] done / [ ] pending
 
 ## Follow-ups (deferred)
 
-- [ ] `/spec` AGENTS sentinel: gate the `Spec Delta` pointer to Standard profile and substitute the real `<capability>` (currently always emitted with a literal placeholder).
+- [x] `/spec` AGENTS sentinel: gate the `Spec Delta` pointer to Standard profile and substitute the real `<capability>` (currently always emitted with a literal placeholder).
 - [ ] Confirm whether the enhanced "Active Task" sentinel writing in the main workspace (every `/task`) is intended; update `README.md`/`TECHNICAL.md` if so.

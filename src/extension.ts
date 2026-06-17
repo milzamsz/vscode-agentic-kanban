@@ -233,6 +233,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     mdWatcher.onDidDelete(debouncedReload);
     context.subscriptions.push(mdWatcher);
 
+    // File watchers for spec and change directories — triggers board refresh
+    // so specMissing/changeMissing badges stay accurate when these files change.
+    const specWatcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(workspaceFolder, '.agentkanban/specs/**/*'),
+    );
+    specWatcher.onDidChange(debouncedReload);
+    specWatcher.onDidCreate(debouncedReload);
+    specWatcher.onDidDelete(debouncedReload);
+    context.subscriptions.push(specWatcher);
+
+    const changeWatcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(workspaceFolder, '.agentkanban/changes/**/*'),
+    );
+    changeWatcher.onDidChange(debouncedReload);
+    changeWatcher.onDidCreate(debouncedReload);
+    changeWatcher.onDidDelete(debouncedReload);
+    context.subscriptions.push(changeWatcher);
+
     // File watcher for board config — reloads config when user edits board.yaml
     const yamlWatcher = vscode.workspace.createFileSystemWatcher(
         new vscode.RelativePattern(workspaceFolder, '.agentkanban/board.yaml'),

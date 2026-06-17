@@ -4,7 +4,7 @@ description: Use when developing, reviewing, packaging, rebranding, or validatin
 license: Elastic-2.0
 metadata:
   author: milzam
-  version: 1.1.0
+  version: 1.2.0
 ---
 
 # Agentic Kanban
@@ -28,8 +28,10 @@ Never speculate about code you have not opened. Investigate before answering.
 
 - **`TODO` is a checklist artifact, not a lane.** It lives in `todo_*.md` files as `- [ ]` / `- [x]` items. Spec-driven tasks use `.agentkanban/changes/<slug>/tasks.md` instead. See [references/workflow.md](references/workflow.md).
 - **Lanes are fixed per profile.** Lite: `backlog -> in-progress -> done`. Standard: `backlog -> planning -> in-progress -> review -> done`. General blockers stay on the card as a `blocked` label; task dependencies use `blocked-by:<slug>`.
-- **`in-progress` is not a human gate.** The autonomous `planning → review` driver runs implementation hands-off; the two human gates are plan approval (`planning`) and `review → done`. Real blockers are labeled and parked, never forced.
+- **`in-progress` is not a human gate.** The autonomous `planning -> review` driver runs implementation hands-off; the two human gates are plan approval (`planning`) and `review -> done`. Real blockers are labeled and parked, never forced.
 - **WIP limit.** `wipLimits` in board.yaml caps tasks per lane (default Standard `in-progress: 1`); a move into a full lane is blocked (strict) or warned (warn). Work serially.
+- **Worktrees are optional** unless `worktreePolicy.requiredForImplementation` is true. The default is optional.
+- **Definition of Done (evidence gate):** behavior proven to run (test output / real run / workflow or job id), not a status write. Run the production-readiness audit before `done`.
 - **Chat commands:** `/new`, `/task`, `/refresh`, `/spec [capability]`, `/worktree`, `/archive [slug]`, `/prompts`. `/prompts` (re)writes the bundled stage-driver prompts into `.agentkanban/prompts/` (also auto-scaffolded on init, missing-only).
 - **Identifiers stay stable.** Command IDs (`agentKanban.*`), config keys (`agentKanban.*`), the chat participant id, the `.agentkanban/` directory, and the `agentkanban/` git branch prefix are kept for compatibility. Do NOT rename them as part of branding work unless a migration is explicitly planned.
 - **Branding target is `Agentic Kanban`.** User-visible copy says "Agentic Kanban". The runtime log file is `agentic-kanban.log`. See [references/branding-and-packaging.md](references/branding-and-packaging.md).
@@ -63,11 +65,11 @@ Paste-ready prompt templates that drive work on the board. Fill the variables, t
 - Run an active task or a whole lane this session (single-task or lane-sweep execution driver) → [references/run-development-prompt.md](references/run-development-prompt.md).
 
 **Stage drivers (lane sweeps — process all ready tasks in the lane)**
-- **Default (autonomous):** carry approved `planning` tasks through `in-progress` to `review` in one hands-off pass; serial (WIP=1); blockers labeled + parked → [references/stage-planning-to-review.md](references/stage-planning-to-review.md). Runs the `planning→in-progress→review` steps inline (no separate prompts for those middle transitions).
+- **Default (autonomous):** carry approved `planning` tasks through `in-progress` to `review` in one hands-off pass; serial (WIP=1); blockers labeled + parked -> [references/stage-planning-to-review.md](references/stage-planning-to-review.md). Runs the `planning->in-progress->review` steps inline (no separate prompts for those middle transitions).
 - New idea/bug → well-formed task → [references/new-task-intake.md](references/new-task-intake.md).
-- Sweep `backlog → planning` (discovery + plan + checklist) → [references/stage-backlog-to-planning.md](references/stage-backlog-to-planning.md).
+- Sweep `backlog -> planning` (discovery + plan + checklist) -> [references/stage-backlog-to-planning.md](references/stage-backlog-to-planning.md).
 - Revise: send a review-rejected task back to implementation → [references/stage-review-to-in-progress.md](references/stage-review-to-in-progress.md).
-- `review → done` (human gate: production-readiness + release & handover) → [references/stage-review-to-done.md](references/stage-review-to-done.md).
+- `review -> done` (human gate: production-readiness + release & handover) -> [references/stage-review-to-done.md](references/stage-review-to-done.md).
 - Block a task / sweep `blocked` to resume cleared tasks → [references/stage-blocked-and-resume.md](references/stage-blocked-and-resume.md).
 
 These drivers are bundled by the extension as `assets/prompts/*` and scaffolded to a workspace's `.agentkanban/prompts/` on init (refresh with `@kanban /prompts`).

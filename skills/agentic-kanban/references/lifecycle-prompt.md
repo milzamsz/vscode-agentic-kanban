@@ -55,7 +55,7 @@ Output in task file: scope + deliverable list.
 ### 2. Design & Plan (`planning`) - action: `plan` + `checklist`
 Architecture, data model, API/interface contracts, security model, test strategy, dependencies.
 `checklist`: break the plan into ordered work items.
-Once the plan is approved, the autonomous `planning → review` driver carries it through `in-progress`
+Once the plan is approved, the autonomous `planning -> review` driver carries it through `in-progress`
 to `review` hands-off (`in-progress` is not a separate human gate).
 
 ### 3. Implement (`in-progress`) - action: `implement`

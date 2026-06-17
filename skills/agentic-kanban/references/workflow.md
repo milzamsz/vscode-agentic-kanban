@@ -17,16 +17,16 @@ backlog -> in-progress -> done
 backlog -> planning -> in-progress -> review -> done
 ```
 - `backlog`: broad, not ready for detailed execution.
-- `planning`: refine scope, write the implementation plan, identify risks, update the checklist. The plan is **approved** here.
-- `in-progress`: implement the approved plan. Entering `in-progress` is **not** a separate human gate — an agent may carry an approved task straight from `planning` through implementation to `review` in one pass (the autonomous `planning → review` driver). Worktrees optional unless board policy requires them.
+- `planning`: refine scope, write the implementation plan, identify risks, update the checklist. The plan is **approved** here. To transition a task from `planning` to `in-progress`, it must have a checklist with at least one item, and if it is spec-driven, it must also have a valid spec file and change folder.
+- `in-progress`: implement the approved plan. Entering `in-progress` is **not** a separate human gate - an agent may carry an approved task straight from `planning` through implementation to `review` in one pass (the autonomous `planning -> review` driver). When running this flow, the task must be moved to `in-progress` before starting work, so the board reflects the current progress state. Worktrees optional unless board policy requires them.
 - `review`: implementation review. Return to `in-progress` for revisions, or move to `done` when approved.
-- The two human gates are **plan approval** (`planning`) and **`review → done`**; everything between can run hands-off.
-- `blocked` is a label, not a lane. Real blockers → `blocked` / `blocked-by:<slug>`, keep the task in its lane, never force past them.
+- The two human gates are **plan approval** (`planning`) and **`review -> done`**; everything between can run hands-off.
+- `blocked` is a label, not a lane. Real blockers -> `blocked` / `blocked-by:<slug>`, keep the task in its lane, never force past them.
 
 ## Lane rules
 
-- The lane is stored in task-file frontmatter (`lane:`). Managed by the user and extension. **Never change a lane implicitly** — use explicit transitions only.
-- Do not implement changes unless the task is in `in-progress`, or you are running the autonomous `planning → review` flow on an approved task (a combined transition-plus-implement in one pass).
+- The lane is stored in task-file frontmatter (`lane:`). Managed by the user and extension. **Never change a lane implicitly** - use explicit transitions only.
+- Do not implement changes unless the task is in `in-progress`. When running the autonomous `planning -> review` flow on an approved task, you must move the task to `in-progress` before starting work.
 - Standard profile: the plan is approved in `planning`; `in-progress` is automatic; never reach `done` without implementation review.
 - **WIP limit:** `wipLimits` in board.yaml caps tasks per lane (default Standard `in-progress: 1`). A move into a full lane is blocked (strict) or warned (warn). Work serially: finish or park before the next.
 - When adding `blocked` or `blocked-by:<slug>` labels, preserve the blocker context in the task file and clear the labels when work can continue.

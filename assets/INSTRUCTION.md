@@ -135,10 +135,10 @@ Lane flow:
 Guidance:
 
 - `backlog`: the task is still broad and not ready for detailed execution.
-- `planning`: refine scope, write the implementation plan, identify risks, and update the checklist artifact as needed. This is where the plan is **approved**.
-- `in-progress`: implement the approved plan. Entering `in-progress` is **not** a separate human gate — an agent may carry an approved task from `planning` straight through implementation to `review` in one pass (the autonomous `planning → review` flow). Worktrees are optional unless the board policy requires them.
+- `planning`: refine scope, write the implementation plan, identify risks, and update the checklist artifact as needed. This is where the plan is **approved**. To transition a task from `planning` to `in-progress`, it must have a checklist with at least one item, and if it is spec-driven, it must also have a valid spec file and change folder.
+- `in-progress`: implement the approved plan. Entering `in-progress` is **not** a separate human gate — an agent may carry an approved task from `planning` straight through implementation to `review` in one pass (the autonomous `planning -> review` flow). When running this flow, the task must be moved to `in-progress` before starting work, so the board reflects the current progress state. Worktrees are optional unless the board policy requires them.
 - `review`: implementation review. Return to `in-progress` for revisions, or move to `done` when approved.
-- The two human gates are **plan approval** (in `planning`) and **`review → done`**. Everything between can run hands-off.
+- The two human gates are **plan approval** (in `planning`) and **`review -> done`**. Everything between can run hands-off.
 - Real blockers → keep the task in its lane and add the `blocked` label (external dependency/decision) or `blocked-by:<slug>` (task dependency); record what clears it. Never force past a real blocker.
 - One active implementation task at a time (WIP) unless the board allows otherwise.
 
@@ -159,7 +159,7 @@ Treat `TODO` as the checklist artifact only. Do not treat `todo` as a workflow l
 
 ## Execution Rules
 
-- Do not implement changes unless the task is in `in-progress`, or you are running the autonomous `planning → review` flow on an approved task (a combined transition plus implementation in one pass).
+- Do not implement changes unless the task is in `in-progress`. When running the autonomous `planning -> review` flow on an approved task, you must move the task to `in-progress` before starting work.
 - Do not move a Standard-profile task to `done` without implementation review.
 - Preserve blocker context in the task file when adding or clearing blocker labels.
 - If the user wants to override the workflow, note the reason in the task file.

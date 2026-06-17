@@ -28,13 +28,52 @@ Important: Use red/green/refactor TDD. Write failing tests according to requirem
 
 Don't use em dashes `—` in any copy, anywhere (UIs or documentation).
 
+## SDD Workflow Rules (Custom)
+
+These rules augment the Agentic Kanban section below and the `.agentkanban/INSTRUCTION.md` rules.
+
+### Definition of Done (evidence gate)
+A task reaches `done` only when: lint + test + build are green, the capability spec's acceptance
+criteria are met **with evidence the behavior RUNS** (test output, a real run, a workflow/job id) -
+not a DB row or a status write - and behavior docs are updated. State what was run vs skipped.
+
+### Kanban-first: no code without a task file
+Every implementation change must be tracked in a task file under `.agentkanban/tasks/` with the
+correct lane before any code is written. If no task exists, create one via the proper workflow
+(backlog -> planning -> in-progress -> review -> done). Retroactive task creation is not permitted
+- the task must precede the code.
+
+### Kanban workflow autonomy
+- **`in-progress` is not a human gate.** The `planning -> review` driver
+  (`.agentkanban/prompts/stage-planning-to-review.md`) auto-runs implementation. Humans gate only at
+  **plan approval** (in `planning`) and **`review -> done`**. Launching the driver is the authority to
+  implement.
+- **Real blockers are labeled and parked, never forced.** A real blocker = something unresolvable
+  with available tools/info (a dependency task not `done`, an unavailable env, an upstream bug, or a
+  decision only the user can make). On one: add `blocked` / `blocked-by:<slug>`, record what clears
+  it, park the task, continue the next.
+- **Serial: one active implementation task at a time** (WIP = 1). Finish or park before the next.
+- **The driver never moves a task to `done`** -- `review -> done` stays human (critical also needs
+  independent-agent + human per board policy).
+
+### Spec-Driven Development
+Capability contracts live in `.agentkanban/specs/<capability>/spec.md` (behavior + acceptance
+criteria + verification). A spec-driven task carries `change:` and `spec:` frontmatter and owns
+`.agentkanban/changes/<slug>/{proposal,design,tasks}.md` (`tasks.md` = authoritative checklist).
+Read the spec before planning/implementing.
+
+### Production-readiness audit (before done)
+Run the full checklist from `.agentkanban/prompts/production-readiness-audit.md` as the single gate
+that catches silent mock fallbacks, missing org scoping, orphaned mutations, and unscoped secrets.
+Paste the PASS/FAIL report in the task. Any unresolved FAIL blocks `done` - fix or `block` with a reason.
+
 <!-- BEGIN AGENTIC KANBAN — DO NOT EDIT THIS SECTION -->
 ## Agentic Kanban
 
 Read `.agentkanban/INSTRUCTION.md` for task workflow rules.
 Read `.agentkanban/memory.md` for project context.
 
-Enforcement mode: `strict`
+Enforcement mode: `warn`
 Review policy:
 low: planning=self-agent, implementation=self-agent
 medium: planning=self-agent, implementation=self-agent

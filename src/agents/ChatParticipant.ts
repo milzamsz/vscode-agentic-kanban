@@ -1,4 +1,8 @@
 import * as vscode from 'vscode';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 import { TaskStore } from '../TaskStore';
 import type { BoardConfigStore } from '../BoardConfigStore';
 import type { WorktreeService } from '../WorktreeService';
@@ -124,7 +128,9 @@ export function buildWorktreeAgentsMdSection(
     reviewPolicy: ReviewPolicy = DEFAULT_REVIEW_POLICY,
     enforcementMode: 'strict' | 'warn' = DEFAULT_ENFORCEMENT.standard.mode,
     specRelPath?: string,
+    profile?: 'standard' | 'lite',
 ): string {
+    const isStandard = profile === 'standard';
     const lines = [
         AGENTS_MD_BEGIN,
         '## Agentic Kanban',
@@ -138,12 +144,12 @@ export function buildWorktreeAgentsMdSection(
     } else if (todoRelPath) {
         lines.push(`**Checklist File:** \`${todoRelPath}\``);
     }
-    if (changeRelPath) {
+    if (isStandard && changeRelPath) {
         lines.push(`**Spec Change:** \`${changeRelPath}\``);
         lines.push(`**Spec Proposal:** \`${changeRelPath}/proposal.md\``);
         lines.push(`**Spec Tasks:** \`${changeRelPath}/tasks.md\``);
     }
-    if (specRelPath) {
+    if (isStandard && specRelPath) {
         lines.push(`**Capability Spec:** \`${specRelPath}\``);
     }
     lines.push(
@@ -225,17 +231,21 @@ export class ChatParticipant {
             case 'prompts':
                 await this.handlePrompts(response);
                 return;
+            case 'sweep':
+                await this.handleSweep(prompt, response);
+                return;
             default: {
-                response.markdown('Available commands: `/new`, `/task`, `/refresh`, `/spec`, `/worktree`, `/archive`, `/prompts`\n\n');
+                response.markdown('Available commands: `/new`, `/task`, `/refresh`, `/spec`, `/worktree`, `/archive`, `/prompts`, `/sweep`\n\n');
                 response.markdown('- `@kanban /spec [capability]` - Scaffold spec-driven change artifacts for the selected task\n');
-                response.markdown('- `@kanban /new <task title>` — Create a new task\n');
-                response.markdown('- `@kanban /task <task name>` — Select a task to work on\n');
-                response.markdown('- `@kanban /refresh` — Re-inject agent context for the selected task\n');
-                response.markdown('- `@kanban /worktree` — Create a git worktree for the selected task\n');
-                response.markdown('- `@kanban /archive [slug]` — Move a completed change folder to changes/archive/\n');
-                response.markdown('- `@kanban /prompts` — Write/refresh the bundled stage-driver prompts in .agentkanban/prompts/\n');
-                response.markdown('- `@kanban /worktree open` — Open the task worktree for the selected task in VS Code\n');
-                response.markdown('- `@kanban /worktree remove` — Remove the task worktree\n');
+                response.markdown('- `@kanban /new <task title>` - Create a new task\n');
+                response.markdown('- `@kanban /task <task name>` - Select a task to work on\n');
+                response.markdown('- `@kanban /refresh` - Re-inject agent context for the selected task\n');
+                response.markdown('- `@kanban /worktree` - Create a git worktree for the selected task\n');
+                response.markdown('- `@kanban /archive [slug]` - Move a completed change folder to changes/archive/\n');
+                response.markdown('- `@kanban /prompts` - Write/refresh the bundled stage-driver prompts in .agentkanban/prompts/\n');
+                response.markdown('- `@kanban /worktree open` - Open the task worktree for the selected task in VS Code\n');
+                response.markdown('- `@kanban /worktree remove` - Remove the task worktree\n');
+                response.markdown('- `@kanban /sweep [lane]` - Run an autonomous sweep of ready tasks (default: planning)\n');
                 return;
             }
         }
@@ -350,6 +360,7 @@ export class ChatParticipant {
                     config.reviewPolicy ?? DEFAULT_REVIEW_POLICY,
                     config.enforcement?.mode ?? DEFAULT_ENFORCEMENT[config.profile].mode,
                     worktreeTask.specRelPath,
+                    config.profile,
                 )
                 : buildAgentsMdSection(
                     config.enforcement?.mode ?? DEFAULT_ENFORCEMENT[config.profile].mode,
@@ -1125,6 +1136,140 @@ export class ChatParticipant {
     private getSpecRelPath(task: { spec?: string; extras?: Record<string, unknown> }): string | undefined {
         const value = task.spec ?? task.extras?.spec;
         return typeof value === 'string' && value.trim() ? value : undefined;
+    }
+
+    private async handleSweep(
+        prompt: string,
+        response: vscode.ChatResponseStream,
+    ): Promise<void> {
+        const config = this.boardConfigStore.get();
+        const targetLane = prompt.trim() || 'planning';
+
+        if (!config.lanes.includes(targetLane)) {
+            response.markdown(`❌ Invalid lane **${targetLane}**. Valid lanes are: ${config.lanes.map(l => `\`${l}\``).join(', ')}\n`);
+            return;
+        }
+
+        const allTasks = this.taskStore.getAll();
+        const tasksInLane = allTasks.filter(t => t.lane === targetLane);
+
+        if (tasksInLane.length === 0) {
+            response.markdown(`No tasks found in lane **${targetLane}**.\n`);
+            return;
+        }
+
+        const readyTasks = tasksInLane.filter(task => {
+            if (!task.dependsOn || task.dependsOn.length === 0) {
+                return true;
+            }
+            for (const depId of task.dependsOn) {
+                const depTask = allTasks.find(t => t.id === depId || t.slug === depId);
+                if (depTask && depTask.lane !== 'done' && depTask.lane !== 'archive') {
+                    return false;
+                }
+            }
+            return true;
+        });
+
+        if (readyTasks.length === 0) {
+            response.markdown(`No ready tasks (with all dependencies resolved) found in lane **${targetLane}**.\n`);
+            return;
+        }
+
+        response.markdown(`🧹 **Starting sweep of ${readyTasks.length} task(s) in lane "${targetLane}"**...\n\n`);
+
+        const results: Array<{ title: string; success: boolean; error?: string }> = [];
+
+        for (const task of readyTasks) {
+            response.markdown(`Processing task **${task.title}**...\n`);
+
+            // 1. Move to in-progress
+            task.lane = 'in-progress';
+            await this.taskStore.save(task);
+
+            // 2. Run verification
+            const verification = config.policies?.verification;
+            const commandsToRun: { name: string; command: string }[] = [];
+            if (verification?.testCommand) {
+                commandsToRun.push({ name: 'test', command: verification.testCommand });
+            }
+            if (verification?.lintCommand) {
+                commandsToRun.push({ name: 'lint', command: verification.lintCommand });
+            }
+            if (verification?.buildCommand) {
+                commandsToRun.push({ name: 'build', command: verification.buildCommand });
+            }
+
+            let passed = true;
+            let errorLogs = '';
+            const cwd = task.worktree?.path || this.taskStore.getWorkspacePath();
+
+            if (commandsToRun.length > 0) {
+                for (const cmd of commandsToRun) {
+                    try {
+                        this.logger.info('chatParticipant', `Sweep running command: ${cmd.command} (cwd: ${cwd})`);
+                        await execAsync(cmd.command, { cwd });
+                    } catch (err: any) {
+                        passed = false;
+                        const stdout = err.stdout ? `\nStdout:\n${err.stdout}` : '';
+                        const stderr = err.stderr ? `\nStderr:\n${err.stderr}` : '';
+                        errorLogs += `❌ Command failed: "${cmd.command}"\nError: ${err.message || err}${stdout}${stderr}\n`;
+                        break;
+                    }
+                }
+            }
+
+            if (passed) {
+                // Move to review
+                task.lane = 'review';
+                if (task.labels) {
+                    task.labels = task.labels.filter(l => l !== 'blocked');
+                }
+                const successComment = `[comment: sweep success: verification passed on ${new Date().toISOString()}]`;
+                await this.appendCommentToTask(task, successComment);
+                response.markdown(`✅ **${task.title}**: Verification passed. Moved to **REVIEW**.\n\n`);
+                results.push({ title: task.title, success: true });
+            } else {
+                // Move back to targetLane and mark blocked
+                task.lane = targetLane;
+                if (!task.labels) {
+                    task.labels = [];
+                }
+                if (!task.labels.includes('blocked')) {
+                    task.labels.push('blocked');
+                }
+                const failureComment = `[comment: sweep failure: verification failed on ${new Date().toISOString()}\nLogs:\n${errorLogs}]`;
+                await this.appendCommentToTask(task, failureComment);
+                response.markdown(`❌ **${task.title}**: Verification failed. Moved back to **${targetLane.toUpperCase()}** (labeled blocked).\n\n`);
+                results.push({ title: task.title, success: false, error: errorLogs });
+            }
+        }
+
+        // Summary
+        response.markdown(`### Sweep Summary\n\n`);
+        const passedCount = results.filter(r => r.success).length;
+        const failedCount = results.filter(r => !r.success).length;
+        response.markdown(`- **Total processed:** ${results.length}\n`);
+        response.markdown(`- **Passed:** ${passedCount}\n`);
+        response.markdown(`- **Failed:** ${failedCount}\n`);
+    }
+
+    private async appendCommentToTask(task: import('../types').Task, comment: string): Promise<void> {
+        const uri = this.taskStore.getTaskUri(task.id);
+        let body = '\n## Conversation\n\n### user\n\n';
+        try {
+            const existing = await vscode.workspace.fs.readFile(uri);
+            const existingText = new TextDecoder().decode(existing);
+            const parsed = TaskStore.splitFrontmatter(existingText);
+            if (parsed.body) {
+                body = parsed.body;
+            }
+        } catch {
+            // Keep default body
+        }
+        const separator = body.endsWith('\n') ? '' : '\n';
+        const updatedBody = `${body}${separator}\n${comment}\n`;
+        await this.taskStore.saveWithBody(task, updatedBody);
     }
 
     private getTaskSlug(task: { id: string; title: string; slug?: string }): string {

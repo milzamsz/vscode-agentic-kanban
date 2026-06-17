@@ -189,6 +189,7 @@ export class BoardConfigStore {
             enforcement: normalised.enforcement,
             reviewPolicy: normalised.reviewPolicy,
             worktreePolicy: normalised.worktreePolicy,
+            policies: normalised.policies,
         };
         // Only persist wipLimits when it has entries (keeps lite boards unchanged).
         if (normalised.wipLimits && Object.keys(normalised.wipLimits).length > 0) {

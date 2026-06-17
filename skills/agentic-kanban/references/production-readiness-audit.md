@@ -46,8 +46,8 @@ Standalone gate to run before moving a task (or a release) to `done`. Deeper tha
 
 ## Output
 Write a PASS/FAIL summary in the task file. ANY unresolved FAIL on Correctness/Security/Reliability
-blocks `done` — list it, and either fix or `block` with a clear reason. State explicitly what was N/A.
+blocks `done` - list it, and either fix or `block` with a clear reason. State explicitly what was N/A.
 
 ## Always
-Evidence over assertion. If a check wasn't run, mark it not-run — never imply coverage you don't have.
+Evidence over assertion. If a check wasn't run, mark it not-run - never imply coverage you don't have.
 ````

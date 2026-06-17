@@ -123,4 +123,117 @@ describe('TransitionService', () => {
         expect(result.warnings).toContain('This profile requires a worktree before a task can enter IN PROGRESS.');
         expect(result.blockedReasons).toEqual([]);
     });
+
+    it('requires a checklist before planning can transition to in-progress in standard profile', () => {
+        const result = service.validate({
+            task: makeTask({
+                lane: 'planning',
+                worktree: { branch: 'agentic/task', path: '/tmp/task', created: '2026-06-15T01:00:00.000Z' },
+                checklist: undefined,
+            }),
+            toLane: 'in-progress',
+        }, standardConfig);
+
+        expect(result.ok).toBe(false);
+        expect(result.errors).toContain('This profile requires a checklist with at least one item before entering IN PROGRESS.');
+    });
+
+    it('requires a checklist with at least one item before planning can transition to in-progress', () => {
+        const result = service.validate({
+            task: makeTask({
+                lane: 'planning',
+                worktree: { branch: 'agentic/task', path: '/tmp/task', created: '2026-06-15T01:00:00.000Z' },
+                checklist: { done: 0, total: 0 },
+            }),
+            toLane: 'in-progress',
+        }, standardConfig);
+
+        expect(result.ok).toBe(false);
+        expect(result.errors).toContain('This profile requires a checklist with at least one item before entering IN PROGRESS.');
+    });
+
+    it('requires spec and change files if task has spec-driven properties', () => {
+        const result = service.validate({
+            task: makeTask({
+                lane: 'planning',
+                worktree: { branch: 'agentic/task', path: '/tmp/task', created: '2026-06-15T01:00:00.000Z' },
+                checklist: { done: 0, total: 2 },
+                spec: '.agentkanban/specs/auth/spec.md',
+                specMissing: true,
+                change: '.agentkanban/changes/task-1',
+                changeMissing: true,
+            }),
+            toLane: 'in-progress',
+        }, standardConfig);
+
+        expect(result.ok).toBe(false);
+        expect(result.errors).toContain('This task is spec-driven and requires a valid spec file before entering IN PROGRESS.');
+        expect(result.errors).toContain('This task is spec-driven and requires a valid change folder before entering IN PROGRESS.');
+    });
+
+    it('requires spec and change files if task has spec-driven label', () => {
+        const result = service.validate({
+            task: makeTask({
+                lane: 'planning',
+                worktree: { branch: 'agentic/task', path: '/tmp/task', created: '2026-06-15T01:00:00.000Z' },
+                checklist: { done: 0, total: 2 },
+                labels: ['spec-driven'],
+                spec: undefined,
+                change: undefined,
+            }),
+            toLane: 'in-progress',
+        }, standardConfig);
+
+        expect(result.ok).toBe(false);
+        expect(result.errors).toContain('This task is spec-driven and requires a valid spec file before entering IN PROGRESS.');
+        expect(result.errors).toContain('This task is spec-driven and requires a valid change folder before entering IN PROGRESS.');
+    });
+
+    it('allows planning to transition to in-progress if checklist is present and spec-driven details are valid', () => {
+        const result = service.validate({
+            task: makeTask({
+                lane: 'planning',
+                worktree: { branch: 'agentic/task', path: '/tmp/task', created: '2026-06-15T01:00:00.000Z' },
+                checklist: { done: 0, total: 2 },
+                spec: '.agentkanban/specs/auth/spec.md',
+                specMissing: false,
+                change: '.agentkanban/changes/task-1',
+                changeMissing: false,
+            }),
+            toLane: 'in-progress',
+        }, standardConfig);
+
+        expect(result.ok).toBe(true);
+        expect(result.errors).toEqual([]);
+    });
+
+    it('respects custom transition policies configured in board config', () => {
+        const customConfig: BoardConfig = {
+            profile: 'standard',
+            profileVersion: 3,
+            lanes: PROFILE_LANES.standard,
+            policies: {
+                transition: {
+                    requireChecklistForInProgress: false,
+                    requireSpecForInProgress: false,
+                    requireWorktreeForInProgress: false,
+                },
+            },
+        };
+
+        const result = service.validate({
+            task: makeTask({
+                lane: 'planning',
+                worktree: undefined,
+                checklist: undefined,
+                labels: ['spec-driven'],
+                spec: undefined,
+                change: undefined,
+            }),
+            toLane: 'in-progress',
+        }, customConfig);
+
+        expect(result.ok).toBe(true);
+        expect(result.errors).toEqual([]);
+    });
 });

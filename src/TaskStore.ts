@@ -293,6 +293,10 @@ export class TaskStore {
         }
     }
 
+    getWorkspacePath(): string {
+        return this.workspaceUri.fsPath;
+    }
+
     getAll(): Task[] {
         return Array.from(this.tasks.values());
     }

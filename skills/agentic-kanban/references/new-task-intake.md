@@ -31,7 +31,7 @@ Use to turn a raw idea, feature request, or bug report into a well-formed task o
   current work — do not pull it into the current pass.
 
 ## Good title rules
-Imperative, specific, scannable: "Add OAuth2 login", "Fix duplicate invoice on retry" — not "auth" or "bug".
+Imperative, specific, scannable: "Add OAuth2 login", "Fix duplicate invoice on retry" - not "auth" or "bug".
 
 ## Checklist
 - [ ] Title is imperative + specific

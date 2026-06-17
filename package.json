@@ -2,7 +2,7 @@
     "name": "agentic-kanban",
     "displayName": "Agentic Kanban",
     "description": "A profile-driven Kanban board for AI-assisted software development with persistent markdown task conversations.",
-    "version": "1.5.0",
+    "version": "1.6.0",
     "publisher": "milzam",
     "license": "Elastic-2.0",
     "icon": "images/icon.png",
@@ -171,6 +171,10 @@
                     {
                         "name": "prompts",
                         "description": "write/refresh the bundled stage-driver prompts in .agentkanban/prompts/"
+                    },
+                    {
+                        "name": "sweep",
+                        "description": "[lane] - run an autonomous sweep of ready tasks (default: planning)"
                     }
                 ]
             }

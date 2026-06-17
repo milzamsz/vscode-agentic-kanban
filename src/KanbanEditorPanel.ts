@@ -1,4 +1,8 @@
 import * as vscode from 'vscode';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 import { TaskStore } from './TaskStore';
 import type { BoardConfigStore } from './BoardConfigStore';
 import type { WorktreeService } from './WorktreeService';
@@ -586,7 +590,9 @@ export class KanbanEditorPanel {
 
     private async _applyLaneTransition(task: import('./types').Task, newLane: string): Promise<boolean> {
         const config = this._boardConfigStore.get();
-        const result = this._transitionService.validate({ task, toLane: newLane }, config);
+        const derived = await this._taskStore.getDerived(task);
+        const taskWithDerived = { ...task, ...derived };
+        const result = this._transitionService.validate({ task: taskWithDerived, toLane: newLane }, config);
         if (result.warnings.length > 0) {
             void vscode.window.showWarningMessage(result.warnings.join(' '));
         }
@@ -643,11 +649,73 @@ export class KanbanEditorPanel {
             }
         }
 
+        if (task.lane === 'in-progress' && newLane === 'review') {
+            const verified = await this._runVerificationCommands(task, config);
+            if (!verified) {
+                return false;
+            }
+        }
+
         await this._taskStore.moveTaskToLane(task.id, newLane);
         if ((newLane === 'done' || newLane === 'archive') && task.worktree) {
             this._promptWorktreeRemoval(task);
         }
         return true;
+    }
+
+    private async _runVerificationCommands(
+        task: import('./types').Task,
+        config: import('./types').BoardConfig,
+    ): Promise<boolean> {
+        const verification = config.policies?.verification;
+        if (!verification) {
+            return true;
+        }
+
+        const commandsToRun: { name: string; command: string }[] = [];
+        if (verification.testCommand) {
+            commandsToRun.push({ name: 'test', command: verification.testCommand });
+        }
+        if (verification.lintCommand) {
+            commandsToRun.push({ name: 'lint', command: verification.lintCommand });
+        }
+        if (verification.buildCommand) {
+            commandsToRun.push({ name: 'build', command: verification.buildCommand });
+        }
+
+        if (commandsToRun.length === 0) {
+            return true;
+        }
+
+        const cwd = task.worktree?.path || this._taskStore.getWorkspacePath();
+
+        try {
+            await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: `Verifying task "${task.title}"`,
+                    cancellable: false,
+                },
+                async (progress) => {
+                    for (const cmd of commandsToRun) {
+                        progress.report({ message: `Running ${cmd.name}: "${cmd.command}"` });
+                        this._logger.info('kanbanEditorPanel', `Running verification command: ${cmd.command} (cwd: ${cwd})`);
+                        await execAsync(cmd.command, { cwd });
+                    }
+                },
+            );
+            return true;
+        } catch (err: any) {
+            this._logger.error('kanbanEditorPanel', `Verification failed: ${err.message || err}`);
+            const stdout = err.stdout ? `\nStdout:\n${err.stdout}` : '';
+            const stderr = err.stderr ? `\nStderr:\n${err.stderr}` : '';
+            const details = `${err.message || err}${stdout}${stderr}`;
+            await vscode.window.showErrorMessage(
+                `Verification failed. Cannot move task to REVIEW.\n\n${details}`,
+                { modal: true },
+            );
+            return false;
+        }
     }
 
     private async _appendOverrideComment(

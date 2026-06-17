@@ -54,15 +54,43 @@ export class TransitionService {
             addBlockingRule(`Cannot move from ${fromLane} to ${toLane} in the ${config.profile} profile.`);
         }
 
-        if (toLane === 'in-progress' && config.worktreePolicy?.requiredForImplementation && !task.worktree) {
+        const transPolicies = config.policies?.transition;
+        const reqChecklist = transPolicies?.requireChecklistForInProgress ?? (config.profile === 'standard');
+        const reqSpec = transPolicies?.requireSpecForInProgress ?? (config.profile === 'standard');
+        const reqDescription = transPolicies?.requireDescriptionForReview ?? (config.profile === 'standard');
+        const reqWorktree = transPolicies?.requireWorktreeForInProgress ?? (config.worktreePolicy?.requiredForImplementation ?? (config.profile === 'standard'));
+
+        if (toLane === 'in-progress' && reqWorktree && !task.worktree) {
             addBlockingRule('This profile requires a worktree before a task can enter IN PROGRESS.');
         }
 
-        if (config.profile === 'standard' && toLane === 'review' && !task.description.trim()) {
+        if (fromLane === 'planning' && toLane === 'in-progress') {
+            if (reqSpec) {
+                const hasSpecLabel = task.labels?.includes('spec-driven');
+                const isSpecDriven = !!(task.spec || task.change || hasSpecLabel);
+
+                if (isSpecDriven) {
+                    if (!task.spec || task.specMissing) {
+                        addBlockingRule('This task is spec-driven and requires a valid spec file before entering IN PROGRESS.');
+                    }
+                    if (!task.change || task.changeMissing) {
+                        addBlockingRule('This task is spec-driven and requires a valid change folder before entering IN PROGRESS.');
+                    }
+                }
+            }
+
+            if (reqChecklist) {
+                if (!task.checklist || task.checklist.total === 0) {
+                    addBlockingRule('This profile requires a checklist with at least one item before entering IN PROGRESS.');
+                }
+            }
+        }
+
+        if (toLane === 'review' && reqDescription && !task.description.trim()) {
             warnings.push('Task has no description yet. Review will be easier once scope is written down.');
         }
 
-        if (config.profile === 'standard' && toLane === 'done' && !task.worktree && !isDoneLane(fromLane)) {
+        if (toLane === 'done' && reqWorktree && !task.worktree && !isDoneLane(fromLane)) {
             warnings.push('Task reached DONE without worktree metadata. Confirm the implementation audit trail is still sufficient.');
         }
 

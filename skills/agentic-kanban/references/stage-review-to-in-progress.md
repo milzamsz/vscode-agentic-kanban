@@ -1,11 +1,11 @@
-# Template prompt — sweep `review` → `in-progress` (tasks needing revision)
+# Template prompt — sweep `review` -> `in-progress` (tasks needing revision)
 
 Return EVERY implementation-reviewed task that needs changes back to active work.
 Run rules + TDD loop: [conventions.md](conventions.md). Sweep + dependency mechanics: [batch-and-dependencies.md](batch-and-dependencies.md).
 Per-task implementation continues in [run-development-prompt.md](run-development-prompt.md).
 
 ````markdown
-# SWEEP REVIEW → IN-PROGRESS — Agentic Kanban stage driver
+# SWEEP REVIEW -> IN-PROGRESS — Agentic Kanban stage driver
 
 Read conventions.md (ritual, verify gate, TDD, rules) and batch-and-dependencies.md (worklist, guardrail,
 parallelism, discovery, summary) first.

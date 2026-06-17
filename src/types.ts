@@ -84,6 +84,24 @@ export interface Task {
     laneInvalid?: boolean;
 }
 
+export interface TransitionPolicies {
+    requireChecklistForInProgress?: boolean;
+    requireSpecForInProgress?: boolean;
+    requireDescriptionForReview?: boolean;
+    requireWorktreeForInProgress?: boolean;
+}
+
+export interface VerificationConfig {
+    testCommand?: string;
+    lintCommand?: string;
+    buildCommand?: string;
+}
+
+export interface BoardPolicies {
+    transition?: TransitionPolicies;
+    verification?: VerificationConfig;
+}
+
 export interface BoardConfig {
     profile: WorkflowProfile;
     profileVersion: number;
@@ -95,6 +113,7 @@ export interface BoardConfig {
     /** Max tasks allowed per lane, e.g. `{ "in-progress": 1 }`. Absent/0 = no limit. */
     wipLimits?: Record<string, number>;
     lanes: string[];
+    policies?: BoardPolicies;
 }
 
 export const PROFILE_VERSION = 3;
@@ -158,6 +177,27 @@ export function wipExceeded(
     return count >= limit ? { lane: toLane, limit, count } : null;
 }
 
+export const DEFAULT_POLICIES: Record<WorkflowProfile, BoardPolicies> = {
+    lite: {
+        transition: {
+            requireChecklistForInProgress: false,
+            requireSpecForInProgress: false,
+            requireDescriptionForReview: false,
+            requireWorktreeForInProgress: false,
+        },
+        verification: {},
+    },
+    standard: {
+        transition: {
+            requireChecklistForInProgress: true,
+            requireSpecForInProgress: true,
+            requireDescriptionForReview: true,
+            requireWorktreeForInProgress: true,
+        },
+        verification: {},
+    },
+};
+
 export const DEFAULT_BOARD_CONFIG: BoardConfig = {
     profile: DEFAULT_PROFILE,
     profileVersion: PROFILE_VERSION,
@@ -168,6 +208,7 @@ export const DEFAULT_BOARD_CONFIG: BoardConfig = {
     reviewPolicy: DEFAULT_REVIEW_POLICY,
     worktreePolicy: DEFAULT_WORKTREE_POLICY[DEFAULT_PROFILE],
     wipLimits: DEFAULT_WIP_LIMITS[DEFAULT_PROFILE],
+    policies: DEFAULT_POLICIES[DEFAULT_PROFILE],
 };
 
 export const DONE_LANE: Lane = 'done';
@@ -199,6 +240,16 @@ export function normaliseBoardConfig(config?: Partial<BoardConfig> | null): Boar
         worktreePolicy: config?.worktreePolicy ?? DEFAULT_WORKTREE_POLICY[profile],
         wipLimits: config?.wipLimits ?? DEFAULT_WIP_LIMITS[profile],
         lanes: getProfileLanes(profile),
+        policies: {
+            transition: {
+                ...DEFAULT_POLICIES[profile].transition,
+                ...config?.policies?.transition,
+            },
+            verification: {
+                ...DEFAULT_POLICIES[profile].verification,
+                ...config?.policies?.verification,
+            },
+        },
     };
 }
 

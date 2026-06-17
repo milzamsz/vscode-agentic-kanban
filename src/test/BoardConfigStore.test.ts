@@ -220,6 +220,13 @@ describe('BoardConfigStore', () => {
                 '    implementation: independent-agent+human',
                 'worktreePolicy:',
                 '  requiredForImplementation: false',
+                'policies:',
+                '  transition:',
+                '    requireChecklistForInProgress: false',
+                '    requireSpecForInProgress: false',
+                '    requireDescriptionForReview: false',
+                '    requireWorktreeForInProgress: false',
+                '  verification: {}',
             ].join('\n');
             vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(new TextEncoder().encode(configYaml));
             const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);

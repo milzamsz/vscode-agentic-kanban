@@ -18,7 +18,7 @@ vi.mock('child_process', () => {
         }
     };
     fn[promisify.custom] = execFileMock;
-    return { execFile: fn };
+    return { execFile: fn, exec: fn };
 });
 
 import { WorktreeService } from '../WorktreeService';
