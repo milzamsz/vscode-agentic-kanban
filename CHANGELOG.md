@@ -2,6 +2,16 @@
 
 All notable changes to Agentic Kanban will be documented here.
 
+## [1.6.1] - 2026-06-22
+
+- **Dependabot baseline** (`.github/dependabot.yml`): weekly grouped npm + GitHub Actions updates
+- **Profile-aware prompt scaffolding**: Lite workspace no longer receives Standard-only stage prompts; `getWorkflowPrompt()`, `buildAgentsMdSection()`, `scaffoldPrompts()` are now profile-aware
+- **Resilient board search input**: debounced live search, Enter immediate commit, focus retention across re-renders
+- **Workflow doctor diagnostics**: new `@kanban /doctor` command reporting lane drift, stale blockers, dependency cycles, stale worktrees, spec drift, and orphaned deps
+- **Structured evidence completion gates**: `TaskEvidence` frontmatter with validator; `review → done` now requires evidence with `ran: true, passed: true`
+- **Task lifecycle fields**: `parent`, `superseeds`, `superseededBy`, `blockerResolved` in frontmatter
+- **README**: dependency management section added
+
 ## [1.6.0] - 2026-06-17
 
 - Add a visual dependency graph dialog to the Kanban board, rendering task connections and supporting details navigation.
