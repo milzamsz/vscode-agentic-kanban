@@ -2,6 +2,12 @@
 
 All notable changes to Agentic Kanban will be documented here.
 
+## [1.6.3] - 2026-06-23
+
+- **Dependency updates**: merged Dependabot upgrades for TypeScript 6.0.3, Vitest 4.1.9, @types/node 26.0.0, @types/vscode 1.125.0, esbuild 0.28.1, and Tailwind CSS PostCSS 4.3.1
+- **Test robustness**: resolved test state contamination by restoring mocks in `afterEach`
+- **Compiler configuration**: added explicit node types dependency mapping in `tsconfig.json`
+
 ## [1.6.2] - 2026-06-23
 
 - **Parameterized lane sweeps**: `@kanban /sweep [lane]` now supports `--label=`, `--priority=`, and `--pack=`/`--stack=` filtering flags
