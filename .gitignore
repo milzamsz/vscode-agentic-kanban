@@ -17,3 +17,5 @@ Thumbs.db
 # Developer tooling
 
 .devtool/
+
+.temp/

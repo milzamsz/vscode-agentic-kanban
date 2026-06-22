@@ -2,6 +2,12 @@
 
 All notable changes to Agentic Kanban will be documented here.
 
+## [1.6.5] - 2026-06-23
+
+- **Restore Branding Assets**: copied and renamed the new three-column logos and icons directly from `.temp/` to their original repository and documentation locations (`images/icon.png`, `images/kanban-icon.svg`, `images/kanban-icon-128x128.svg`, and `docs/src/assets/logo.svg`).
+- **Standard Configuration Integration**: removed all custom inline SVG components in favor of Starlight's original configuration layout path.
+- **Packaging Exclusions**: updated `.vscodeignore` to exclude the `docs/` workspace and `.temp/` directories, reducing the packaged extension VSIX size from 44 MB to 328 KB.
+
 ## [1.6.4] - 2026-06-23
 
 - **Dependency saving fix**: resolved a bug where dependencies added via autocomplete dropdown in the edit/create modal were not saved/persisted because the corresponding `blocked-by:<slug>` label was not synchronized to the Labels list (causing backend saving logic to clear the dependencies).

@@ -22,3 +22,5 @@ task.md
 TECHNICAL.md
 agentic-kanban-*.vsix
 %l*
+docs/**
+.temp/**
