@@ -200,7 +200,7 @@
         "esbuild": "^0.28.1",
         "postcss": "^8.5.8",
         "tailwindcss": "^4.2.1",
-        "typescript": "^5.7.0",
+        "typescript": "^6.0.3",
         "vitest": "^4.1.9",
         "yaml": "^2.9.0"
     },
