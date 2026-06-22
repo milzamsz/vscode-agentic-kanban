@@ -24,6 +24,9 @@ let draggedLaneId: string | null = null;
 let isDragging = false;
 let pendingState: BoardState | null = null;
 
+// Search debounce timer
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
 // Modal state
 let modalTaskId: string | null = null;
 let modalLabels: string[] = [];
@@ -151,6 +154,16 @@ function renderBoard(): void {
     const savedDescription = (document.getElementById('modal-description') as HTMLTextAreaElement | null)?.value ?? '';
 
     app.innerHTML = buildBoardHtml();
+
+    // Restore focus to search input after re-render (when search is active and no modal is open)
+    if (searchQuery && !openModalId && modalMode !== 'create') {
+        const si = document.getElementById('search-input') as HTMLInputElement | null;
+        if (si) {
+            si.focus();
+            const len = si.value.length;
+            si.setSelectionRange(len, len);
+        }
+    }
 
     // Re-open modal if it was open before the re-render
     if (openModalId || savedMode === 'create') {
@@ -503,8 +516,20 @@ function handleSearchInput(input: HTMLInputElement): void {
     searchQuery = input.value;
     if (searchQuery === '') {
         searchFilter = 'all';
+        renderBoard();
+    } else {
+        if (searchDebounceTimer) { clearTimeout(searchDebounceTimer); }
+        searchDebounceTimer = setTimeout(() => {
+            renderBoard();
+            // Restore focus to search input after render
+            const si = document.getElementById('search-input') as HTMLInputElement | null;
+            if (si) {
+                si.focus();
+                const len = si.value.length;
+                si.setSelectionRange(len, len);
+            }
+        }, 150);
     }
-    renderBoard();
 }
 
 function handleClick(e: MouseEvent): void {
@@ -706,6 +731,22 @@ function handleKeydown(e: KeyboardEvent): void {
             return;
         }
         closeModal();
+        return;
+    }
+    if (e.key === 'Enter' && (e.target as Element).id === 'search-input') {
+        e.preventDefault();
+        // Immediately apply search without debounce
+        if (searchDebounceTimer) { clearTimeout(searchDebounceTimer); searchDebounceTimer = null; }
+        searchQuery = (e.target as HTMLInputElement).value;
+        if (searchQuery === '') { searchFilter = 'all'; }
+        renderBoard();
+        // Restore focus to search input
+        const si = document.getElementById('search-input') as HTMLInputElement | null;
+        if (si) {
+            si.focus();
+            const len = si.value.length;
+            si.setSelectionRange(len, len);
+        }
         return;
     }
     if (e.key === 'Enter' && (e.target as Element).id === 'modal-label-input') {

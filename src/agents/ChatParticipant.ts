@@ -17,6 +17,7 @@ import {
     type ReviewPolicy,
 } from '../types';
 import { getDefaultProfile, isEnforceWorktrees } from '../settings';
+import { WorkflowDoctor } from '../WorkflowDoctor';
 
 /** Relative path within the workspace for the instruction file. */
 const INSTRUCTION_REL_PATH = '.agentkanban/INSTRUCTION.md';
@@ -34,7 +35,7 @@ const SPECS_REL_PATH = '.agentkanban/specs';
 const PROMPTS_REL_PATH = '.agentkanban/prompts';
 
 /** Bundled prompt files written to `.agentkanban/prompts/` on init and via `/prompts`. */
-const PROMPT_FILES = [
+const STANDARD_PROMPT_FILES = [
     'README.md',
     'new-task-intake.md',
     'stage-backlog-to-planning.md',
@@ -43,6 +44,13 @@ const PROMPT_FILES = [
     'stage-review-to-done.md',
     'stage-blocked-and-resume.md',
     'production-readiness-audit.md',
+];
+
+/** Lite profile uses only basic prompts without planning/review stage prompts. */
+const LITE_PROMPT_FILES = [
+    'README.md',
+    'new-task-intake.md',
+    'stage-backlog-to-planning.md',
 ];
 
 export const AGENTS_MD_BEGIN = '<!-- BEGIN AGENTIC KANBAN \u2014 DO NOT EDIT THIS SECTION -->';
@@ -79,7 +87,10 @@ interface AgentsTaskContext {
     priority?: Priority;
 }
 
-function getWorkflowPrompt(): string {
+function getWorkflowPrompt(profile: 'standard' | 'lite' = 'standard'): string {
+    if (profile === 'lite') {
+        return 'Use **implement** in IN PROGRESS (no separate planning lane). Lite flow: backlog -> in-progress -> done.\n\n';
+    }
     return 'Use **plan**, **checklist**, **implement**, or **review** based on the active lane. Move tasks with explicit transitions: `backlog -> planning -> in-progress -> review -> done` for Standard, or `backlog -> in-progress -> done` for Lite.\n\n';
 }
 
@@ -101,8 +112,9 @@ function getPriorityReviewGuidance(priority: Priority | undefined, reviewPolicy:
 function buildAgentsMdSection(
     enforcementMode: 'strict' | 'warn',
     reviewPolicy: ReviewPolicy,
+    profile: 'standard' | 'lite' = 'standard',
 ): string {
-    return [
+    const lines = [
         AGENTS_MD_BEGIN,
         '## Agentic Kanban',
         '',
@@ -110,12 +122,16 @@ function buildAgentsMdSection(
         'Read `.agentkanban/memory.md` for project context.',
         '',
         `Enforcement mode: \`${enforcementMode}\``,
-        'Review policy:',
-        ...formatReviewPolicyLines(reviewPolicy),
+        // Only show review policy for Standard profile
+        ...(profile === 'standard' ? [
+            'Review policy:',
+            ...formatReviewPolicyLines(reviewPolicy),
+        ] : []),
         '',
         'If a task file (`.agentkanban/tasks/**/*.md`) was referenced earlier in this conversation, re-read it before responding and always respond in and at the end the task file.',
         AGENTS_MD_END,
-    ].join('\n');
+    ];
+    return lines.join('\n');
 }
 
 /** Build a richer AGENTS.md sentinel for worktree-linked workspaces. */
@@ -234,8 +250,11 @@ export class ChatParticipant {
             case 'sweep':
                 await this.handleSweep(prompt, response);
                 return;
+            case 'doctor':
+                await this.handleDoctor(response);
+                return;
             default: {
-                response.markdown('Available commands: `/new`, `/task`, `/refresh`, `/spec`, `/worktree`, `/archive`, `/prompts`, `/sweep`\n\n');
+                response.markdown('Available commands: `/new`, `/task`, `/refresh`, `/spec`, `/worktree`, `/archive`, `/prompts`, `/sweep`, `/doctor`\n\n');
                 response.markdown('- `@kanban /spec [capability]` - Scaffold spec-driven change artifacts for the selected task\n');
                 response.markdown('- `@kanban /new <task title>` - Create a new task\n');
                 response.markdown('- `@kanban /task <task name>` - Select a task to work on\n');
@@ -246,6 +265,7 @@ export class ChatParticipant {
                 response.markdown('- `@kanban /worktree open` - Open the task worktree for the selected task in VS Code\n');
                 response.markdown('- `@kanban /worktree remove` - Remove the task worktree\n');
                 response.markdown('- `@kanban /sweep [lane]` - Run an autonomous sweep of ready tasks (default: planning)\n');
+                response.markdown('- `@kanban /doctor` - Run workflow diagnostics for lane drift, blockers, dependencies, and stale worktrees\n');
                 return;
             }
         }
@@ -296,7 +316,11 @@ export class ChatParticipant {
             // may already exist
         }
 
-        for (const name of PROMPT_FILES) {
+        // Select prompt files based on active profile
+        const config = this.boardConfigStore.get();
+        const targetFiles = config.profile === 'lite' ? LITE_PROMPT_FILES : STANDARD_PROMPT_FILES;
+
+        for (const name of targetFiles) {
             const destUri = vscode.Uri.joinPath(destDir, name);
             const exists = await this.exists(destUri);
             if (exists && !overwrite) {
@@ -365,6 +389,7 @@ export class ChatParticipant {
                 : buildAgentsMdSection(
                     config.enforcement?.mode ?? DEFAULT_ENFORCEMENT[config.profile].mode,
                     config.reviewPolicy ?? DEFAULT_REVIEW_POLICY,
+                    config.profile,
                 );
 
             // Recognise both current and legacy sentinels so an old "Agent Kanban"
@@ -615,7 +640,8 @@ export class ChatParticipant {
         }
 
         response.markdown('The conversation for this task happens in the task file above.\n\n');
-        response.markdown(getWorkflowPrompt());
+        const config = this.boardConfigStore.get();
+        response.markdown(getWorkflowPrompt(config.profile));
         response.markdown('Use `@kanban /refresh` to re-inject context if the agent loses track, or `@kanban /worktree` to create an isolated worktree.');
     }
 
@@ -1312,6 +1338,43 @@ export class ChatParticipant {
             .replace(/\{\{CAPABILITY\}\}/g, capability);
         await vscode.workspace.fs.writeFile(targetUri, new TextEncoder().encode(content));
         created.push(targetUri);
+    }
+
+    private async handleDoctor(response: vscode.ChatResponseStream): Promise<void> {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            response.markdown('No workspace folder is open.');
+            return;
+        }
+
+        const config = this.boardConfigStore.get();
+        const doctor = new WorkflowDoctor(
+            this.taskStore,
+            this.boardConfigStore,
+            workspaceFolder.uri,
+            undefined,
+        );
+        const issues = await doctor.diagnose();
+
+        const profile = config.profile.toUpperCase();
+        const status = issues.length === 0 ? 'HEALTHY' : 'ACTION REQUIRED';
+
+        response.markdown(`## WORKFLOW DOCTOR REPORT\n\n`);
+        response.markdown(`Profile: **${profile}** | Status: **${status}** | Issues: **${issues.length}**\n\n`);
+
+        if (issues.length > 0) {
+            response.markdown('| # | Severity | Category | Task | Issue |\n');
+            response.markdown('|---|---|---|---|---|\n');
+            for (let i = 0; i < issues.length; i++) {
+                const issue = issues[i];
+                const severityIcon = issue.severity === 'error' ? '🔴' : issue.severity === 'warning' ? '🟡' : '🔵';
+                response.markdown(`| ${i + 1} | ${severityIcon} ${issue.severity} | ${issue.category} | \`${issue.taskId}\` | ${issue.message} |\n`);
+            }
+        } else {
+            response.markdown('No issues found. The board is in good shape.\n');
+        }
+
+        this.logger.info('chatParticipant', `Doctor diagnosed ${issues.length} issues`);
     }
 
     private async exists(uri: vscode.Uri): Promise<boolean> {

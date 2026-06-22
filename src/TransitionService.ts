@@ -1,5 +1,6 @@
 import type { BoardConfig, Task } from './types';
 import { getFirstLane, isDoneLane } from './types';
+import { TaskEvidenceValidator } from './TaskEvidenceValidator';
 
 export interface TransitionRequest {
     task: Task;
@@ -88,6 +89,39 @@ export class TransitionService {
 
         if (toLane === 'review' && reqDescription && !task.description.trim()) {
             warnings.push('Task has no description yet. Review will be easier once scope is written down.');
+        }
+
+        if (toLane === 'done') {
+            const isStandard = config.profile === 'standard';
+            const evResult = TaskEvidenceValidator.validate(task, isStandard);
+
+            if (evResult.missing.includes('ALL')) {
+                addBlockingRule('No evidence recorded. Run production-readiness audit and record results before moving to DONE.');
+            } else {
+                for (const key of evResult.missing) {
+                    addBlockingRule(`Required evidence "${key}" is missing. Record evidence before moving to DONE.`);
+                }
+                for (const key of evResult.failed) {
+                    addBlockingRule(`Required evidence "${key}" did not pass. Fix issues before DONE.`);
+                }
+                for (const warn of evResult.warnings) {
+                    warnings.push(warn);
+                }
+            }
+
+            // If verification commands are configured, warn if evidence wasn't recorded
+            const verPolicies = config.policies?.verification;
+            if (verPolicies && evResult.missing.length === 0) {
+                const configured: string[] = [];
+                if (verPolicies.lintCommand) configured.push('lint');
+                if (verPolicies.testCommand) configured.push('test');
+                if (verPolicies.buildCommand) configured.push('build');
+                for (const key of configured) {
+                    if (!task.evidence?.[key as keyof typeof task.evidence]) {
+                        warnings.push(`Configured verification "${key}" was not recorded as evidence.`);
+                    }
+                }
+            }
         }
 
         if (toLane === 'done' && reqWorktree && !task.worktree && !isDoneLane(fromLane)) {
