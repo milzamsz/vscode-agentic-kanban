@@ -117,6 +117,10 @@ describe('ChatParticipant', () => {
         participant = new ChatParticipant(taskStore, boardConfigStore, extensionUri);
     });
 
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
     describe('handleRequest routing', () => {
         it('should show help for unknown command', async () => {
             const response = mockResponse();
