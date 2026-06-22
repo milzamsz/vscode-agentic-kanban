@@ -45,6 +45,7 @@ created: <ISO 8601>
 updated: <ISO 8601>
 description: <Brief description>
 labels: [blocked, blocked-by:<slug>]    # optional blocker labels
+dependsOn: [<slug>]                     # task dependencies (synced with blocked-by labels)
 ---
 
 ## Conversation
@@ -139,7 +140,7 @@ Guidance:
 - `in-progress`: implement the approved plan. Entering `in-progress` is **not** a separate human gate — an agent may carry an approved task from `planning` straight through implementation to `review` in one pass (the autonomous `planning -> review` flow). When running this flow, the task must be moved to `in-progress` before starting work, so the board reflects the current progress state. Worktrees are optional unless the board policy requires them.
 - `review`: implementation review. Return to `in-progress` for revisions, or move to `done` when approved.
 - The two human gates are **plan approval** (in `planning`) and **`review -> done`**. Everything between can run hands-off.
-- Real blockers → keep the task in its lane and add the `blocked` label (external dependency/decision) or `blocked-by:<slug>` (task dependency); record what clears it. Never force past a real blocker.
+- Real blockers → keep the task in its lane. Use the task's `dependsOn` frontmatter array or `blocked-by:<slug>` labels to document task dependencies, and the `blocked` label for external blockers. The board webview and backend sync these fields bidirectionally. Record what clears the blocker and never force past a real blocker.
 - One active implementation task at a time (WIP) unless the board allows otherwise.
 
 ## Action Vocabulary

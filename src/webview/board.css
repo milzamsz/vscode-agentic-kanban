@@ -1,4 +1,7 @@
 @import "tailwindcss";
+@source "../../src/**/*.ts";
+
+
 
 @layer base {
     * {
@@ -21,7 +24,7 @@
     }
 }
 
-@layer components {
+
 
     /* ── Uninitialised panel ─────────────────────── */
     .uninit-panel {
@@ -871,4 +874,4 @@
         opacity: 1;
         stroke-width: 3px;
     }
-}
+

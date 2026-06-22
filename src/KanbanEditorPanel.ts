@@ -314,6 +314,7 @@ export class KanbanEditorPanel {
                 task.assignee = message.assignee as string | undefined;
                 task.labels = message.labels as string[] | undefined;
                 task.dueDate = message.dueDate as string | undefined;
+                task.dependsOn = message.dependsOn as string[] | undefined;
                 task.description = (message.description ?? '').trim();
 
                 // Build custom body with description as first [user] entry
@@ -466,6 +467,7 @@ export class KanbanEditorPanel {
                 task.assignee = message.assignee as string | undefined;
                 task.labels = message.labels as string[] | undefined;
                 task.dueDate = message.dueDate as string | undefined;
+                task.dependsOn = message.dependsOn as string[] | undefined;
                 if (message.lane && message.lane !== task.lane) {
                     await this._applyLaneTransition(task, message.lane);
                 } else {

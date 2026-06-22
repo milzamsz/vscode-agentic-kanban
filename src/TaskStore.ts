@@ -411,7 +411,21 @@ export class TaskStore {
     /** Track which task IDs are in the archive directory. */
     private _archivedIds = new Set<string>();
 
+    static syncLabelsAndDependsOn(task: Task): void {
+        const blockedBySlugs = (task.labels ?? [])
+            .filter(l => l.startsWith('blocked-by:'))
+            .map(l => l.substring('blocked-by:'.length).trim())
+            .filter(Boolean);
+        if (blockedBySlugs.length > 0) {
+            task.dependsOn = blockedBySlugs;
+        } else {
+            task.dependsOn = undefined;
+        }
+    }
+
     async save(task: Task): Promise<void> {
+        TaskStore.syncLabelsAndDependsOn(task);
+
         task.updated = new Date().toISOString();
         this.tasks.set(task.id, task);
         const uri = this.getTaskUri(task.id);
@@ -437,6 +451,8 @@ export class TaskStore {
 
     /** Save a task with an explicit markdown body (used when creating tasks with descriptions). */
     async saveWithBody(task: Task, body: string): Promise<void> {
+        TaskStore.syncLabelsAndDependsOn(task);
+
         task.updated = new Date().toISOString();
         this.tasks.set(task.id, task);
         const uri = this.getTaskUri(task.id);
@@ -724,6 +740,31 @@ export class TaskStore {
                     extras[key] = value;
                 }
             }
+            const rawDependsOn = Array.isArray(data.dependsOn) ? (data.dependsOn as string[]) : undefined;
+            const rawLabels = Array.isArray(data.labels) ? (data.labels as string[]) : undefined;
+
+            const finalLabels = rawLabels ? [...rawLabels] : [];
+            if (rawDependsOn) {
+                for (const dep of rawDependsOn) {
+                    const lbl = `blocked-by:${dep}`;
+                    if (!finalLabels.includes(lbl)) {
+                        finalLabels.push(lbl);
+                    }
+                }
+            }
+
+            const finalDependsOn = rawDependsOn ? [...rawDependsOn] : [];
+            if (rawLabels) {
+                for (const lbl of rawLabels) {
+                    if (lbl.startsWith('blocked-by:')) {
+                        const dep = lbl.substring('blocked-by:'.length).trim();
+                        if (dep && !finalDependsOn.includes(dep)) {
+                            finalDependsOn.push(dep);
+                        }
+                    }
+                }
+            }
+
             return {
                 id: '', // Caller sets this from filename
                 title: data.title,
@@ -733,13 +774,13 @@ export class TaskStore {
                 description: (data.description as string) ?? '',
                 priority: (data.priority as Priority) || undefined,
                 assignee: (data.assignee as string) || undefined,
-                labels: Array.isArray(data.labels) ? (data.labels as string[]) : undefined,
+                labels: finalLabels.length > 0 ? finalLabels : undefined,
                 dueDate: (data.dueDate as string) || undefined,
                 sortOrder: typeof data.sortOrder === 'number' ? data.sortOrder : undefined,
                 slug: typeof data.slug === 'string' ? data.slug : undefined,
                 change: typeof data.change === 'string' ? data.change : undefined,
                 spec: typeof data.spec === 'string' ? data.spec : undefined,
-                dependsOn: Array.isArray(data.dependsOn) ? (data.dependsOn as string[]) : undefined,
+                dependsOn: finalDependsOn.length > 0 ? finalDependsOn : undefined,
                 resumeLane: typeof data.resumeLane === 'string' ? data.resumeLane : undefined,
                 worktree: data.worktree && typeof data.worktree === 'object'
                     ? {

@@ -342,6 +342,55 @@ describe('TaskStore', () => {
             expect(reparsed!.extras).toEqual({ customKey: 'hello' });
         });
 
+        it('should synchronise dependsOn and blocked-by: slug labels in both directions', () => {
+            const md1 = [
+                '---',
+                'title: Sync Test 1',
+                'lane: todo',
+                'dependsOn:',
+                '  - task-a',
+                '---',
+                '## Conversation',
+            ].join('\n');
+            const parsed1 = TaskStore.deserialise(md1);
+            expect(parsed1!.dependsOn).toEqual(['task-a']);
+            expect(parsed1!.labels).toContain('blocked-by:task-a');
+
+            const md2 = [
+                '---',
+                'title: Sync Test 2',
+                'lane: todo',
+                'labels:',
+                '  - blocked-by:task-b',
+                '---',
+                '## Conversation',
+            ].join('\n');
+            const parsed2 = TaskStore.deserialise(md2);
+            expect(parsed2!.labels).toContain('blocked-by:task-b');
+            expect(parsed2!.dependsOn).toEqual(['task-b']);
+        });
+
+        it('should synchronise dependsOn from labels on save', () => {
+            const task: Task = {
+                id: 'task_001',
+                title: 'Sync save test',
+                lane: 'todo',
+                created: '2026-03-08T10:00:00.000Z',
+                updated: '2026-03-08T10:00:00.000Z',
+                labels: ['foo', 'blocked-by:task-a'],
+                dependsOn: undefined
+            };
+
+            TaskStore.syncLabelsAndDependsOn(task);
+
+            expect(task.dependsOn).toEqual(['task-a']);
+
+            task.labels = ['foo'];
+            TaskStore.syncLabelsAndDependsOn(task);
+
+            expect(task.dependsOn).toBeUndefined();
+        });
+
         it('should treat change and spec as first-class keys (not extras) and round-trip them', () => {
             const md = [
                 '---',
