@@ -18,6 +18,7 @@ import {
 } from '../types';
 import { getDefaultProfile, isEnforceWorktrees } from '../settings';
 import { WorkflowDoctor } from '../WorkflowDoctor';
+import { interpolate, resolveVars } from '../PromptTemplate';
 
 /** Relative path within the workspace for the instruction file. */
 const INSTRUCTION_REL_PATH = '.agentkanban/INSTRUCTION.md';
@@ -113,6 +114,7 @@ function buildAgentsMdSection(
     enforcementMode: 'strict' | 'warn',
     reviewPolicy: ReviewPolicy,
     profile: 'standard' | 'lite' = 'standard',
+    skills?: string[],
 ): string {
     const lines = [
         AGENTS_MD_BEGIN,
@@ -128,9 +130,15 @@ function buildAgentsMdSection(
             ...formatReviewPolicyLines(reviewPolicy),
         ] : []),
         '',
+    ];
+    if (skills && skills.length > 0) {
+        lines.push(`Load these project skills before working: ${skills.map(s => `\`${s}\``).join(', ')}.`);
+        lines.push('');
+    }
+    lines.push(
         'If a task file (`.agentkanban/tasks/**/*.md`) was referenced earlier in this conversation, re-read it before responding and always respond in and at the end the task file.',
         AGENTS_MD_END,
-    ];
+    );
     return lines.join('\n');
 }
 
@@ -145,6 +153,7 @@ export function buildWorktreeAgentsMdSection(
     enforcementMode: 'strict' | 'warn' = DEFAULT_ENFORCEMENT.standard.mode,
     specRelPath?: string,
     profile?: 'standard' | 'lite',
+    skills?: string[],
 ): string {
     const isStandard = profile === 'standard';
     const lines = [
@@ -172,6 +181,11 @@ export function buildWorktreeAgentsMdSection(
         '',
         `Enforcement mode: \`${enforcementMode}\``,
         getPriorityReviewGuidance(priority, reviewPolicy),
+    );
+    if (skills && skills.length > 0) {
+        lines.push(`Load these project skills before working: ${skills.map(s => `\`${s}\``).join(', ')}.`);
+    }
+    lines.push(
         'Read the task file above before responding.',
         ...(changeRelPath ? ['Read the linked spec change artifacts before planning, implementing, reviewing, or marking done.'] : []),
         'Read `.agentkanban/INSTRUCTION.md` for task workflow rules.',
@@ -253,8 +267,11 @@ export class ChatParticipant {
             case 'doctor':
                 await this.handleDoctor(response);
                 return;
+            case 'pack':
+                await this.handlePack(prompt, response);
+                return;
             default: {
-                response.markdown('Available commands: `/new`, `/task`, `/refresh`, `/spec`, `/worktree`, `/archive`, `/prompts`, `/sweep`, `/doctor`\n\n');
+                response.markdown('Available commands: `/new`, `/task`, `/refresh`, `/spec`, `/worktree`, `/archive`, `/prompts`, `/sweep`, `/doctor`, `/pack`\n\n');
                 response.markdown('- `@kanban /spec [capability]` - Scaffold spec-driven change artifacts for the selected task\n');
                 response.markdown('- `@kanban /new <task title>` - Create a new task\n');
                 response.markdown('- `@kanban /task <task name>` - Select a task to work on\n');
@@ -266,6 +283,8 @@ export class ChatParticipant {
                 response.markdown('- `@kanban /worktree remove` - Remove the task worktree\n');
                 response.markdown('- `@kanban /sweep [lane]` - Run an autonomous sweep of ready tasks (default: planning)\n');
                 response.markdown('- `@kanban /doctor` - Run workflow diagnostics for lane drift, blockers, dependencies, and stale worktrees\n');
+                response.markdown('- `@kanban /pack list` - List all configured stack packs\n');
+                response.markdown('- `@kanban /pack use <name>` - Select an active stack pack\n');
                 return;
             }
         }
@@ -300,6 +319,30 @@ export class ChatParticipant {
     }
 
     /**
+     * Copy `assets/packs.yaml` to `.agentkanban/packs.yaml` if absent (or overwrite if requested).
+     */
+    async syncPacksYaml(overwrite = false): Promise<vscode.Uri | undefined> {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) { return undefined; }
+
+        const destUri = vscode.Uri.joinPath(workspaceFolder.uri, '.agentkanban', 'packs.yaml');
+        try {
+            const exists = await this.exists(destUri);
+            if (exists && !overwrite) {
+                return destUri;
+            }
+            const srcUri = vscode.Uri.joinPath(this.extensionUri, 'assets', 'packs.yaml');
+            const content = await vscode.workspace.fs.readFile(srcUri);
+            await vscode.workspace.fs.writeFile(destUri, content);
+            this.logger.info('chatParticipant', 'Synced packs.yaml from assets');
+            return destUri;
+        } catch (err: any) {
+            this.logger.warn('chatParticipant', `Failed to sync packs.yaml: ${err.message}`);
+            return undefined;
+        }
+    }
+
+    /**
      * Write the bundled stage-driver prompts to `.agentkanban/prompts/`.
      * On init (`overwrite=false`) only missing files are written, so user edits
      * survive. `@kanban /prompts` calls with `overwrite=true` to refresh them all.
@@ -319,6 +362,10 @@ export class ChatParticipant {
         // Select prompt files based on active profile
         const config = this.boardConfigStore.get();
         const targetFiles = config.profile === 'lite' ? LITE_PROMPT_FILES : STANDARD_PROMPT_FILES;
+        const activePack = config.activeStack
+            ? config.packs?.find(p => p.name === config.activeStack)
+            : undefined;
+        const vars = resolveVars(config, activePack);
 
         for (const name of targetFiles) {
             const destUri = vscode.Uri.joinPath(destDir, name);
@@ -329,8 +376,10 @@ export class ChatParticipant {
             }
             try {
                 const srcUri = vscode.Uri.joinPath(this.extensionUri, 'assets', 'prompts', name);
-                const content = await vscode.workspace.fs.readFile(srcUri);
-                await vscode.workspace.fs.writeFile(destUri, content);
+                const bytes = await vscode.workspace.fs.readFile(srcUri);
+                const rawContent = new TextDecoder().decode(bytes);
+                const interpolated = interpolate(rawContent, vars);
+                await vscode.workspace.fs.writeFile(destUri, new TextEncoder().encode(interpolated));
                 (exists ? result.updated : result.created).push(name);
             } catch (err: any) {
                 this.logger.warn('chatParticipant', `Failed to write prompt ${name}: ${err.message}`);
@@ -374,6 +423,13 @@ export class ChatParticipant {
             }
 
             const config = this.boardConfigStore.get();
+            const activePack = config.activeStack
+                ? config.packs?.find(p => p.name === config.activeStack)
+                : undefined;
+            const projectSkills = config.skills ?? [];
+            const packSkills = activePack?.skills ?? [];
+            const resolvedSkills = Array.from(new Set([...projectSkills, ...packSkills]));
+
             const section = worktreeTask
                 ? buildWorktreeAgentsMdSection(
                     worktreeTask.title,
@@ -385,11 +441,13 @@ export class ChatParticipant {
                     config.enforcement?.mode ?? DEFAULT_ENFORCEMENT[config.profile].mode,
                     worktreeTask.specRelPath,
                     config.profile,
+                    resolvedSkills,
                 )
                 : buildAgentsMdSection(
                     config.enforcement?.mode ?? DEFAULT_ENFORCEMENT[config.profile].mode,
                     config.reviewPolicy ?? DEFAULT_REVIEW_POLICY,
                     config.profile,
+                    resolvedSkills,
                 );
 
             // Recognise both current and legacy sentinels so an old "Agent Kanban"
@@ -994,7 +1052,14 @@ export class ChatParticipant {
 
             const taskUri = this.taskStore.getTaskUri(task.id);
             const taskRelPath = vscode.workspace.asRelativePath(taskUri);
-            const worktreeInfo = await this.worktreeService!.create(task.id, task.title, taskRelPath);
+            const config = this.boardConfigStore.get();
+            const activePack = config.activeStack
+                ? config.packs?.find(p => p.name === config.activeStack)
+                : undefined;
+            const projectSkills = config.skills ?? [];
+            const packSkills = activePack?.skills ?? [];
+            const resolvedSkills = Array.from(new Set([...projectSkills, ...packSkills]));
+            const worktreeInfo = await this.worktreeService!.create(task.id, task.title, taskRelPath, resolvedSkills);
 
             // Update task frontmatter with worktree info
             task.worktree = worktreeInfo;
@@ -1169,7 +1234,28 @@ export class ChatParticipant {
         response: vscode.ChatResponseStream,
     ): Promise<void> {
         const config = this.boardConfigStore.get();
-        const targetLane = prompt.trim() || 'planning';
+        
+        // Parse flags from the prompt arg
+        const args = prompt.split(/\s+/).filter(Boolean);
+        let targetLane = 'planning';
+        let filterLabel: string | undefined;
+        let filterPriority: string | undefined;
+        let filterPack: string | undefined;
+
+        for (const arg of args) {
+            if (arg.startsWith('--label=')) {
+                filterLabel = arg.slice('--label='.length);
+            } else if (arg.startsWith('--priority=')) {
+                filterPriority = arg.slice('--priority='.length);
+            } else if (arg.startsWith('--pack=')) {
+                filterPack = arg.slice('--pack='.length);
+            } else if (arg.startsWith('--stack=')) {
+                filterPack = arg.slice('--stack='.length);
+            } else if (!arg.startsWith('-')) {
+                // Keep first bare token as lane
+                targetLane = arg;
+            }
+        }
 
         if (!config.lanes.includes(targetLane)) {
             response.markdown(`❌ Invalid lane **${targetLane}**. Valid lanes are: ${config.lanes.map(l => `\`${l}\``).join(', ')}\n`);
@@ -1185,14 +1271,19 @@ export class ChatParticipant {
         }
 
         const readyTasks = tasksInLane.filter(task => {
-            if (!task.dependsOn || task.dependsOn.length === 0) {
-                return true;
-            }
-            for (const depId of task.dependsOn) {
-                const depTask = allTasks.find(t => t.id === depId || t.slug === depId);
-                if (depTask && depTask.lane !== 'done' && depTask.lane !== 'archive') {
-                    return false;
+            if (task.dependsOn && task.dependsOn.length > 0) {
+                for (const depId of task.dependsOn) {
+                    const depTask = allTasks.find(t => t.id === depId || t.slug === depId);
+                    if (depTask && depTask.lane !== 'done' && depTask.lane !== 'archive') {
+                        return false;
+                    }
                 }
+            }
+            if (filterLabel && (!task.labels || !task.labels.includes(filterLabel))) {
+                return false;
+            }
+            if (filterPriority && task.priority !== filterPriority) {
+                return false;
             }
             return true;
         });
@@ -1202,7 +1293,24 @@ export class ChatParticipant {
             return;
         }
 
-        response.markdown(`🧹 **Starting sweep of ${readyTasks.length} task(s) in lane "${targetLane}"**...\n\n`);
+        const packName = filterPack || config.activeStack;
+        const selectedPack = packName ? config.packs?.find(p => p.name === packName) : undefined;
+        if (selectedPack) {
+            this.logger.info('chatParticipant', `Sweep driven by pack: ${selectedPack.name}`);
+        } else {
+            this.logger.info('chatParticipant', `Sweep driven by default board policies`);
+        }
+
+        let headerMsg = `🧹 **Starting sweep of ${readyTasks.length} task(s) in lane "${targetLane}"**`;
+        const activeFilters: string[] = [];
+        if (filterLabel) { activeFilters.push(`label: \`${filterLabel}\``); }
+        if (filterPriority) { activeFilters.push(`priority: \`${filterPriority}\``); }
+        if (packName) { activeFilters.push(`pack: \`${packName}\``); }
+        if (activeFilters.length > 0) {
+            headerMsg += ` filtered by ${activeFilters.join(', ')}`;
+        }
+        headerMsg += `...\n\n`;
+        response.markdown(headerMsg);
 
         const results: Array<{ title: string; success: boolean; error?: string }> = [];
 
@@ -1214,16 +1322,22 @@ export class ChatParticipant {
             await this.taskStore.save(task);
 
             // 2. Run verification
-            const verification = config.policies?.verification;
             const commandsToRun: { name: string; command: string }[] = [];
-            if (verification?.testCommand) {
-                commandsToRun.push({ name: 'test', command: verification.testCommand });
-            }
-            if (verification?.lintCommand) {
-                commandsToRun.push({ name: 'lint', command: verification.lintCommand });
-            }
-            if (verification?.buildCommand) {
-                commandsToRun.push({ name: 'build', command: verification.buildCommand });
+            if (selectedPack?.verifyCmds && selectedPack.verifyCmds.length > 0) {
+                for (let i = 0; i < selectedPack.verifyCmds.length; i++) {
+                    commandsToRun.push({ name: `verifyCmd[${i}]`, command: selectedPack.verifyCmds[i] });
+                }
+            } else {
+                const verification = config.policies?.verification;
+                if (verification?.testCommand) {
+                    commandsToRun.push({ name: 'test', command: verification.testCommand });
+                }
+                if (verification?.lintCommand) {
+                    commandsToRun.push({ name: 'lint', command: verification.lintCommand });
+                }
+                if (verification?.buildCommand) {
+                    commandsToRun.push({ name: 'build', command: verification.buildCommand });
+                }
             }
 
             let passed = true;
@@ -1278,6 +1392,64 @@ export class ChatParticipant {
         response.markdown(`- **Total processed:** ${results.length}\n`);
         response.markdown(`- **Passed:** ${passedCount}\n`);
         response.markdown(`- **Failed:** ${failedCount}\n`);
+    }
+
+    private async handlePack(
+        prompt: string,
+        response: vscode.ChatResponseStream,
+    ): Promise<void> {
+        const parts = prompt.trim().split(/\s+/).filter(Boolean);
+        const action = parts[0]?.toLowerCase();
+
+        if (action === 'list') {
+            const config = this.boardConfigStore.get();
+            response.markdown('### Configured Stack Packs\n\n');
+            if (!config.packs || config.packs.length === 0) {
+                response.markdown('No stack packs defined.\n');
+                return;
+            }
+            for (const pack of config.packs) {
+                const isActive = pack.name === config.activeStack ? ' *(active)*' : '';
+                response.markdown(`- **${pack.name}**${isActive}: ${pack.stack || 'No label'}\n`);
+                if (pack.skills && pack.skills.length > 0) {
+                    response.markdown(`  - Skills: ${pack.skills.map(s => `\`${s}\``).join(', ')}\n`);
+                }
+                if (pack.coverage && pack.coverage.length > 0) {
+                    response.markdown(`  - Coverage requirements: ${pack.coverage.length} item(s)\n`);
+                }
+                if (pack.verifyCmds && pack.verifyCmds.length > 0) {
+                    response.markdown(`  - Verify commands: ${pack.verifyCmds.map(c => `\`${c}\``).join(', ')}\n`);
+                }
+            }
+        } else if (action === 'use') {
+            const packName = parts[1];
+            if (!packName) {
+                response.markdown('❌ Please specify a pack name, e.g. `@kanban /pack use odoo`.\n');
+                return;
+            }
+            const config = this.boardConfigStore.get();
+            const pack = config.packs?.find(p => p.name === packName);
+            if (!pack) {
+                response.markdown(`❌ Pack **${packName}** not found. Use \`@kanban /pack list\` to see available packs.\n`);
+                return;
+            }
+            
+            await this.boardConfigStore.update({ activeStack: packName });
+            
+            // Re-run scaffoldPrompts(true) and syncAgentsMdSection() immediately
+            await this.scaffoldPrompts(true);
+            await this.syncAgentsMdSection();
+            // Also sync worktree AGENTS.md if in a worktree task
+            await this.syncWorktreeAgentsMd();
+
+            response.markdown(`✅ Active stack pack set to **${packName}**.\n`);
+            response.markdown(`- Scaffolded prompts updated with **${pack.stack || packName}** settings.\n`);
+            response.markdown(`- root \`AGENTS.md\` and worktree sentinels updated with active skills.\n`);
+        } else {
+            response.markdown('Available `/pack` commands:\n\n');
+            response.markdown('- `@kanban /pack list` - List all configured stack packs\n');
+            response.markdown('- `@kanban /pack use <name>` - Select a stack pack and bake it into prompts and AGENTS.md\n');
+        }
     }
 
     private async appendCommentToTask(task: import('../types').Task, comment: string): Promise<void> {

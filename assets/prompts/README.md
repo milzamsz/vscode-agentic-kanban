@@ -1,7 +1,7 @@
 # Kanban prompts
 
 Paste-ready stage drivers for AI-assisted development on this board. Opinionated, not stack-agnostic -
-tailor the `<stack skill>` / `<lint>` / `<test>` / `<build>` placeholders for your project and they
+tailor the `{{stack}}` / `{{lint}}` / `{{test}}` / `{{build}}` placeholders for your project and they
 become a repeatable delivery pipeline.
 
 Shared rules live in the repo: `AGENTS.md` (the managed Agentic Kanban block + your custom rules),
@@ -44,9 +44,9 @@ intake -> backlog --[plan]-> planning ==[planning->review: AUTO]==> review --[au
 Every implementation driver runs this gate before advancing. Paste **real output**, not assertions.
 
 ```bash
-<lint>   # e.g. go vet, eslint, ruff
-<test>   # e.g. go test, npm test
-<build>  # e.g. go build, tsc, vite build
+{{lint}}   # e.g. go vet, eslint, ruff
+{{test}}   # e.g. go test, npm test
+{{build}}  # e.g. go build, tsc, vite build
 # plus any project-specific smoke checks
 ```
 

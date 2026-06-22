@@ -135,6 +135,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             worktreePolicy: resolveWorktreePolicy(profile),
         });
         await taskStore.initialise();
+        await chatParticipantHandler.syncPacksYaml(false);
+        await boardConfigStore.loadExternalPacksIfAbsent();
         await chatParticipantHandler.syncInstructionFile();
         await chatParticipantHandler.scaffoldPrompts(false);
         await chatParticipantHandler.syncAgentsMdSection();

@@ -2,6 +2,14 @@
 
 All notable changes to Agentic Kanban will be documented here.
 
+## [1.6.2] - 2026-06-23
+
+- **Parameterized lane sweeps**: `@kanban /sweep [lane]` now supports `--label=`, `--priority=`, and `--pack=`/`--stack=` filtering flags
+- **First-class Stack Packs**: dynamic stack pack configurations (`packs.yaml`) for Odoo, Web, Python API, Go, and Frappe automatically seeded on initialize
+- **Always-on Project Skills**: Union of project and active pack skills dynamically synced directly into the `AGENTS.md` managed sentinel
+- **Dynamic Prompt Interpolation**: prompts under `.agentkanban/prompts/` are now automatically populated with stack-specific coverage requirements and verify commands
+- **New `/pack` Command**: command routing for listing packs (`/pack list`) and setting the active pack (`/pack use <name>`)
+
 ## [1.6.1] - 2026-06-22
 
 - **Dependabot baseline** (`.github/dependabot.yml`): weekly grouped npm + GitHub Actions updates

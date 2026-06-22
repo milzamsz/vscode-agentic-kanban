@@ -1,0 +1,74 @@
+- name: odoo
+  stack: "Odoo"
+  skills:
+    - odoo-19
+    - odoo-performance-tuner
+    - odoo-upgrade
+    - odoo-owl
+    - odoo-rpc-api
+  coverage:
+    - "__manifest__.py (deps, data, assets)"
+    - "models + fields + compute/constraints + _sql_constraints/models.Constraint"
+    - "security (groups, ir.model.access.csv, record rules, multi-company)"
+    - "views (list/form/search/kanban, actions, menus)"
+    - "QWeb reports"
+    - "cron/server actions"
+    - "sequences"
+    - "demo/seed (noupdate)"
+    - "i18n (PO)"
+    - "migration scripts (pre/post/end)"
+  verifyCmds:
+    - "odoo-bin -d test-db -i <module-name> --stop-after-init"
+
+- name: web
+  stack: "Web Frontend"
+  skills:
+    - shadcn
+    - design-guide
+    - design-taste-frontend
+    - high-end-visual-design
+  coverage:
+    - "component structure, design tokens"
+    - "accessibility (a11y)"
+    - "responsive layout"
+    - "state management"
+    - "data fetching"
+    - "error/empty/loading states"
+
+- name: api
+  stack: "API / backend (Python)"
+  skills:
+    - fastapi-expert
+    - fastapi-templates
+    - supabase
+    - supabase-postgres-best-practices
+  coverage:
+    - "Pydantic v2 models"
+    - "async routes"
+    - "dependency injection"
+    - "auth (JWT)"
+    - "DB layer (async SQLAlchemy)"
+    - "error handling"
+    - "OpenAPI docs"
+    - "rate limiting"
+
+- name: go
+  stack: "Go services"
+  skills:
+    - golang-pro
+  coverage:
+    - "concurrency (goroutines/channels)"
+    - "interfaces/generics"
+    - "gRPC/REST"
+    - "error handling"
+    - "context propagation"
+
+- name: frappe
+  stack: "Frappe / ERPNext"
+  skills:
+    - frappe-router
+  coverage:
+    - "DocTypes, controllers, hooks"
+    - "permissions"
+    - "web forms/portal"
+    - "print formats"

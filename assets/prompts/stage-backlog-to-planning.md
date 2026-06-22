@@ -14,7 +14,11 @@ Read first (in repo): AGENTS.md (custom rules + DoD), .agentkanban/INSTRUCTION.m
 
 ## Scope (fill first)
 - Lane: `backlog` — process all ready tasks (a task is ready only when every `dependsOn` is `done`).
-- Stack skill: `<stack skill>`.
+- Stack: `{{stack}}`.
+- Required Skills: {{skills}}
+
+## Stack-Specific Coverage Requirements
+{{coverage}}
 
 ## Per ready task (parallel where independent) — action: `plan` (read/think only, NO code)
 1. **Discovery** (brainstorming skill): problem & outcome; actors; scope in/out; testable acceptance

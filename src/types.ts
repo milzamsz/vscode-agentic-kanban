@@ -131,6 +131,14 @@ export interface BoardPolicies {
     verification?: VerificationConfig;
 }
 
+export interface StackPack {
+    name: string;          // e.g. "odoo", "web", "api"
+    stack?: string;        // human label injected as {{stack}}
+    skills?: string[];     // skills this pack pulls in
+    coverage?: string[];   // design/impl checklist lines -> {{coverage}}
+    verifyCmds?: string[]; // overrides board verification in sweep -> {{verifyCmds}}
+}
+
 export interface BoardConfig {
     profile: WorkflowProfile;
     profileVersion: number;
@@ -143,6 +151,9 @@ export interface BoardConfig {
     wipLimits?: Record<string, number>;
     lanes: string[];
     policies?: BoardPolicies;
+    packs?: StackPack[];
+    activeStack?: string;
+    skills?: string[];
 }
 
 export const PROFILE_VERSION = 3;
@@ -279,6 +290,9 @@ export function normaliseBoardConfig(config?: Partial<BoardConfig> | null): Boar
                 ...config?.policies?.verification,
             },
         },
+        packs: Array.isArray(config?.packs) ? config.packs : undefined,
+        activeStack: typeof config?.activeStack === 'string' ? config.activeStack : undefined,
+        skills: Array.isArray(config?.skills) ? config.skills : undefined,
     };
 }
 

@@ -67,7 +67,7 @@ export class WorktreeService {
      *
      * Returns the WorktreeInfo to store in task frontmatter.
      */
-    async create(taskId: string, taskTitle: string, taskRelPath?: string): Promise<WorktreeInfo> {
+    async create(taskId: string, taskTitle: string, taskRelPath?: string, skills?: string[]): Promise<WorktreeInfo> {
         const slug = this.slugifyForBranch(taskId);
         const branch = `${BRANCH_PREFIX}${slug}`;
         const worktreeRoot = this.getWorktreeRoot();
@@ -118,7 +118,7 @@ export class WorktreeService {
 
         // 4. Write task-specific AGENTS.md into the worktree
         if (taskRelPath) {
-            await this.writeWorktreeAgentsMd(worktreePath, taskTitle, taskRelPath);
+            await this.writeWorktreeAgentsMd(worktreePath, taskTitle, taskRelPath, skills);
         }
 
         const info: WorktreeInfo = {
@@ -261,6 +261,7 @@ export class WorktreeService {
         worktreePath: string,
         taskTitle: string,
         taskRelPath: string,
+        skills?: string[],
     ): Promise<void> {
         const agentsUri = vscode.Uri.joinPath(vscode.Uri.file(worktreePath), AGENTS_MD_REL_PATH);
         try {
@@ -272,7 +273,18 @@ export class WorktreeService {
                 // File doesn't exist in worktree yet
             }
 
-            const section = buildWorktreeAgentsMdSection(taskTitle, taskRelPath, taskRelPath.replace(/\btask_/, 'todo_'));
+            const section = buildWorktreeAgentsMdSection(
+                taskTitle,
+                taskRelPath,
+                taskRelPath.replace(/\btask_/, 'todo_'),
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                skills,
+            );
             const beginIdx = existing.indexOf(AGENTS_MD_BEGIN);
             const endIdx = existing.indexOf(AGENTS_MD_END);
 

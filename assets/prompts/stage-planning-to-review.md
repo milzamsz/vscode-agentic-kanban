@@ -13,7 +13,11 @@ Human gates: **plan approval** (in `planning`, before you launch) and **`review 
 
 Source-of-truth order: AGENTS.md (custom rules + DoD) -> code -> TECHNICAL.md -> .agentkanban/INSTRUCTION.md.
 Read AGENTS.md, .agentkanban/memory.md, and per task its capability spec + change `design.md`/`tasks.md`
-before touching code. Stack: `<stack skill>`.
+before touching code. Stack: `{{stack}}`.
+Required Skills: {{skills}}
+
+## Stack-Specific Coverage Requirements
+{{coverage}}
 
 ## Scope (fill first)
 - Lane: `planning` — process approved + ready tasks only.
@@ -23,7 +27,7 @@ before touching code. Stack: `<stack skill>`.
 - WIP = 1, **serial**: fully finish or park one task before starting the next. Topo-sort by `dependsOn`.
 
 ## Per approved+ready task (serial) — carries it from planning to review
-1. **Enter implementation (automatic).** Set `lane: in-progress` before starting work, so the board reflects the current progress state. Confirm toolchain green first (`<lint>` · `<test>` · `<build>`). No human approval here — launching this driver is the authority.
+1. **Enter implementation (automatic).** Set `lane: in-progress` before starting work, so the board reflects the current progress state. Confirm toolchain green first (`{{lint}}` · `{{test}}` · `{{build}}`). No human approval here — launching this driver is the authority.
 2. **Re-read** the capability spec (`spec:` frontmatter) + `changes/<slug>/{design,tasks}.md`. If the
    design materially diverges from current code, set `lane: planning`, add a `blocked` label with the reason, **park**, note why (do not widen scope silently), and move to the next task.
 3. **Plan-review gate (high/critical only).** If the task has no independent planning-review verdict
@@ -35,7 +39,8 @@ before touching code. Stack: `<stack skill>`.
    Honor the guardrails: org-scoped query + audit + tx on mutations; no mock fallback (fail closed);
    lifecycle/provisioning must dispatch real work; secrets reference-backed + never logged;
    agent commands typed/allowlisted/signed; frozen routes + interfaces intact.
-5. **Verify gate (paste real output):** `<lint>` · `<test>` · `<build>` + any project smoke checks.
+5. **Verify gate (paste real output):**
+{{verifyCmds}}
    Plus **evidence the behavior RUNS** (the spec's Verification proof — a real workflow/job id,
    an agent command that executed, an HTTP 429 on quota breach, an S3 object), not a DB row.
 6. **Blocker handling.** A real blocker = something you cannot resolve with available tools/info

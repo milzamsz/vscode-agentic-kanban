@@ -1927,5 +1927,150 @@ describe('ChatParticipant', () => {
             expect(updatedTask?.labels).toContain('blocked');
             expect(response.messages.some((m: string) => m.includes('Verification failed'))).toBe(true);
         });
+
+        it('should filter tasks by priority during sweep', async () => {
+            const taskHigh: Task = {
+                id: 'task_priority_high',
+                title: 'High Priority Task',
+                lane: 'planning',
+                priority: 'high',
+                created: '2026-01-01T00:00:00.000Z',
+                updated: '2026-01-01T00:00:00.000Z',
+                description: '',
+            };
+            const taskLow: Task = {
+                id: 'task_priority_low',
+                title: 'Low Priority Task',
+                lane: 'planning',
+                priority: 'low',
+                created: '2026-01-01T00:00:00.000Z',
+                updated: '2026-01-01T00:00:00.000Z',
+                description: '',
+            };
+            (taskStore as any).tasks.set(taskHigh.id, taskHigh);
+            (taskStore as any).tasks.set(taskLow.id, taskLow);
+            installMockFs({
+                '/test-workspace/.agentkanban/tasks/task_priority_high.md': '---\ntitle: High Priority Task\nlane: planning\npriority: high\n---\n## Conversation\n\n### user\n\n',
+                '/test-workspace/.agentkanban/tasks/task_priority_low.md': '---\ntitle: Low Priority Task\nlane: planning\npriority: low\n---\n## Conversation\n\n### user\n\n',
+            });
+
+            const config = boardConfigStore.get();
+            config.policies = { verification: { testCommand: 'npm run test' } };
+
+            const response = mockResponse();
+            await participant.handleRequest(mockRequest('sweep', 'planning --priority=high'), {} as any, response, mockToken);
+
+            expect(taskStore.get(taskHigh.id)?.lane).toBe('review');
+            expect(taskStore.get(taskLow.id)?.lane).toBe('planning');
+        });
+
+        it('should filter tasks by label during sweep', async () => {
+            const taskLabelled: Task = {
+                id: 'task_labelled',
+                title: 'Labelled Task',
+                lane: 'planning',
+                labels: ['feat'],
+                created: '2026-01-01T00:00:00.000Z',
+                updated: '2026-01-01T00:00:00.000Z',
+                description: '',
+            };
+            const taskUnlabelled: Task = {
+                id: 'task_unlabelled',
+                title: 'Unlabelled Task',
+                lane: 'planning',
+                created: '2026-01-01T00:00:00.000Z',
+                updated: '2026-01-01T00:00:00.000Z',
+                description: '',
+            };
+            (taskStore as any).tasks.set(taskLabelled.id, taskLabelled);
+            (taskStore as any).tasks.set(taskUnlabelled.id, taskUnlabelled);
+            installMockFs({
+                '/test-workspace/.agentkanban/tasks/task_labelled.md': '---\ntitle: Labelled Task\nlane: planning\nlabels: [feat]\n---\n## Conversation\n\n### user\n\n',
+                '/test-workspace/.agentkanban/tasks/task_unlabelled.md': '---\ntitle: Unlabelled Task\nlane: planning\n---\n## Conversation\n\n### user\n\n',
+            });
+
+            const config = boardConfigStore.get();
+            config.policies = { verification: { testCommand: 'npm run test' } };
+
+            const response = mockResponse();
+            await participant.handleRequest(mockRequest('sweep', 'planning --label=feat'), {} as any, response, mockToken);
+
+            expect(taskStore.get(taskLabelled.id)?.lane).toBe('review');
+            expect(taskStore.get(taskUnlabelled.id)?.lane).toBe('planning');
+        });
+
+        it('should execute pack verifyCmds when active stack is matched', async () => {
+            const task: Task = {
+                id: 'task_pack_verify',
+                title: 'Pack Verify Task',
+                lane: 'planning',
+                created: '2026-01-01T00:00:00.000Z',
+                updated: '2026-01-01T00:00:00.000Z',
+                description: '',
+            };
+            (taskStore as any).tasks.set(task.id, task);
+            installMockFs({
+                '/test-workspace/.agentkanban/tasks/task_pack_verify.md': '---\ntitle: Pack Verify Task\nlane: planning\n---\n## Conversation\n\n### user\n\n',
+            });
+
+            const config = boardConfigStore.get();
+            config.packs = [{
+                name: 'custom-pack',
+                verifyCmds: ['special-verify-cmd'],
+            }];
+            config.activeStack = 'custom-pack';
+
+            const response = mockResponse();
+            await participant.handleRequest(mockRequest('sweep', 'planning'), {} as any, response, mockToken);
+
+            expect(execMock).toHaveBeenCalledTimes(1);
+            expect(execMock).toHaveBeenNthCalledWith(1, 'special-verify-cmd', expect.anything());
+        });
+    });
+
+    describe('/pack command', () => {
+        it('should list configured packs', async () => {
+            const config = boardConfigStore.get();
+            config.packs = [
+                { name: 'odoo', stack: 'Odoo Stack', skills: ['odoo-19'] },
+                { name: 'web', stack: 'Web Stack' }
+            ];
+            config.activeStack = 'odoo';
+
+            const response = mockResponse();
+            await participant.handleRequest(mockRequest('pack', 'list'), {} as any, response, mockToken);
+
+            expect(response.messages.some((m: string) => m.includes('### Configured Stack Packs'))).toBe(true);
+            expect(response.messages.some((m: string) => m.includes('**odoo** *(active)*'))).toBe(true);
+            expect(response.messages.some((m: string) => m.includes('**web**'))).toBe(true);
+        });
+
+        it('should change active stack pack and trigger sync', async () => {
+            const config = boardConfigStore.get();
+            config.packs = [
+                { name: 'odoo', stack: 'Odoo Stack' },
+                { name: 'web', stack: 'Web Stack' }
+            ];
+            config.activeStack = 'web';
+
+            installMockFs({
+                '/test-workspace/.agentkanban/board.yaml': 'profile: standard',
+                '/test-workspace/AGENTS.md': '',
+                '/test-extension/assets/prompts/README.md': 'Stack: <stack skill>',
+                '/test-extension/assets/prompts/new-task-intake.md': 'Intake prompt',
+                '/test-extension/assets/prompts/stage-backlog-to-planning.md': 'Planning prompt',
+                '/test-extension/assets/prompts/stage-planning-to-review.md': 'Planning to review prompt',
+                '/test-extension/assets/prompts/stage-review-to-in-progress.md': 'Review to in progress prompt',
+                '/test-extension/assets/prompts/stage-review-to-done.md': 'Review to done prompt',
+                '/test-extension/assets/prompts/stage-blocked-and-resume.md': 'Blocked prompt',
+                '/test-extension/assets/prompts/production-readiness-audit.md': 'Audit prompt',
+            });
+
+            const response = mockResponse();
+            await participant.handleRequest(mockRequest('pack', 'use odoo'), {} as any, response, mockToken);
+
+            expect(boardConfigStore.get().activeStack).toBe('odoo');
+            expect(response.messages.some((m: string) => m.includes('Active stack pack set to **odoo**'))).toBe(true);
+        });
     });
 });

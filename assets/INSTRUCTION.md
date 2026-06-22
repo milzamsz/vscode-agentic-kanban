@@ -185,3 +185,15 @@ The active board policy is injected through `AGENTS.md`.
 - `self-agent` means the active coding agent can perform that review.
 - `independent-agent` means a different agent should review that stage.
 - `independent-agent+human` means a different agent review plus human review is required.
+
+## Stack Packs & Project Skills
+
+To automate injecting stack-specific context and verification commands, you can configure stack packs and project skills in `.agentkanban/board.yaml`:
+
+- **Always-on project skills (`skills`):** An array of agent skill names loaded every turn via the `AGENTS.md` managed sentinel (e.g. `[git, workspace]`).
+- **Stack packs (`packs`):** Bundled configuration matching target technology stacks. Preset presets are seeded into `.agentkanban/packs.yaml` (e.g. `odoo`, `web`, `api`, `go`, `frappe`).
+- **Active stack (`activeStack`):** The name of the selected stack pack.
+
+Commands:
+- `@kanban /pack list`: List all configured stack packs.
+- `@kanban /pack use <name>`: Set the active stack pack. This automatically regenerates prompts under `.agentkanban/prompts/` and syncs the new active skills to the `AGENTS.md` sentinel.

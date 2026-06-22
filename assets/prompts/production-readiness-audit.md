@@ -17,7 +17,7 @@ Standalone gate before moving a task or release to `done`. Built around the less
 
 ### Correctness & "does it actually run"
 - [ ] Checklist + spec acceptance criteria met
-- [ ] `<lint>` · `<test>` · `<build>` green (output pasted)
+- [ ] `{{lint}}` · `{{test}}` · `{{build}}` green (output pasted)
 - [ ] Route smoke / integration smoke green
 - [ ] **Behavior proven to RUN**, not a DB row: the spec's Verification evidence (real workflow/job
       id, agent command executed on host, quota 429, S3 object, webhook state change). Quote it.
