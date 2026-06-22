@@ -2,6 +2,12 @@
 
 All notable changes to Agentic Kanban will be documented here.
 
+## [1.6.4] - 2026-06-23
+
+- **Dependency saving fix**: resolved a bug where dependencies added via autocomplete dropdown in the edit/create modal were not saved/persisted because the corresponding `blocked-by:<slug>` label was not synchronized to the Labels list (causing backend saving logic to clear the dependencies).
+- **Modal layout alignment**: moved Assignee and Due Date fields to the bottom of the modal, and added a dedicated Dependencies input field supporting task autocompletion and chip management synced bidirectionally with task labels.
+- **Workflow documentation**: updated workspace instructions (`assets/INSTRUCTION.md` and `.agentkanban/INSTRUCTION.md`) to explicitly document the `dependsOn` frontmatter array and its bidirectional sync with `blocked-by:<slug>` labels.
+
 ## [1.6.3] - 2026-06-23
 
 - **Dependency updates**: merged Dependabot upgrades for TypeScript 6.0.3, Vitest 4.1.9, @types/node 26.0.0, @types/vscode 1.125.0, esbuild 0.28.1, and Tailwind CSS PostCSS 4.3.1

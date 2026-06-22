@@ -30,6 +30,7 @@ let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 // Modal state
 let modalTaskId: string | null = null;
 let modalLabels: string[] = [];
+let modalDependsOn: string[] = [];
 let modalMode: 'create' | 'edit' = 'edit';
 
 interface ModalSnapshot {
@@ -40,6 +41,7 @@ interface ModalSnapshot {
     assignee: string;
     dueDate: string;
     labels: string[];
+    dependsOn: string[];
 }
 let modalSnapshot: ModalSnapshot | null = null;
 
@@ -144,8 +146,10 @@ function renderBoard(): void {
     // Track in-progress modal state before clobbering the DOM
     const openModalId = modalTaskId;
     const savedLabels = [...modalLabels];
+    const savedDependsOn = [...modalDependsOn];
     const savedMode = modalMode;
     const pendingLabelInput = (document.getElementById('modal-label-input') as HTMLInputElement | null)?.value ?? '';
+    const pendingDepInput = (document.getElementById('modal-dep-input') as HTMLInputElement | null)?.value ?? '';
     const savedAssignee = (document.getElementById('modal-assignee') as HTMLInputElement | null)?.value ?? '';
     const savedPriority = (document.getElementById('modal-priority') as HTMLSelectElement | null)?.value ?? '';
     const savedDueDate = (document.getElementById('modal-duedate') as HTMLInputElement | null)?.value ?? '';
@@ -170,6 +174,7 @@ function renderBoard(): void {
         if (savedMode === 'create') {
             modalMode = 'create';
             modalLabels = savedLabels;
+            modalDependsOn = savedDependsOn;
             document.getElementById('modal-backdrop')?.removeAttribute('hidden');
             configureModalMode();
             // Restore create-mode inputs
@@ -201,12 +206,18 @@ function renderBoard(): void {
             if (labelInputEl && pendingLabelInput) {
                 labelInputEl.value = pendingLabelInput;
             }
+            const depInputEl = document.getElementById('modal-dep-input') as HTMLInputElement | null;
+            if (depInputEl && pendingDepInput) {
+                depInputEl.value = pendingDepInput;
+            }
             renderTags();
+            renderDeps();
         } else if (openModalId) {
             const task = state.tasks.find((t) => t.id === openModalId);
             if (task) {
                 modalTaskId = openModalId;
                 modalLabels = savedLabels;
+                modalDependsOn = savedDependsOn;
                 modalMode = 'edit';
                 document.getElementById('modal-backdrop')?.removeAttribute('hidden');
                 configureModalMode();
@@ -232,9 +243,16 @@ function renderBoard(): void {
                 if (labelInputEl && pendingLabelInput) {
                     labelInputEl.value = pendingLabelInput;
                 }
+                const depInputEl = document.getElementById('modal-dep-input') as HTMLInputElement | null;
+                if (depInputEl && pendingDepInput) {
+                    depInputEl.value = pendingDepInput;
+                }
+                renderTags();
+                renderDeps();
             } else {
                 modalTaskId = null;
                 modalLabels = [];
+                modalDependsOn = [];
             }
         }
     }
@@ -433,25 +451,39 @@ function buildModalHtml(): string {
                         </select>
                     </div>
                     <div class="form-row">
-                        <label class="form-label" for="modal-assignee">Assignee</label>
-                        <div class="autocomplete-wrapper" id="assignee-ac-wrapper">
-                            <input class="form-control" id="modal-assignee" type="text"
-                                   placeholder="Unassigned" autocomplete="off">
-                            <div class="autocomplete-dropdown" id="assignee-ac-dropdown" hidden></div>
-                        </div>
-                    </div>
-                    <div class="form-row">
                         <label class="form-label">Labels</label>
                         <div class="tag-field">
                             <div class="tags-row" id="tags-row"></div>
                             <div class="tag-add-row">
                                 <div class="autocomplete-wrapper" id="label-ac-wrapper">
                                     <input class="form-control tag-add-input" id="modal-label-input" type="text"
-                                           placeholder="Add label\u2026" autocomplete="off">
+                                           placeholder="Add label…" autocomplete="off">
                                     <div class="autocomplete-dropdown" id="label-ac-dropdown" hidden></div>
                                 </div>
                                 <button class="btn-secondary btn-sm" id="btn-add-label-tag" type="button">Add</button>
                             </div>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <label class="form-label">Dependencies</label>
+                        <div class="tag-field">
+                            <div class="tags-row" id="dep-tags-row"></div>
+                            <div class="tag-add-row">
+                                <div class="autocomplete-wrapper" id="dep-ac-wrapper">
+                                    <input class="form-control tag-add-input" id="modal-dep-input" type="text"
+                                           placeholder="Add dependency…" autocomplete="off">
+                                    <div class="autocomplete-dropdown" id="dep-ac-dropdown" hidden></div>
+                                </div>
+                                <button class="btn-secondary btn-sm" id="btn-add-dep-tag" type="button">Add</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <label class="form-label" for="modal-assignee">Assignee</label>
+                        <div class="autocomplete-wrapper" id="assignee-ac-wrapper">
+                            <input class="form-control" id="modal-assignee" type="text"
+                                   placeholder="Unassigned" autocomplete="off">
+                            <div class="autocomplete-dropdown" id="assignee-ac-dropdown" hidden></div>
                         </div>
                     </div>
                     <div class="form-row">
@@ -613,6 +645,10 @@ function handleClick(e: MouseEvent): void {
         addLabelTag();
         return;
     }
+    if ((t as HTMLElement).id === 'btn-add-dep-tag') {
+        addDepTag();
+        return;
+    }
     if (t.closest('#datepicker-toggle')) {
         toggleDatepicker();
         return;
@@ -686,6 +722,12 @@ function handleClick(e: MouseEvent): void {
         return;
     }
 
+    const depRemoveBtn = t.closest('[data-remove-dep]') as HTMLElement | null;
+    if (depRemoveBtn) {
+        removeDep(depRemoveBtn.getAttribute('data-remove-dep')!);
+        return;
+    }
+
     const card = t.closest('.card[data-task-id]') as HTMLElement | null;
     if (card && !t.closest('[data-delete-task-id]') && !t.closest('[data-archive-task-id]') && !t.closest('[data-worktree-create-task-id]') && !t.closest('[data-worktree-open-task-id]')) {
         openModal(card.dataset.taskId!);
@@ -752,6 +794,11 @@ function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Enter' && (e.target as Element).id === 'modal-label-input') {
         e.preventDefault();
         addLabelTag();
+        return;
+    }
+    if (e.key === 'Enter' && (e.target as Element).id === 'modal-dep-input') {
+        e.preventDefault();
+        addDepTag();
         return;
     }
     if (e.key === 'Enter' && (e.target as Element).id === 'modal-duedate') {
@@ -920,6 +967,7 @@ function openModal(taskId: string): void {
     modalMode = 'edit';
     modalTaskId = taskId;
     modalLabels = [...(task.labels ?? [])];
+    modalDependsOn = [...(task.dependsOn ?? [])];
     document.getElementById('modal-backdrop')?.removeAttribute('hidden');
     configureModalMode();
     populateModal(task);
@@ -930,6 +978,7 @@ function openCreateModal(): void {
     modalMode = 'create';
     modalTaskId = null;
     modalLabels = [];
+    modalDependsOn = [];
     document.getElementById('modal-backdrop')?.removeAttribute('hidden');
     configureModalMode();
 
@@ -961,8 +1010,12 @@ function openCreateModal(): void {
 
     initAutocomplete('modal-assignee', 'assignee-ac-dropdown', () => state.config.users ?? [], 'select');
     initAutocomplete('modal-label-input', 'label-ac-dropdown', () => state.config.labels ?? [], 'add-tag');
+    initAutocomplete('modal-dep-input', 'dep-ac-dropdown', () => {
+        return state.tasks.map((t) => t.title);
+    }, 'add-dep');
 
     renderTags();
+    renderDeps();
     captureModalSnapshot();
     titleInput?.focus();
 }
@@ -1025,8 +1078,14 @@ function populateModal(task: Task): void {
 
     initAutocomplete('modal-assignee', 'assignee-ac-dropdown', () => state.config.users ?? [], 'select');
     initAutocomplete('modal-label-input', 'label-ac-dropdown', () => state.config.labels ?? [], 'add-tag');
+    initAutocomplete('modal-dep-input', 'dep-ac-dropdown', () => {
+        return state.tasks
+            .filter((t) => t.id !== task.id && t.slug !== task.slug)
+            .map((t) => t.title);
+    }, 'add-dep');
 
     renderTags();
+    renderDeps();
 }
 
 function closeModal(): void {
@@ -1034,6 +1093,7 @@ function closeModal(): void {
     hideDiscardConfirm();
     modalTaskId = null;
     modalLabels = [];
+    modalDependsOn = [];
     modalMode = 'edit';
     modalSnapshot = null;
 }
@@ -1047,6 +1107,7 @@ function captureModalSnapshot(): void {
         assignee: (document.getElementById('modal-assignee') as HTMLInputElement | null)?.value ?? '',
         dueDate: (document.getElementById('modal-duedate') as HTMLInputElement | null)?.value ?? '',
         labels: [...modalLabels],
+        dependsOn: [...modalDependsOn],
     };
 }
 
@@ -1067,7 +1128,8 @@ function isModalDirty(): boolean {
         priority !== modalSnapshot.priority ||
         assignee !== modalSnapshot.assignee ||
         dueDate !== modalSnapshot.dueDate ||
-        JSON.stringify([...modalLabels].sort()) !== JSON.stringify([...modalSnapshot.labels].sort())
+        JSON.stringify([...modalLabels].sort()) !== JSON.stringify([...modalSnapshot.labels].sort()) ||
+        JSON.stringify([...modalDependsOn].sort()) !== JSON.stringify([...modalSnapshot.dependsOn].sort())
     );
 }
 
@@ -1099,6 +1161,7 @@ function saveModal(): void {
     const dueDate = dueDateRaw || undefined;
     const assignee = assigneeRaw || undefined;
     const labels = modalLabels.length > 0 ? [...modalLabels] : undefined;
+    const dependsOn = modalDependsOn.length > 0 ? [...modalDependsOn] : undefined;
     const lane = (document.getElementById('modal-lane') as HTMLSelectElement).value;
 
     if (modalMode === 'create') {
@@ -1117,6 +1180,7 @@ function saveModal(): void {
             priority: priority === 'none' ? undefined : priority,
             assignee,
             labels,
+            dependsOn,
             dueDate,
         });
     } else {
@@ -1131,6 +1195,7 @@ function saveModal(): void {
             priority: priority === 'none' ? undefined : priority,
             assignee,
             labels,
+            dependsOn,
             dueDate,
         });
     }
@@ -1156,6 +1221,13 @@ function addLabelTag(): void {
     const value = sanitiseLabel(input.value);
     if (value && !modalLabels.includes(value)) {
         modalLabels.push(value);
+        if (value.startsWith('blocked-by:')) {
+            const dep = value.substring('blocked-by:'.length).trim();
+            if (dep && !modalDependsOn.includes(dep)) {
+                modalDependsOn.push(dep);
+                renderDeps();
+            }
+        }
         renderTags();
     }
     input.value = '';
@@ -1169,6 +1241,11 @@ function sanitiseLabel(raw: string): string {
 
 function removeTag(label: string): void {
     modalLabels = modalLabels.filter((l) => l !== label);
+    if (label.startsWith('blocked-by:')) {
+        const dep = label.substring('blocked-by:'.length).trim();
+        modalDependsOn = modalDependsOn.filter((d) => d !== dep);
+        renderDeps();
+    }
     renderTags();
 }
 
@@ -1182,6 +1259,69 @@ function renderTags(): void {
             (l) =>
                 `<span class="tag-chip">${esc(l)}<button class="tag-remove" data-remove-tag="${esc(l)}" type="button">&times;</button></span>`,
         )
+        .join('');
+}
+
+function addDepTag(): void {
+    const input = document.getElementById('modal-dep-input') as HTMLInputElement | null;
+    if (!input) {
+        return;
+    }
+    const val = input.value.trim();
+    if (val) {
+        // Try to find a task whose title, slug or ID matches (case-insensitive)
+        const found = state.tasks.find((t) =>
+            t.title.toLowerCase() === val.toLowerCase() ||
+            t.slug?.toLowerCase() === val.toLowerCase() ||
+            t.id.toLowerCase() === val.toLowerCase()
+        );
+        if (found) {
+            const depKey = found.slug || found.id;
+            if (depKey && !modalDependsOn.includes(depKey)) {
+                modalDependsOn.push(depKey);
+                const lbl = `blocked-by:${depKey}`;
+                if (!modalLabels.includes(lbl)) {
+                    modalLabels.push(lbl);
+                    renderTags();
+                }
+                renderDeps();
+            }
+        } else {
+            // Otherwise try sanitising and adding
+            const sanitised = sanitiseLabel(val);
+            if (sanitised && !modalDependsOn.includes(sanitised)) {
+                modalDependsOn.push(sanitised);
+                const lbl = `blocked-by:${sanitised}`;
+                if (!modalLabels.includes(lbl)) {
+                    modalLabels.push(lbl);
+                    renderTags();
+                }
+                renderDeps();
+            }
+        }
+    }
+    input.value = '';
+    input.focus();
+}
+
+function removeDep(dep: string): void {
+    modalDependsOn = modalDependsOn.filter((d) => d !== dep);
+    modalLabels = modalLabels.filter((l) => l !== `blocked-by:${dep}`);
+    renderTags();
+    renderDeps();
+}
+
+function renderDeps(): void {
+    const row = document.getElementById('dep-tags-row');
+    if (!row) {
+        return;
+    }
+    row.innerHTML = modalDependsOn
+        .map((d) => {
+            const depTask = state.tasks.find((t) => t.slug === d || t.id === d);
+            const displayName = depTask ? depTask.title : d;
+            return `<span class="tag-chip">${esc(displayName)}<button class="tag-remove" data-remove-dep="${esc(d)}" type="button">&times;</button></span>`;
+        })
         .join('');
 }
 
@@ -1238,7 +1378,7 @@ function confirmArchive(): void {
 
 // ── Autocomplete ──────────────────────────────────────────────────────────────
 
-type AutocompleteMode = 'select' | 'add-tag';
+type AutocompleteMode = 'select' | 'add-tag' | 'add-dep';
 const acCleanups: Array<() => void> = [];
 
 function initAutocomplete(
@@ -1282,14 +1422,29 @@ function initAutocomplete(
         if (mode === 'select') {
             input!.value = value;
             hideDropdown();
-        } else {
-            // add-tag mode
+        } else if (mode === 'add-tag') {
             input!.value = '';
             hideDropdown();
             const sanitised = sanitiseLabel(value);
             if (sanitised && !modalLabels.includes(sanitised)) {
                 modalLabels.push(sanitised);
                 renderTags();
+            }
+        } else if (mode === 'add-dep') {
+            input!.value = '';
+            hideDropdown();
+            const depTask = state.tasks.find((t) => t.title === value);
+            if (depTask) {
+                const depKey = depTask.slug || depTask.id;
+                if (depKey && !modalDependsOn.includes(depKey)) {
+                    modalDependsOn.push(depKey);
+                    const lbl = `blocked-by:${depKey}`;
+                    if (!modalLabels.includes(lbl)) {
+                        modalLabels.push(lbl);
+                        renderTags();
+                    }
+                    renderDeps();
+                }
             }
         }
     }
@@ -1526,18 +1681,26 @@ function renderDepGraph(): void {
 
     const depthMap: Record<string, number> = {};
     function getTaskDepth(taskId: string, visited: Set<string> = new Set()): number {
-        if (visited.has(taskId)) {
+        const task = state.tasks.find((t) => t.id === taskId || t.slug === taskId);
+        if (!task) {
             return 0;
         }
-        if (taskId in depthMap) {
-            return depthMap[taskId];
-        }
-        visited.add(taskId);
-        const task = state.tasks.find((t) => t.id === taskId);
-        if (!task || !task.dependsOn || task.dependsOn.length === 0) {
-            depthMap[taskId] = 0;
+
+        const canonicalId = task.id;
+        if (visited.has(canonicalId)) {
             return 0;
         }
+        if (canonicalId in depthMap) {
+            return depthMap[canonicalId];
+        }
+
+        visited.add(canonicalId);
+
+        if (!task.dependsOn || task.dependsOn.length === 0) {
+            depthMap[canonicalId] = 0;
+            return 0;
+        }
+
         let maxDepDepth = -1;
         for (const depId of task.dependsOn) {
             const d = getTaskDepth(depId, new Set(visited));
@@ -1546,7 +1709,7 @@ function renderDepGraph(): void {
             }
         }
         const depth = maxDepDepth + 1;
-        depthMap[taskId] = depth;
+        depthMap[canonicalId] = depth;
         return depth;
     }
 
@@ -1615,7 +1778,11 @@ function renderDepGraph(): void {
         }
 
         for (const depId of task.dependsOn) {
-            const posD = positions[depId];
+            const depTask = state.tasks.find((t) => t.slug === depId || t.id === depId);
+            if (!depTask) {
+                continue;
+            }
+            const posD = positions[depTask.id];
             if (!posD) {
                 continue;
             }
@@ -1629,10 +1796,13 @@ function renderDepGraph(): void {
             const path = `M ${x1} ${y1} C ${x1 + controlOffset} ${y1}, ${x2 - controlOffset} ${y2}, ${x2} ${y2}`;
 
             svgContent += `
-                <path class="dep-graph-edge" d="${path}" marker-end="url(#arrow)" />
+                <path class="dep-graph-edge" d="${path}" stroke="var(--vscode-editorLink-activeForeground, #3b82f6)" stroke-width="2" fill="none" opacity="0.6" marker-end="url(#arrow)" />
             `;
         }
     }
+
+    const { lanes } = state.config;
+    const laneSet = new Set(lanes);
 
     for (const task of state.tasks) {
         const pos = positions[task.id];
@@ -1640,15 +1810,16 @@ function renderDepGraph(): void {
             continue;
         }
 
+        const taskLane = laneSet.has(task.lane) ? task.lane : (lanes[lanes.length - 1] ?? task.lane);
         const escTitle = esc(task.title);
-        const escLane = esc(displayLane(task.lane));
+        const escLane = esc(displayLane(taskLane));
         const priorityBadge = task.priority && task.priority !== 'none'
             ? `<span class="dep-graph-priority-badge ${esc(task.priority)}">${esc(task.priority)}</span>`
             : '';
 
         svgContent += `
             <foreignObject x="${pos.x}" y="${pos.y}" width="${cardWidth}" height="${cardHeight}">
-                <div class="dep-graph-card ${esc(task.lane)}" data-dep-task-id="${esc(task.id)}">
+                <div class="dep-graph-card ${esc(taskLane)}" data-dep-task-id="${esc(task.id)}">
                     <div class="dep-graph-card-title" title="${escTitle}">${escTitle}</div>
                     <div class="dep-graph-card-meta">
                         <span class="dep-graph-lane-badge">${escLane}</span>
