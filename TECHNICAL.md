@@ -329,7 +329,7 @@ The section is delimited by `<!-- BEGIN AGENTIC KANBAN — DO NOT EDIT THIS SECT
 3. Finds the sentinel block (if present) and replaces it, or appends the block at the end
 4. Writes the file back — user content outside the sentinels is never modified
 
-**Standard sentinel** (main workspace):
+**Basic sentinel** (no task selected):
 ```markdown
 <!-- BEGIN AGENTIC KANBAN — DO NOT EDIT THIS SECTION -->
 ## Agentic Kanban
@@ -337,11 +337,16 @@ The section is delimited by `<!-- BEGIN AGENTIC KANBAN — DO NOT EDIT THIS SECT
 Read `.agentkanban/INSTRUCTION.md` for task workflow rules.
 Read `.agentkanban/memory.md` for project context.
 
-If a task file (`.agentkanban/tasks/**/*.md`) was referenced earlier in this conversation, re-read it before responding.
+Enforcement mode: `warn`
+Review policy:
+low: planning=self-agent, implementation=self-agent
+...
+
+If a task file (`.agentkanban/tasks/**/*.md`) was referenced earlier in this conversation, re-read it before responding and always respond in and at the end the task file.
 <!-- END AGENTIC KANBAN -->
 ```
 
-**Worktree-enhanced sentinel** (worktree workspace):
+**Task-enhanced sentinel** (when a task is selected via `/task` or `/spec`, in both main and worktree workspaces):
 ```markdown
 <!-- BEGIN AGENTIC KANBAN — DO NOT EDIT THIS SECTION -->
 ## Agentic Kanban
@@ -349,22 +354,23 @@ If a task file (`.agentkanban/tasks/**/*.md`) was referenced earlier in this con
 **Active Task:** Implement OAuth2
 **Task File:** `.agentkanban/tasks/task_xxx.md`
 **Checklist File:** `.agentkanban/tasks/todo_xxx.md`
-**Spec Change:** `.agentkanban/changes/implement_oauth2`
-**Spec Proposal:** `.agentkanban/changes/implement_oauth2/proposal.md`
-**Spec Tasks:** `.agentkanban/changes/implement_oauth2/tasks.md`
-**Spec Delta:** `.agentkanban/changes/implement_oauth2/specs/<capability>/spec.md`
+**Spec Change:** `.agentkanban/changes/implement_oauth2` (Standard profile only)
+**Spec Proposal:** `.agentkanban/changes/implement_oauth2/proposal.md` (Standard profile only)
+**Spec Tasks:** `.agentkanban/changes/implement_oauth2/tasks.md` (Standard profile only)
+**Capability Spec:** `.agentkanban/specs/authentication/spec.md` (Standard profile only)
 
 Read the task file above before responding.
 Read the linked spec change artifacts before planning, implementing, reviewing, or marking done.
 Read `.agentkanban/INSTRUCTION.md` for task workflow rules.
 Read `.agentkanban/memory.md` for project context.
-IMPORTANT: ALWAYS respond in the task file.
+IMPORTANT: ALWAYS respond in and at the end of the task file.
 <!-- END AGENTIC KANBAN -->
 ```
 
 Called on activation and by every command. This ensures:
 - The agent always knows INSTRUCTION.md and memory.md exist (every turn, all threads)
-- In worktree workspaces, the sentinel names the exact task file — no manual selection needed
+- When a task is selected, the sentinel names the exact task file — no manual selection needed
+- Spec change pointers (Spec Change, Spec Proposal, Spec Tasks, Capability Spec) are only emitted for Standard profile tasks; Lite profile tasks get only basic enforcement info
 - The "re-read task file" directive prompts the agent to actively recover its task context
 
 `syncWorktreeAgentsMd()` is called on extension activation. It checks if the current workspace is a task worktree (via `findLinkedWorktreeTask()`) and writes the enhanced sentinel if so.

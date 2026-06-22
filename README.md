@@ -32,6 +32,8 @@ flowchart LR
     instruction --> coder
 ```
 
+> **Workflow rules:** `.agentkanban/INSTRUCTION.md` is the canonical source for all workflow rules, lane descriptions, and the action vocabulary. The README below provides the product overview. For detailed workflow guidance, refer to `INSTRUCTION.md` in your workspace (or bundled in `assets/INSTRUCTION.md`).
+
 ## How It Works
 
 Agentic Kanban is built for agentic, spec-driven development (SDD):
@@ -43,6 +45,15 @@ Agentic Kanban is built for agentic, spec-driven development (SDD):
 5. **Layered context injection.** A managed `AGENTS.md` section, chat references, and `/refresh` keep the active task, checklist, and spec artifacts in front of the agent on every turn.
 
 The board is for humans. The skill plus `@kanban` chat commands are for agents. Both operate on the same files.
+
+## Dependency Management
+
+Repository dependencies are managed by Dependabot on a weekly schedule:
+
+- **npm** (`package.json`/`package-lock.json`) — grouped minor/patch updates
+- **GitHub Actions** (`.github/workflows/`) — grouped updates
+
+Dependabot runs every Monday, targets `main`, and creates pull requests with manual review. Labels: `dependencies`, `npm`, `github-actions`.
 
 ## Quick Start
 

@@ -18,7 +18,8 @@ const FRONTMATTER_FENCE = '---';
 const KNOWN_FRONTMATTER_KEYS = new Set([
     'title', 'lane', 'created', 'updated', 'description', 'priority', 'assignee',
     'labels', 'dueDate', 'sortOrder', 'slug', 'reviewType', 'resumeLane', 'worktree',
-    'change', 'spec', 'dependsOn',
+    'change', 'spec', 'dependsOn', 'evidence',
+    'parent', 'superseeds', 'superseededBy', 'blockerResolved',
 ]);
 
 const BLOCKED_LABEL = 'blocked';

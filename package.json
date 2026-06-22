@@ -175,6 +175,10 @@
                     {
                         "name": "sweep",
                         "description": "[lane] - run an autonomous sweep of ready tasks (default: planning)"
+                    },
+                    {
+                        "name": "doctor",
+                        "description": "run workflow diagnostics for lane drift, blockers, dependencies, and worktrees"
                     }
                 ]
             }

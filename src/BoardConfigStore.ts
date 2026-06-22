@@ -32,6 +32,13 @@ const CONFIG_HEADER = [
     '#   self-agent | independent-agent | independent-agent+human',
     '# worktreePolicy.requiredForImplementation: true | false',
     '# wipLimits.<lane>: <max tasks in that lane>  (e.g. in-progress: 1; omit/0 = no limit)',
+    '# policies.transition.requireChecklistForInProgress: true | false',
+    '# policies.transition.requireSpecForInProgress: true | false',
+    '# policies.transition.requireDescriptionForReview: true | false',
+    '# policies.transition.requireWorktreeForInProgress: true | false',
+    '# policies.verification.testCommand: "npm test" (run on in-progress -> review)',
+    '# policies.verification.lintCommand: "npm run lint" (run on in-progress -> review)',
+    '# policies.verification.buildCommand: "npm run build" (run on in-progress -> review)',
     '# ===============================================================',
     '',
 ].join('\n');

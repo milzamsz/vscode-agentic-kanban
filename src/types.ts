@@ -40,6 +40,28 @@ export interface ReviewPolicy {
     critical: ReviewPolicyLevel;
 }
 
+export interface EvidenceEntry {
+    ran: boolean;
+    passed: boolean;
+    output?: string;
+    command?: string;
+    description?: string;
+    timestamp?: string;
+}
+
+export interface TaskEvidence {
+    lint?: EvidenceEntry;
+    test?: EvidenceEntry;
+    build?: EvidenceEntry;
+    behavior?: EvidenceEntry;
+    /** Additional evidence keys for custom checks */
+    extras?: Record<string, EvidenceEntry>;
+    /** Checks explicitly skipped (not forgotten) */
+    skipped?: string[];
+    /** Free-form notes about the evidence */
+    notes?: string;
+}
+
 export interface Task {
     id: string;
     title: string;
@@ -74,6 +96,13 @@ export interface Task {
      * Unknown frontmatter keys preserved verbatim across save round-trips so
      * conventions layered on top of the extension are not lost on re-write.
      */
+    evidence?: TaskEvidence;
+    /** Parent-child task relationships */
+    parent?: string;
+    superseeds?: string[];
+    superseededBy?: string;
+    /** Blocker resolution tracking */
+    blockerResolved?: boolean;
     extras?: Record<string, unknown>;
     /**
      * Transient fields computed for board rendering only — never serialised to disk.

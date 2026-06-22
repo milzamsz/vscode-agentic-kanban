@@ -30,9 +30,9 @@ Status: [x] done / [ ] pending
 - [x] Re-point the `.codex` / `.claude` / `.antigravity` symlinks to the new canonical skill.
 - [x] Align skill content to the current model (single `review`, no `blocked` lane, blocked-as-label, no `resumeLane`/`reviewType`); rename `stage-planning-to-review.md` -> `stage-planning-to-in-progress.md`.
 - [x] Re-sync canonical and repo-local skills so `diff -r` is identical.
-- [ ] Remove the locked orphan `.agents/skills/agentic-kanban-repo/references` folder once the watching process releases it (no `SKILL.md`, so not a live skill).
+- [x] Remove the locked orphan `.agents/skills/agentic-kanban-repo/references` folder once the watching process releases it (no `SKILL.md`, so not a live skill).
 
 ## Follow-ups (deferred)
 
 - [x] `/spec` AGENTS sentinel: gate the `Spec Delta` pointer to Standard profile and substitute the real `<capability>` (currently always emitted with a literal placeholder).
-- [ ] Confirm whether the enhanced "Active Task" sentinel writing in the main workspace (every `/task`) is intended; update `README.md`/`TECHNICAL.md` if so.
+- [x] Confirm whether the enhanced "Active Task" sentinel writing in the main workspace (every `/task`) is intended; update `README.md`/`TECHNICAL.md` if so.

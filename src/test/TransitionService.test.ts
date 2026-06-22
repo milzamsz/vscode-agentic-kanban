@@ -61,6 +61,12 @@ describe('TransitionService', () => {
             task: makeTask({
                 lane: 'review',
                 worktree: { branch: 'agentic/task', path: '/tmp/task', created: '2026-06-15T01:00:00.000Z' },
+                evidence: {
+                    lint: { ran: true, passed: true, output: 'OK' },
+                    test: { ran: true, passed: true, output: 'OK' },
+                    build: { ran: true, passed: true, output: 'OK' },
+                    behavior: { ran: true, passed: true, output: 'Verified' },
+                },
             }),
             toLane: 'done',
         }, standardConfig);
@@ -105,6 +111,40 @@ describe('TransitionService', () => {
         expect(result.errors).toEqual([]);
         expect(result.warnings).toContain('Cannot move from planning to review in the standard profile.');
         expect(result.blockedReasons).toEqual([]);
+    });
+
+    it('requires evidence before moving to done in standard profile', () => {
+        const result = service.validate({
+            task: makeTask({
+                lane: 'review',
+                worktree: { branch: 'agentic/task', path: '/tmp/task', created: '2026-06-15T01:00:00.000Z' },
+                evidence: undefined, // No evidence
+            }),
+            toLane: 'done',
+        }, standardConfig);
+
+        expect(result.ok).toBe(false);
+        expect(result.errors.some(msg => msg.includes('No evidence recorded'))).toBe(true);
+    });
+
+    it('requires evidence before moving to done in lite profile', () => {
+        const liteConfig: BoardConfig = {
+            profile: 'lite',
+            profileVersion: 3,
+            lanes: PROFILE_LANES.lite,
+            enforcement: { mode: 'strict', overrides: { allowed: true, actors: ['agent'], requireReason: false } },
+        };
+
+        const result = service.validate({
+            task: makeTask({
+                lane: 'in-progress',
+                evidence: undefined, // No evidence
+            }),
+            toLane: 'done',
+        }, liteConfig);
+
+        expect(result.ok).toBe(false);
+        expect(result.errors.some(msg => msg.includes('No evidence recorded'))).toBe(true);
     });
 
     it('downgrades worktree-required checks to warnings in warn mode', () => {
