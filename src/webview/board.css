@@ -512,6 +512,260 @@
         overflow: hidden;
     }
 
+    /* ── Settings Modal ──────────────────────────── */
+    .settings-modal {
+        width: 600px;
+        max-width: calc(100vw - 32px);
+        max-height: calc(100vh - 48px);
+    }
+
+    .settings-body {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 12px 16px;
+        overflow-y: auto;
+        flex: 1;
+    }
+
+    .settings-tabs {
+        display: flex;
+        border-bottom: 1px solid var(--vscode-widget-border);
+        flex-shrink: 0;
+    }
+
+    .settings-tab {
+        flex: 1;
+        padding: 8px 12px;
+        border: none;
+        border-bottom: 2px solid transparent;
+        background: transparent;
+        color: var(--vscode-descriptionForeground);
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 600;
+        text-align: center;
+        transition: color 0.15s, border-color 0.15s;
+    }
+
+    .settings-tab:hover {
+        color: var(--vscode-foreground);
+    }
+
+    .settings-tab.active {
+        color: var(--vscode-foreground);
+        border-bottom-color: var(--vscode-focusBorder);
+    }
+
+    .settings-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .settings-panel[hidden] {
+        display: none;
+    }
+
+    .settings-nested {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 8px;
+        background: var(--vscode-editor-background);
+        border: 1px solid var(--vscode-widget-border);
+        border-radius: 4px;
+    }
+
+    .settings-transition-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .transition-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 4px 0;
+    }
+
+    .transition-label {
+        font-size: 12px;
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .transition-row .form-control {
+        flex-shrink: 0;
+        width: 110px;
+    }
+
+    .settings-table-container {
+        overflow-x: auto;
+    }
+
+    .settings-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+    }
+
+    .settings-table th,
+    .settings-table td {
+        padding: 4px 8px;
+        border: 1px solid var(--vscode-widget-border);
+        text-align: left;
+    }
+
+    .settings-table th {
+        font-weight: 600;
+        background: rgba(127, 127, 127, 0.1);
+    }
+
+    .settings-table .form-control {
+        width: 100%;
+    }
+
+    .policy-level-cell {
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    .settings-skills {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .settings-skills-input {
+        display: flex;
+        align-items: center;
+    }
+
+    .settings-skills-input input {
+        flex: 1;
+    }
+
+    .settings-packs-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .skill-card {
+        border: 1px solid var(--vscode-widget-border);
+        border-radius: 4px;
+        padding: 8px;
+        background: var(--vscode-editor-background);
+    }
+
+    .skill-card-title {
+        font-weight: 600;
+        font-size: 12px;
+        margin-bottom: 4px;
+    }
+
+    .skill-card-body {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .skill-list,
+    .skill-coverage,
+    .skill-verify {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+
+    .skill-badge {
+        display: inline-block;
+        padding: 1px 6px;
+        border-radius: 3px;
+        font-size: 11px;
+        background: var(--vscode-badge-background);
+        color: var(--vscode-badge-foreground);
+    }
+
+    .coverage-badge {
+        display: inline-block;
+        padding: 1px 6px;
+        border-radius: 3px;
+        font-size: 11px;
+        background: rgba(127, 127, 127, 0.12);
+        color: var(--vscode-foreground);
+    }
+
+    .verify-cmd-badge {
+        display: inline-block;
+        padding: 1px 6px;
+        border-radius: 3px;
+        font-size: 11px;
+        background: var(--vscode-inputValidation-infoBackground);
+        color: var(--vscode-foreground);
+    }
+
+    .settings-skills-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        max-height: 150px;
+        overflow-y: auto;
+        border: 1px solid var(--vscode-widget-border);
+        padding: 8px;
+        background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+        border-radius: 4px;
+    }
+
+    .settings-skills-loading,
+    .settings-skills-empty {
+        padding: 8px;
+        text-align: center;
+        font-size: 12px;
+        color: var(--vscode-descriptionForeground);
+    }
+
+    .skill-checkbox-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px;
+        cursor: pointer;
+        border-radius: 2px;
+    }
+
+    .skill-checkbox-label:hover {
+        background: rgba(127, 127, 127, 0.1);
+    }
+
+    .skill-checkbox {
+        width: 16px;
+        height: 16px;
+        accent-color: var(--vscode-focusBorder);
+    }
+
+    .skill-info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .skill-name {
+        font-weight: 500;
+        font-size: 12px;
+    }
+
+    .skill-desc {
+        font-size: 11px;
+        color: var(--vscode-descriptionForeground);
+    }
+
     .modal-header {
         @apply flex items-center gap-2 px-4 py-3 flex-shrink-0;
         border-bottom: 1px solid var(--vscode-widget-border);

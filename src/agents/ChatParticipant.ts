@@ -259,7 +259,7 @@ export class ChatParticipant {
                 await this.handleArchive(prompt, response);
                 return;
             case 'prompts':
-                await this.handlePrompts(response);
+                await this.handlePrompts(prompt, response);
                 return;
             case 'sweep':
                 await this.handleSweep(prompt, response);
@@ -278,7 +278,8 @@ export class ChatParticipant {
                 response.markdown('- `@kanban /refresh` - Re-inject agent context for the selected task\n');
                 response.markdown('- `@kanban /worktree` - Create a git worktree for the selected task\n');
                 response.markdown('- `@kanban /archive [slug]` - Move a completed change folder to changes/archive/\n');
-                response.markdown('- `@kanban /prompts` - Write/refresh the bundled stage-driver prompts in .agentkanban/prompts/\n');
+                response.markdown('- `@kanban /prompts` - Open a QuickPick of prompts; select to copy to clipboard\n');
+                response.markdown('- `@kanban /prompts refresh` - Rewrite the bundled stage-driver prompts in .agentkanban/prompts/\n');
                 response.markdown('- `@kanban /worktree open` - Open the task worktree for the selected task in VS Code\n');
                 response.markdown('- `@kanban /worktree remove` - Remove the task worktree\n');
                 response.markdown('- `@kanban /sweep [lane]` - Run an autonomous sweep of ready tasks (default: planning)\n');
@@ -868,10 +869,91 @@ export class ChatParticipant {
     }
 
     /**
-     * Handle the /prompts command. (Re)writes the bundled stage-driver prompts
-     * into `.agentkanban/prompts/`, overwriting to the latest bundled versions.
+     * Handle the /prompts command. Has two modes:
+     * - `/prompts` (no args) opens a QuickPick of prompt files
+     * - `/prompts refresh` rewrites the bundled stage-driver prompts
      */
-    private async handlePrompts(response: vscode.ChatResponseStream): Promise<void> {
+    private async handlePrompts(
+        prompt: string,
+        response: vscode.ChatResponseStream,
+    ): Promise<void> {
+        // Refresh mode: rewrite the bundled prompts
+        if (prompt.trim() === 'refresh') {
+            await this.handlePromptsRefresh(response);
+            return;
+        }
+
+        // Picker mode: show list of prompt files
+        await this.handlePromptsPicker(response);
+    }
+
+    /** Pick a prompt file from the workspace and copy its content to clipboard. */
+    private async handlePromptsPicker(response: vscode.ChatResponseStream): Promise<void> {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            response.markdown('No workspace folder is open.');
+            return;
+        }
+
+        const promptsDir = vscode.Uri.joinPath(workspaceFolder.uri, PROMPTS_REL_PATH);
+        let entries: [string, vscode.FileType][];
+        try {
+            entries = await vscode.workspace.fs.readDirectory(promptsDir);
+        } catch {
+            response.markdown('The `.agentkanban/prompts/` directory does not exist. Run `/prompts refresh` first.');
+            return;
+        }
+
+        // Filter to .md prompt files; relegate README.md (it is docs, not a prompt).
+        const promptFiles = entries
+            .filter(([name, type]) => type === vscode.FileType.File && name.toLowerCase().endsWith('.md'))
+            .map(([name]) => name)
+            .filter(name => name.toLowerCase() !== 'readme.md');
+
+        if (promptFiles.length === 0) {
+            response.markdown('No prompt files found in `.agentkanban/prompts/`. Run `/prompts refresh` first.');
+            return;
+        }
+
+        // Carry the real filename on each item so selection never reconstructs a path.
+        type PromptPick = vscode.QuickPickItem & { filename: string };
+        const items: PromptPick[] = promptFiles.map(name => ({
+            label: name.replace(/\.md$/i, ''),
+            filename: name,
+        }));
+
+        const picked = await vscode.window.showQuickPick(
+            items,
+            {
+                title: 'Select a prompt to copy to clipboard',
+                ignoreFocusOut: true,
+                placeHolder: 'Choose a prompt file...',
+            },
+        );
+
+        if (!picked) {
+            response.markdown('No prompt selected.');
+            return;
+        }
+
+        // Read and copy the selected prompt content
+        const promptPath = vscode.Uri.joinPath(promptsDir, picked.filename);
+        try {
+            const bytes = await vscode.workspace.fs.readFile(promptPath);
+            const content = new TextDecoder().decode(bytes);
+            await vscode.env.clipboard.writeText(content);
+            response.markdown(`Copied **${picked.label}** to clipboard.\n\nUse it in your agent/chat.`);
+            response.reference(promptPath);
+        } catch {
+            response.markdown(`Failed to read prompt \`${picked.filename}\`.`);
+        }
+    }
+
+    /**
+     * Rewrite the bundled stage-driver prompts into `.agentkanban/prompts/`.
+     * This is the behavior for `/prompts refresh`.
+     */
+    private async handlePromptsRefresh(response: vscode.ChatResponseStream): Promise<void> {
         const { created, updated, skipped } = await this.scaffoldPrompts(true);
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (created.length === 0 && updated.length === 0) {

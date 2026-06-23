@@ -18,6 +18,12 @@ import {
     wipExceeded,
     type Priority,
 } from './types';
+import { discoverSkills } from './SkillDiscovery';
+
+/** Minimal interface for prompting re-scaffold on activeStack change. */
+export interface PromptScaffolder {
+    scaffoldPrompts(overwrite?: boolean): Promise<{ created: string[]; updated: string[]; skipped: string[] }>;
+}
 
 export class KanbanEditorPanel {
     public static readonly VIEW_TYPE = 'agentKanban.boardPanel';
@@ -31,6 +37,7 @@ export class KanbanEditorPanel {
     private _pendingMessages: unknown[] = [];
     private _isInitialised: boolean;
     private readonly _transitionService = new TransitionService();
+    private readonly _scaffolder?: PromptScaffolder;
 
     // ── Public API ───────────────────────────────────────────────────────────
 
@@ -42,6 +49,7 @@ export class KanbanEditorPanel {
         logger?: LogService,
         isInitialised = true,
         worktreeService?: WorktreeService,
+        scaffolder?: PromptScaffolder,
     ): KanbanEditorPanel {
         const column =
             vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
@@ -77,6 +85,7 @@ export class KanbanEditorPanel {
             logger,
             isInitialised,
             worktreeService,
+            scaffolder,
         );
         return KanbanEditorPanel.currentPanel;
     }
@@ -90,6 +99,7 @@ export class KanbanEditorPanel {
         logger?: LogService,
         isInitialised = true,
         worktreeService?: WorktreeService,
+        scaffolder?: PromptScaffolder,
     ): void {
         KanbanEditorPanel.currentPanel = new KanbanEditorPanel(
             panel,
@@ -99,6 +109,7 @@ export class KanbanEditorPanel {
             logger,
             isInitialised,
             worktreeService,
+            scaffolder,
         );
     }
 
@@ -123,6 +134,15 @@ export class KanbanEditorPanel {
         }
     }
 
+    public triggerSettingsModal(): void {
+        const msg = { type: 'openSettings' };
+        if (this._webviewReady) {
+            this._panel.webview.postMessage(msg);
+        } else {
+            this._pendingMessages.push(msg);
+        }
+    }
+
     // ── Constructor ──────────────────────────────────────────────────────────
 
     private constructor(
@@ -133,11 +153,13 @@ export class KanbanEditorPanel {
         logger?: LogService,
         isInitialised = true,
         worktreeService?: WorktreeService,
+        scaffolder?: PromptScaffolder,
     ) {
         this._panel = panel;
         this._logger = logger ?? NO_OP_LOGGER;
         this._isInitialised = isInitialised;
         this._worktreeService = worktreeService;
+        this._scaffolder = scaffolder;
 
         // Enforce options (important when reviving a deserialized panel)
         this._panel.webview.options = {
@@ -545,6 +567,39 @@ export class KanbanEditorPanel {
                     vscode.window.showWarningMessage('Worktree directory no longer exists.');
                     task.worktree = undefined;
                     await this._taskStore.save(task);
+                }
+                break;
+            }
+
+            // ── Settings modal handlers ──
+
+            case 'saveBoardConfig': {
+                const partial: Record<string, unknown> = {};
+                if (message.enforcement !== undefined) { partial.enforcement = message.enforcement; }
+                if (message.reviewPolicy !== undefined) { partial.reviewPolicy = message.reviewPolicy; }
+                if (message.worktreePolicy !== undefined) { partial.worktreePolicy = message.worktreePolicy; }
+                if (message.wipLimits !== undefined) { partial.wipLimits = message.wipLimits; }
+                if (message.policies !== undefined) { partial.policies = message.policies; }
+                if (message.skills !== undefined) { partial.skills = message.skills; }
+                await this._boardConfigStore.update(partial);
+                break;
+            }
+
+            case 'setActiveStack': {
+                await this._boardConfigStore.update({ activeStack: message.name });
+                // Re-scaffold prompts when active stack changes
+                if (this._scaffolder) {
+                    await this._scaffolder.scaffoldPrompts(true);
+                }
+                break;
+            }
+
+            case 'requestSkills': {
+                const extraDirs = vscode.workspace.getConfiguration('agentKanban').get<string[]>('skillsDirs', []);
+                const wsFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
+                const discovered = await discoverSkills(wsFolder ?? vscode.Uri.file(process.cwd()), extraDirs);
+                if (this._webviewReady) {
+                    this._panel.webview.postMessage({ type: 'skillsList', skills: discovered });
                 }
                 break;
             }

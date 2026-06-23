@@ -689,13 +689,13 @@ describe('ChatParticipant', () => {
             expect(fs.has('/test-workspace/.agentkanban/prompts/stage-planning-to-review.md')).toBe(true);
         });
 
-        it('/prompts overwrites to the bundled versions', async () => {
+        it('/prompts refresh overwrites to the bundled versions', async () => {
             const fs = seedAssets({
                 '/test-workspace/.agentkanban/prompts/README.md': '# my edited readme',
             });
 
             const response = mockResponse();
-            await participant.handleRequest(mockRequest('prompts', ''), {} as any, response, mockToken);
+            await participant.handleRequest(mockRequest('prompts', 'refresh'), {} as any, response, mockToken);
 
             expect(fs.text('/test-workspace/.agentkanban/prompts/README.md')).toBe('# bundled README.md');
             expect(response.messages.some((m: string) => m.includes('Refreshed stage-driver prompts'))).toBe(true);

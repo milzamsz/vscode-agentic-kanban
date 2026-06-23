@@ -2,6 +2,21 @@
 
 All notable changes to Agentic Kanban will be documented here.
 
+## [1.6.6] - 2026-06-23
+
+### Added
+- `/prompts` command now opens a QuickPick of prompt files for arrow-key selection; copies selected prompt content to clipboard
+- `/prompts refresh` preserves the original scaffold/rewrite behavior
+- Settings modal Skill Packs tab now shows discovered skills as a checkbox list (replaces free-text input)
+- `agentKanban.skillsDirs` setting to specify additional skill directories to scan
+- Settings modal (sidebar): Board Config tab (enforcement, WIP limits, worktree policy, transition policies, review-policy matrix) and Skill Packs tab (activeStack, skills, pack cards)
+- `labels` serialised last in `board.yaml` for readability
+
+### Changed
+- Removed "New Task" button from sidebar
+- Verification commands section removed from Settings modal
+- Settings modal tab buttons styled with underline indicator
+
 ## [1.6.5] - 2026-06-23
 
 - **Restore Branding Assets**: copied and renamed the new three-column logos and icons directly from `.temp/` to their original repository and documentation locations (`images/icon.png`, `images/kanban-icon.svg`, `images/kanban-icon-128x128.svg`, and `docs/src/assets/logo.svg`).
