@@ -704,6 +704,21 @@ export class TaskStore {
                 created: task.worktree.created,
             };
         }
+        if (task.evidence) {
+            frontmatter.evidence = task.evidence;
+        }
+        if (task.parent) {
+            frontmatter.parent = task.parent;
+        }
+        if (task.superseeds?.length) {
+            frontmatter.superseeds = task.superseeds;
+        }
+        if (task.superseededBy) {
+            frontmatter.superseededBy = task.superseededBy;
+        }
+        if (task.blockerResolved) {
+            frontmatter.blockerResolved = task.blockerResolved;
+        }
         // Round-trip unknown frontmatter keys (e.g. `dependsOn`) so conventions
         // layered on top of the extension survive a save. Known fields win.
         if (task.extras) {
@@ -789,6 +804,13 @@ export class TaskStore {
                         created: String((data.worktree as Record<string, unknown>).created ?? ''),
                     } as WorktreeInfo
                     : undefined,
+                evidence: data.evidence && typeof data.evidence === 'object'
+                    ? data.evidence as import('./types').TaskEvidence
+                    : undefined,
+                parent: typeof data.parent === 'string' ? data.parent : undefined,
+                superseeds: Array.isArray(data.superseeds) ? (data.superseeds as string[]) : undefined,
+                superseededBy: typeof data.superseededBy === 'string' ? data.superseededBy : undefined,
+                blockerResolved: typeof data.blockerResolved === 'boolean' ? data.blockerResolved : undefined,
                 extras: Object.keys(extras).length > 0 ? extras : undefined,
             };
         } catch {

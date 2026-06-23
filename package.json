@@ -188,6 +188,18 @@
                     {
                         "name": "doctor",
                         "description": "run workflow diagnostics for lane drift, blockers, dependencies, and worktrees"
+                    },
+                    {
+                        "name": "pack",
+                        "description": "list|use <name> - manage stack packs"
+                    },
+                    {
+                        "name": "work",
+                        "description": "[task name] - pick a not-done task and copy a work prompt to clipboard"
+                    },
+                    {
+                        "name": "evidence",
+                        "description": "[task] [lint|test|build|behavior] [pass|fail] - view or record task evidence"
                     }
                 ]
             }

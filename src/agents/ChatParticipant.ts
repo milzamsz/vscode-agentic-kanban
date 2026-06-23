@@ -15,10 +15,13 @@ import {
     getFirstLane,
     type Priority,
     type ReviewPolicy,
+    type TaskEvidence,
+    type EvidenceEntry,
 } from '../types';
 import { getDefaultProfile, isEnforceWorktrees } from '../settings';
 import { WorkflowDoctor } from '../WorkflowDoctor';
 import { interpolate, resolveVars } from '../PromptTemplate';
+import { TaskEvidenceValidator } from '../TaskEvidenceValidator';
 
 /** Relative path within the workspace for the instruction file. */
 const INSTRUCTION_REL_PATH = '.agentkanban/INSTRUCTION.md';
@@ -275,8 +278,11 @@ export class ChatParticipant {
             case 'work':
                 await this.handleWork(prompt, response);
                 return;
+            case 'evidence':
+                await this.handleEvidence(prompt, response);
+                return;
             default: {
-                response.markdown('Available commands: `/new`, `/task`, `/refresh`, `/spec`, `/worktree`, `/archive`, `/prompts`, `/sweep`, `/doctor`, `/pack`, `/work`\n\n');
+                response.markdown('Available commands: `/new`, `/task`, `/refresh`, `/spec`, `/worktree`, `/archive`, `/prompts`, `/sweep`, `/doctor`, `/pack`, `/work`, `/evidence`\n\n');
                 response.markdown('- `@kanban /spec [capability]` - Scaffold spec-driven change artifacts for the selected task\n');
                 response.markdown('- `@kanban /new <task title>` - Create a new task\n');
                 response.markdown('- `@kanban /task <task name>` - Select a task to work on\n');
@@ -292,6 +298,8 @@ export class ChatParticipant {
                 response.markdown('- `@kanban /pack list` - List all configured stack packs\n');
                 response.markdown('- `@kanban /pack use <name>` - Select an active stack pack\n');
                 response.markdown('- `@kanban /work [task name]` - Pick a not-done task and copy a task-specific work prompt to clipboard\n');
+                response.markdown('- `@kanban /evidence [task]` - Show evidence status for a task\n');
+                response.markdown('- `@kanban /evidence <task> lint|test|build|behavior pass|fail ["<notes>"]` - Record evidence for a task\n');
                 return;
             }
         }
@@ -813,6 +821,114 @@ export class ChatParticipant {
             : 'backlog → planning → in-progress → review → done';
         response.markdown(`Workflow: \`${laneChain}\`\n\n`);
         response.markdown('Paste the prompt into a new chat to carry this task to completion.');
+    }
+
+    /**
+     * Handle the /evidence command.
+     * With no check arg: shows evidence status.
+     * With check + pass|fail: records evidence on the task.
+     */
+    private async handleEvidence(prompt: string, response: vscode.ChatResponseStream): Promise<void> {
+        const VALID_CHECKS = ['lint', 'test', 'build', 'behavior'] as const;
+        type CheckKey = typeof VALID_CHECKS[number];
+
+        let task: ReturnType<TaskStore['get']>;
+        let freeText = '';
+
+        if (prompt.trim()) {
+            const resolved = this.resolveTaskFromPrompt(prompt.trim());
+            task = resolved.task;
+            freeText = resolved.freeText;
+        } else if (this.lastSelectedTaskId) {
+            task = this.taskStore.get(this.lastSelectedTaskId);
+        }
+
+        if (!task) {
+            const activeTasks = this.taskStore.getAll().filter(t => t.lane !== DONE_LANE);
+            if (activeTasks.length === 0) {
+                response.markdown('No active tasks. Use `@kanban /new <title>` to create one.');
+            } else {
+                response.markdown('Active tasks:\n\n');
+                for (const t of activeTasks) {
+                    response.markdown(`- **${t.title}**\n`);
+                }
+                response.markdown('\nUsage: `@kanban /evidence <task> [lint|test|build|behavior] [pass|fail]`');
+            }
+            return;
+        }
+
+        const config = this.boardConfigStore.get();
+        const isStandard = config.profile !== 'lite';
+
+        // Parse check key and pass/fail from remaining text
+        const parts = freeText.trim().split(/\s+/).filter(Boolean);
+        const checkArg = parts[0] as CheckKey | undefined;
+        const resultArg = parts[1]?.toLowerCase();
+        const notesArg = parts.slice(2).join(' ').replace(/^["']|["']$/g, '');
+
+        if (!checkArg || !VALID_CHECKS.includes(checkArg)) {
+            // Show evidence status
+            const evidence = task.evidence;
+            const checks: CheckKey[] = isStandard ? ['lint', 'test', 'build', 'behavior'] : ['behavior'];
+
+            response.markdown(`## Evidence: **${task.title}**\n\n`);
+            for (const c of checks) {
+                const entry = evidence?.[c as keyof TaskEvidence] as EvidenceEntry | undefined;
+                if (!entry) {
+                    response.markdown(`- ❌ **${c}**: not recorded\n`);
+                } else if (!entry.ran) {
+                    response.markdown(`- ⚠️ **${c}**: not run\n`);
+                } else if (entry.passed) {
+                    response.markdown(`- ✅ **${c}**: passed${entry.description ? ` — ${entry.description}` : ''}\n`);
+                } else {
+                    response.markdown(`- ❌ **${c}**: failed${entry.description ? ` — ${entry.description}` : ''}\n`);
+                }
+            }
+
+            const validation = TaskEvidenceValidator.validate(task, isStandard);
+            if (validation.ok) {
+                response.markdown('\n✅ Evidence complete — task is ready for `review → done`.\n');
+            } else {
+                if (validation.missing.length > 0) {
+                    response.markdown(`\nMissing: ${validation.missing.join(', ')}\n`);
+                }
+                if (validation.failed.length > 0) {
+                    response.markdown(`Failed: ${validation.failed.join(', ')}\n`);
+                }
+            }
+            response.markdown('\nUsage: `@kanban /evidence <task> lint|test|build|behavior pass|fail ["<notes>"]`');
+            return;
+        }
+
+        if (resultArg !== 'pass' && resultArg !== 'fail') {
+            response.markdown(`Usage: \`@kanban /evidence ${task.slug ?? task.title} ${checkArg} pass|fail ["<notes>"]\``);
+            return;
+        }
+
+        // Record the evidence entry
+        const entry: EvidenceEntry = {
+            ran: true,
+            passed: resultArg === 'pass',
+            timestamp: new Date().toISOString(),
+            description: notesArg || undefined,
+        };
+
+        if (!task.evidence) { task.evidence = {}; }
+        (task.evidence as any)[checkArg] = entry;
+        await this.taskStore.save(task);
+
+        const icon = resultArg === 'pass' ? '✅' : '❌';
+        response.markdown(`${icon} Recorded **${checkArg}** as **${resultArg}** for **${task.title}**.\n`);
+        if (notesArg) { response.markdown(`Notes: ${notesArg}\n`); }
+
+
+        const validation = TaskEvidenceValidator.validate(task, isStandard);
+        if (validation.ok) {
+            response.markdown('\n✅ All evidence complete — task is ready for `review → done`.\n');
+        } else {
+            const remaining = [...validation.missing, ...validation.failed];
+            response.markdown(`\nRemaining: ${remaining.join(', ')}\n`);
+        }
     }
 
     /**
@@ -1556,7 +1672,11 @@ export class ChatParticipant {
                 // Move to review
                 task.lane = 'review';
                 if (task.labels) {
-                    task.labels = task.labels.filter(l => l !== 'blocked');
+                    const hadBlocker = task.labels.some(l => l === 'blocked' || l.startsWith('blocked-by:'));
+                    task.labels = task.labels.filter(l => l !== 'blocked' && !l.startsWith('blocked-by:'));
+                    if (hadBlocker) {
+                        task.blockerResolved = true;
+                    }
                 }
                 const successComment = `[comment: sweep success: verification passed on ${new Date().toISOString()}]`;
                 await this.appendCommentToTask(task, successComment);
