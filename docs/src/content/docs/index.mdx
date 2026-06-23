@@ -1,0 +1,37 @@
+---
+title: Agentic Kanban
+description: Profile-driven Kanban board for AI-assisted software development in VS Code.
+template: splash
+hero:
+  tagline: Spec-driven, agent-assisted software delivery in VS Code
+  image:
+    file: ../../assets/logo.svg
+  actions:
+    - text: Get Started
+      link: /getting-started/what-is-agentic-kanban/
+      icon: right-arrow
+      variant: primary
+    - text: GitHub
+      link: https://github.com/milzamsz/vscode-agentic-kanban
+      icon: external
+      variant: secondary
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## Key Features
+
+<CardGrid stagger>
+  <Card title="Durable Markdown Board" icon="document">
+    All task states and conversations live directly in version-controlled Markdown files under `.agentkanban/`. No opaque databases.
+  </Card>
+  <Card title="@kanban Chat Participant" icon="comment-alt">
+    Directly manage tasks, dependencies, worktrees, and specs from the VS Code chat window.
+  </Card>
+  <Card title="Workflow Profiles" icon="setting">
+    Choose **Lite** for fast paths or **Standard** for full spec-driven development (SDD) pipelines.
+  </Card>
+  <Card title="Dependency-Aware Sweeps" icon="list-format">
+    Coding agents process tasks in parallel or sequence, respecting `dependsOn` gates and blocker rules.
+  </Card>
+</CardGrid>

@@ -1,13 +1,53 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
-  <path d="M4.5 7.25C4.5 5.73122 5.73122 4.5 7.25 4.5H16.35V6H7.25C6.55964 6 6 6.55964 6 7.25V15.75C6 17.8211 7.67893 19.5 9.75 19.5H14.25C16.3211 19.5 18 17.8211 18 15.75V8.25H19.5V15.75C19.5 18.6495 17.1495 21 14.25 21H9.75C6.85051 21 4.5 18.6495 4.5 15.75V7.25Z" fill="currentColor"/>
-  <path d="M4.9 8H18.5V9.5H4.9V8Z" fill="currentColor"/>
-  <path d="M10 8H11.3V18H10V8Z" fill="currentColor"/>
-  <path d="M14.1 8H15.4V18H14.1V8Z" fill="currentColor"/>
-  <rect x="6.9" y="10.7" width="2.4" height="1.45" rx="0.5" fill="currentColor"/>
-  <rect x="6.9" y="13.2" width="3.15" height="1.9" rx="0.55" fill="currentColor"/>
-  <rect x="11.15" y="10.7" width="2.15" height="1.45" rx="0.5" fill="currentColor"/>
-  <rect x="11.15" y="13.2" width="2.75" height="1.9" rx="0.55" fill="currentColor"/>
-  <rect x="15.25" y="10.7" width="2.1" height="1.45" rx="0.5" fill="currentColor"/>
-  <rect x="15.25" y="13.2" width="3" height="1.9" rx="0.55" fill="currentColor"/>
-  <path d="M18.85 2.2C19.051 1.76667 19.6677 1.76667 19.8688 2.2L20.2918 3.11165C20.3741 3.28917 20.5143 3.43344 20.6894 3.52058L21.5885 3.96805C22.0143 4.17993 22.0143 4.78673 21.5885 4.99861L20.6894 5.44608C20.5143 5.53322 20.3741 5.67749 20.2918 5.85501L19.8688 6.76667C19.6677 7.19999 19.051 7.19999 18.85 6.76667L18.427 5.85501C18.3447 5.67749 18.2045 5.53322 18.0294 5.44608L17.1303 4.99861C16.7044 4.78673 16.7044 4.17993 17.1303 3.96805L18.0294 3.52058C18.2045 3.43344 18.3447 3.28917 18.427 3.11165L18.85 2.2Z" fill="currentColor"/>
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="512"
+  height="512"
+  viewBox="0 0 512 512"
+  fill="none"
+  role="img"
+  aria-labelledby="title desc"
+>
+  <title id="title">Agentic Kanban Three Column Mark</title>
+  <desc id="desc">Three rounded kanban columns with a violet-to-blue gradient.</desc>
+
+  <defs>
+    <linearGradient
+      id="agentic-kanban-gradient"
+      x1="256"
+      y1="42"
+      x2="256"
+      y2="470"
+      gradientUnits="userSpaceOnUse"
+    >
+      <stop offset="0" stop-color="#A3A3FF"/>
+      <stop offset="1" stop-color="#2020FF"/>
+    </linearGradient>
+  </defs>
+
+  <rect
+    x="42"
+    y="42"
+    width="118"
+    height="428"
+    rx="30"
+    fill="url(#agentic-kanban-gradient)"
+  />
+
+  <rect
+    x="197"
+    y="42"
+    width="118"
+    height="338"
+    rx="30"
+    fill="url(#agentic-kanban-gradient)"
+  />
+
+  <rect
+    x="352"
+    y="42"
+    width="118"
+    height="248"
+    rx="30"
+    fill="url(#agentic-kanban-gradient)"
+  />
 </svg>
