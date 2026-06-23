@@ -2,7 +2,7 @@
     "name": "agentic-kanban",
     "displayName": "Agentic Kanban",
     "description": "A profile-driven Kanban board for AI-assisted software development with persistent markdown task conversations.",
-    "version": "1.6.6",
+    "version": "1.6.7",
     "publisher": "milzam",
     "license": "Elastic-2.0",
     "icon": "images/icon.png",

@@ -2,6 +2,18 @@
 
 All notable changes to Agentic Kanban will be documented here.
 
+## [1.6.7] - 2026-06-24
+
+### Added
+- `/work` chat command: QuickPick of not-done tasks, copies a fully interpolated work prompt to clipboard
+- `work-on-task.md` bundled prompt: profile-aware single-task driver (Lite/Standard)
+- Profile-aware interpolation vars: `{{profile}}`, `{{lanes}}`, `{{advance}}` resolved from board config
+- `selectTask()` helper refactored for reuse across `/task` and `/work` commands
+
+### Changed
+- `resolveVars()` now emits profile-specific lane strings and advancement instructions
+- Prompt arrays (`STANDARD_PROMPT_FILES`, `LITE_PROMPT_FILES`) include `work-on-task.md`
+
 ## [1.6.6] - 2026-06-23
 
 ### Added
