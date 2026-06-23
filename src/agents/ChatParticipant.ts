@@ -45,6 +45,7 @@ const STANDARD_PROMPT_FILES = [
     'stage-review-to-done.md',
     'stage-blocked-and-resume.md',
     'production-readiness-audit.md',
+    'work-on-task.md',
 ];
 
 /** Lite profile uses only basic prompts without planning/review stage prompts. */
@@ -52,6 +53,7 @@ const LITE_PROMPT_FILES = [
     'README.md',
     'new-task-intake.md',
     'stage-backlog-to-planning.md',
+    'work-on-task.md',
 ];
 
 export const AGENTS_MD_BEGIN = '<!-- BEGIN AGENTIC KANBAN \u2014 DO NOT EDIT THIS SECTION -->';
@@ -270,8 +272,11 @@ export class ChatParticipant {
             case 'pack':
                 await this.handlePack(prompt, response);
                 return;
+            case 'work':
+                await this.handleWork(prompt, response);
+                return;
             default: {
-                response.markdown('Available commands: `/new`, `/task`, `/refresh`, `/spec`, `/worktree`, `/archive`, `/prompts`, `/sweep`, `/doctor`, `/pack`\n\n');
+                response.markdown('Available commands: `/new`, `/task`, `/refresh`, `/spec`, `/worktree`, `/archive`, `/prompts`, `/sweep`, `/doctor`, `/pack`, `/work`\n\n');
                 response.markdown('- `@kanban /spec [capability]` - Scaffold spec-driven change artifacts for the selected task\n');
                 response.markdown('- `@kanban /new <task title>` - Create a new task\n');
                 response.markdown('- `@kanban /task <task name>` - Select a task to work on\n');
@@ -286,6 +291,7 @@ export class ChatParticipant {
                 response.markdown('- `@kanban /doctor` - Run workflow diagnostics for lane drift, blockers, dependencies, and stale worktrees\n');
                 response.markdown('- `@kanban /pack list` - List all configured stack packs\n');
                 response.markdown('- `@kanban /pack use <name>` - Select an active stack pack\n');
+                response.markdown('- `@kanban /work [task name]` - Pick a not-done task and copy a task-specific work prompt to clipboard\n');
                 return;
             }
         }
@@ -634,51 +640,16 @@ export class ChatParticipant {
             return;
         }
 
-        this.logger.info('chatParticipant', `/task on: ${task.id} (${task.title})`);
-        this.lastSelectedTaskId = task.id;
-
-        // Sync INSTRUCTION.md and AGENTS.md section from bundled templates
-        const instrUri = this.getIsInitialised() ? await this.syncInstructionFile() : undefined;
-
-        const taskUri = this.taskStore.getTaskUri(task.id);
-        const taskRelPath = vscode.workspace.asRelativePath(taskUri);
-        const todoRelPath = vscode.workspace.asRelativePath(this.taskStore.getTodoUri(task.id));
-        if (this.getIsInitialised()) {
-            await this.syncAgentsMdSection({
-                title: task.title,
-                taskRelPath,
-                todoRelPath,
-                changeRelPath: this.getChangeRelPath(task),
-                specRelPath: this.getSpecRelPath(task),
-                priority: task.priority,
-            });
-        }
-
-        // Attach files as references so they persist in conversation context
-        if (instrUri) { response.reference(instrUri); }
-        response.reference(taskUri);
-
-        // Open the task file in editor
-        try {
-            const doc = await vscode.workspace.openTextDocument(taskUri);
-            await vscode.window.showTextDocument(doc, { preview: false });
-        } catch {
-            // non-fatal — file may already be open
-        }
-
-        // Output context for the user and Copilot
-        if (instrUri) {
-            const instrRelPath = vscode.workspace.asRelativePath(instrUri);
-            response.markdown(`Read \`${instrRelPath}\` for workflow instructions.\n\n`);
-        }
+        // Use the refactored selectTask helper (syncs context, opens file)
+        const { taskRelPath } = await this.selectTask(task, response);
 
         // Inject custom instruction file reference if configured
         const customPath = vscode.workspace.getConfiguration('agentKanban').get<string>('customInstructionFile', '');
-        if (customPath && workspaceFolder) {
+        if (customPath) {
             try {
                 const customUri = customPath.match(/^[a-zA-Z]:[\\/]/) || customPath.startsWith('/')
                     ? vscode.Uri.file(customPath)
-                    : vscode.Uri.joinPath(workspaceFolder.uri, customPath);
+                    : vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, customPath);
                 await vscode.workspace.fs.stat(customUri);
                 const customRelPath = vscode.workspace.asRelativePath(customUri);
                 response.markdown(`Read \`${customRelPath}\` for additional instructions.\n\n`);
@@ -702,6 +673,146 @@ export class ChatParticipant {
         const config = this.boardConfigStore.get();
         response.markdown(getWorkflowPrompt(config.profile));
         response.markdown('Use `@kanban /refresh` to re-inject context if the agent loses track, or `@kanban /worktree` to create an isolated worktree.');
+    }
+
+    /**
+     * Refactored shared selection block: syncs context, opens the task file.
+     * Returns the task's relative path.
+     */
+    private async selectTask(task: NonNullable<ReturnType<TaskStore['get']>>, response: vscode.ChatResponseStream): Promise<{ taskRelPath: string }> {
+        this.lastSelectedTaskId = task.id;
+        this.logger.info('chatParticipant', `Selected task: ${task.id} (${task.title})`);
+
+        const instrUri = this.getIsInitialised() ? await this.syncInstructionFile() : undefined;
+        const taskUri = this.taskStore.getTaskUri(task.id);
+        const taskRelPath = vscode.workspace.asRelativePath(taskUri);
+        const todoRelPath = vscode.workspace.asRelativePath(this.taskStore.getTodoUri(task.id));
+
+        if (this.getIsInitialised()) {
+            await this.syncAgentsMdSection({
+                title: task.title,
+                taskRelPath,
+                todoRelPath,
+                changeRelPath: this.getChangeRelPath(task),
+                specRelPath: this.getSpecRelPath(task),
+                priority: task.priority,
+            });
+        }
+
+        if (instrUri) {
+            response.reference(instrUri);
+            const instrRelPath = vscode.workspace.asRelativePath(instrUri);
+            response.markdown(`Read \`${instrRelPath}\` for workflow instructions.\n\n`);
+        }
+        response.reference(taskUri);
+
+        try {
+            const doc = await vscode.workspace.openTextDocument(taskUri);
+            await vscode.window.showTextDocument(doc, { preview: false });
+        } catch {
+            // non-fatal
+        }
+
+        return { taskRelPath };
+    }
+
+    /**
+     * Pick a not-done task via QuickPick.
+     */
+    private async pickNotDoneTask(): Promise<ReturnType<TaskStore['get']> | undefined> {
+        const tasks = this.taskStore.getAll().filter(t => t.lane !== DONE_LANE);
+        if (tasks.length === 0) { return undefined; }
+
+        type Pick = vscode.QuickPickItem & { id: string };
+        const items: Pick[] = tasks.map(t => ({
+            label: t.title,
+            description: `${t.lane}${t.priority ? ' · ' + t.priority : ''}`,
+            id: t.id,
+        }));
+
+        const picked = await vscode.window.showQuickPick(items, {
+            title: 'Select a task to work on (not done)',
+            ignoreFocusOut: true,
+            placeHolder: 'Choose a task...',
+        });
+
+        return picked ? this.taskStore.get(picked.id) : undefined;
+    }
+
+    /**
+     * Handle the /work command.
+     * Picks a not-done task, syncs context, and copies a task-specific work prompt to clipboard.
+     */
+    private async handleWork(prompt: string, response: vscode.ChatResponseStream): Promise<void> {
+        let task: ReturnType<TaskStore['get']>;
+
+        if (prompt.trim()) {
+            const resolved = this.resolveTaskFromPrompt(prompt.trim());
+            task = resolved.task;
+        } else {
+            task = await this.pickNotDoneTask();
+        }
+
+        if (!task) {
+            response.markdown('No not-done tasks to work on. Use `@kanban /new <title>` to create one.');
+            return;
+        }
+
+        // Select and sync context
+        const { taskRelPath } = await this.selectTask(task, response);
+
+        // Load work-on-task prompt template
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            response.markdown('No workspace folder is open.');
+            return;
+        }
+
+        let promptContent: string;
+        let promptUri: vscode.Uri;
+
+        // Try workspace copy first, fall back to bundled
+        const workspacePromptUri = vscode.Uri.joinPath(workspaceFolder.uri, ...PROMPTS_REL_PATH.split('/'), 'work-on-task.md');
+        const bundledPromptUri = vscode.Uri.joinPath(this.extensionUri, 'assets', 'prompts', 'work-on-task.md');
+
+        try {
+            promptUri = (await this.exists(workspacePromptUri)) ? workspacePromptUri : bundledPromptUri;
+            const bytes = await vscode.workspace.fs.readFile(promptUri);
+            promptContent = new TextDecoder().decode(bytes);
+        } catch (err: any) {
+            response.markdown(`Failed to read work-on-task prompt: ${err.message}`);
+            return;
+        }
+
+        // Resolve vars and interpolate
+        const config = this.boardConfigStore.get();
+        const activePack = config.activeStack
+            ? config.packs?.find(p => p.name === config.activeStack)
+            : undefined;
+        const vars = {
+            ...resolveVars(config, activePack),
+            taskTitle: task.title,
+            taskFile: taskRelPath,
+        };
+        const out = interpolate(promptContent, vars);
+
+        // Copy to clipboard
+        try {
+            await vscode.env.clipboard.writeText(out);
+        } catch (err: any) {
+            response.markdown(`Failed to copy prompt to clipboard: ${err.message}`);
+            return;
+        }
+
+        response.markdown(`Selected **${task.title}** and copied a work prompt to clipboard.\n\n`);
+        response.markdown(`Task file: \`${taskRelPath}\`\n\n`);
+        response.reference(promptUri);
+
+        const laneChain = config.profile === 'lite'
+            ? 'backlog → in-progress → done'
+            : 'backlog → planning → in-progress → review → done';
+        response.markdown(`Workflow: \`${laneChain}\`\n\n`);
+        response.markdown('Paste the prompt into a new chat to carry this task to completion.');
     }
 
     /**

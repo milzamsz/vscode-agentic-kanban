@@ -73,5 +73,34 @@ describe('PromptTemplate', () => {
             const vars = resolveVars(mockConfig, pack);
             expect(vars.verifyCmds).toBe('- `custom verify`\n- `another check`');
         });
+
+        it('should resolve profile-aware lanes for standard', () => {
+            const config: BoardConfig = { ...mockConfig, profile: 'standard' };
+            const vars = resolveVars(config);
+            expect(vars.profile).toBe('standard');
+            expect(vars.lanes).toBe('backlog → planning → in-progress → review → done');
+            expect(vars.advance).toContain('review');
+        });
+
+        it('should resolve profile-aware lanes for lite', () => {
+            const config: BoardConfig = { ...mockConfig, profile: 'lite' };
+            const vars = resolveVars(config);
+            expect(vars.profile).toBe('lite');
+            expect(vars.lanes).toBe('backlog → in-progress → done');
+            expect(vars.advance).toContain('no separate review lane');
+            expect(vars.advance).toContain('Worktree is optional');
+        });
+
+        it('should interpolate task-specific prompt with profile, lanes, taskTitle, taskFile', () => {
+            const config: BoardConfig = { ...mockConfig, profile: 'lite' };
+            const vars = resolveVars(config);
+            const promptVars = { ...vars, taskTitle: 'Auth Feature', taskFile: '.agentkanban/tasks/task_1_auth.md' };
+            const template = '# Work: {{taskTitle}}\nFile: {{taskFile}}\nProfile: {{profile}}\nLanes: {{lanes}}';
+            const result = interpolate(template, promptVars);
+            expect(result).toContain('Auth Feature');
+            expect(result).toContain('.agentkanban/tasks/task_1_auth.md');
+            expect(result).toContain('lite');
+            expect(result).toContain('backlog → in-progress → done');
+        });
     });
 });
