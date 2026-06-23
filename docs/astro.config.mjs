@@ -31,6 +31,7 @@ export default defineConfig({
             { label: 'What is Agentic Kanban?', link: '/getting-started/what-is-agentic-kanban' },
             { label: 'Installation', link: '/getting-started/installation' },
             { label: 'Quick Start', link: '/getting-started/quick-start' },
+            { label: 'Prompting', link: '/getting-started/prompting' },
           ],
         },
         {
