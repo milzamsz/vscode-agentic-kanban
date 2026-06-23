@@ -52,6 +52,7 @@ let settingsMode = false; // true when settings modal is open
 let settingsDiscoveredSkills: SettingsDiscoveredSkill[] = [];
 let settingsSkillFilter = '';
 let settingsSkillStatusFilter: SettingsSkillStatusFilter = 'all';
+let stackTemplates: import('../types').StackPack[] = [];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -108,7 +109,7 @@ const PRIORITY_LABELS: Record<string, string> = {
 // ── Message Handling ─────────────────────────────────────────────────────────
 
 window.addEventListener('message', (event: MessageEvent) => {
-    const msg = event.data as { type: string; state?: BoardState; skills?: Array<{ name: string; description?: string }> };
+    const msg = event.data as { type: string; state?: BoardState; skills?: Array<{ name: string; description?: string }>; templates?: import('../types').StackPack[] };
     if (msg.type === 'stateUpdate' && msg.state) {
         if (isDragging) {
             pendingState = msg.state;
@@ -125,6 +126,9 @@ window.addEventListener('message', (event: MessageEvent) => {
     }
     if (msg.type === 'skillsList') {
         handleSkillsList(msg.skills ?? []);
+    }
+    if (msg.type === 'stackTemplatesList') {
+        handleStackTemplatesList(msg.templates ?? []);
     }
 });
 
@@ -618,6 +622,7 @@ function handleClick(e: MouseEvent): void {
         document.getElementById(targetId)?.removeAttribute('hidden');
         if (tabName === 'skill-packs') {
             renderSkillsCheckboxes();
+            vscode.postMessage({ type: 'requestStackTemplates' });
         }
         return;
     }
@@ -1072,7 +1077,8 @@ function openSettingsModal(): void {
         backdrop.removeAttribute('hidden');
     }
     vscode.postMessage({ type: 'requestSkills' });
-    
+    vscode.postMessage({ type: 'requestStackTemplates' });
+
     // Initialize filter listeners
     const filterInput = document.getElementById('settings-skill-filter');
     if (filterInput) {
@@ -1094,6 +1100,63 @@ function openSettingsModal(): void {
     
     // Initial render
     renderSkillsCheckboxes();
+
+    // Wire Active Stack dropdown for Create New
+    const stackSelect = document.getElementById('settings-active-stack') as HTMLSelectElement | null;
+    if (stackSelect) {
+        stackSelect.addEventListener('change', (e) => {
+            const val = (e.target as HTMLSelectElement).value;
+            if (val === '__create_new__') {
+                const form = document.getElementById('template-create-form');
+                form?.removeAttribute('hidden');
+                // Reset dropdown to previous value to avoid saving __create_new__
+                stackSelect.value = state.config.activeStack ?? '';
+            }
+        });
+    }
+    const saveTplBtn = document.getElementById('template-create-save');
+    if (saveTplBtn) {
+        saveTplBtn.addEventListener('click', handleCreateTemplateSave);
+    }
+    const cancelTplBtn = document.getElementById('template-create-cancel');
+    if (cancelTplBtn) {
+        cancelTplBtn.addEventListener('click', () => {
+            document.getElementById('template-create-form')?.setAttribute('hidden', '');
+        });
+    }
+}
+
+function handleCreateTemplateSave(): void {
+    const nameInput = document.getElementById('template-name') as HTMLInputElement | null;
+    const stackInput = document.getElementById('template-stack') as HTMLInputElement | null;
+    const skillsInput = document.getElementById('template-skills') as HTMLTextAreaElement | null;
+    const coverageInput = document.getElementById('template-coverage') as HTMLTextAreaElement | null;
+    const verifyCmdsInput = document.getElementById('template-verify') as HTMLTextAreaElement | null;
+
+    const name = nameInput?.value.trim() ?? '';
+    if (!name) {
+        nameInput?.focus();
+        return;
+    }
+
+    const splitLines = (v: string) => v.split('\n').map(s => s.trim()).filter(Boolean);
+    const template = {
+        name,
+        stack: stackInput?.value.trim() || undefined,
+        skills: splitLines(skillsInput?.value ?? ''),
+        coverage: splitLines(coverageInput?.value ?? ''),
+        verifyCmds: splitLines(verifyCmdsInput?.value ?? ''),
+    };
+
+    vscode.postMessage({ type: 'saveStackTemplate', template });
+    document.getElementById('template-create-form')?.setAttribute('hidden', '');
+
+    // Clear form
+    if (nameInput) { nameInput.value = ''; }
+    if (stackInput) { stackInput.value = ''; }
+    if (skillsInput) { skillsInput.value = ''; }
+    if (coverageInput) { coverageInput.value = ''; }
+    if (verifyCmdsInput) { verifyCmdsInput.value = ''; }
 }
 
 function handleSkillsList(skills: Array<{ name: string; description?: string }>): void {
@@ -1141,6 +1204,35 @@ function renderSkillsCheckboxes(): void {
             </label>
         `;
     }).join('');
+}
+
+function handleStackTemplatesList(templates: import('../types').StackPack[]): void {
+    stackTemplates = templates;
+    const panel = document.getElementById('settings-skill-packs');
+    if (panel && !panel.hasAttribute('hidden')) {
+        renderActiveStackDropdown();
+    }
+}
+
+function renderActiveStackDropdown(): void {
+    const select = document.getElementById('settings-active-stack') as HTMLSelectElement | null;
+    if (!select) { return; }
+    const config = state.config;
+    const localPacks = config.packs ?? [];
+    const localNames = new Set(localPacks.map(p => p.name));
+    const globalOnly = stackTemplates.filter(t => !localNames.has(t.name));
+    const allOptions = [
+        ...localPacks.map(p => {
+            const label = typeof p.stack === 'string' ? p.stack : p.name;
+            return `<option value="${esc(p.name)}" ${config.activeStack === p.name ? 'selected' : ''}>${esc(label)}</option>`;
+        }),
+        ...globalOnly.map(t => {
+            const label = typeof t.stack === 'string' ? t.stack : t.name;
+            return `<option value="${esc(t.name)}" ${config.activeStack === t.name ? 'selected' : ''}>[Global] ${esc(label)}</option>`;
+        }),
+        `<option value="__create_new__">+ Create New Template...</option>`,
+    ];
+    select.innerHTML = allOptions.join('');
 }
 
 function closeSettingsModal(): void {
@@ -1229,7 +1321,7 @@ function saveSettingsModal(): void {
 
     vscode.postMessage({ type: 'saveBoardConfig', ...update });
 
-    if (activeStack && activeStack !== config.activeStack) {
+    if (activeStack && activeStack !== '__create_new__' && activeStack !== config.activeStack) {
         vscode.postMessage({ type: 'setActiveStack', name: activeStack });
     }
 
@@ -2120,10 +2212,19 @@ function buildSettingsModalHtml(): string {
     const transition = config.policies?.transition || {};
     const verification = config.policies?.verification || {};
 
-    const packOptions = (config.packs || []).map(pack => {
-        const stackName = typeof pack.stack === 'string' ? pack.stack : pack.name;
-        return `<option value="${pack.name}" ${config.activeStack === pack.name ? 'selected' : ''}>${stackName}</option>`;
-    }).join('');
+    const localPackNames = new Set((config.packs || []).map(p => p.name));
+    const globalOnlyTemplates = stackTemplates.filter(t => !localPackNames.has(t.name));
+    const packOptions = [
+        ...(config.packs || []).map(pack => {
+            const stackName = typeof pack.stack === 'string' ? pack.stack : pack.name;
+            return `<option value="${esc(pack.name)}" ${config.activeStack === pack.name ? 'selected' : ''}>${esc(stackName)}</option>`;
+        }),
+        ...globalOnlyTemplates.map(t => {
+            const stackName = typeof t.stack === 'string' ? t.stack : t.name;
+            return `<option value="${esc(t.name)}" ${config.activeStack === t.name ? 'selected' : ''}>[Global] ${esc(stackName)}</option>`;
+        }),
+        `<option value="__create_new__">+ Create New Template...</option>`,
+    ].join('');
 
     const packCards = (config.packs || []).map(pack => {
         const stackName = typeof pack.stack === 'string' ? pack.stack : pack.name;
@@ -2289,6 +2390,33 @@ function buildSettingsModalHtml(): string {
                                 <select class="form-control" id="settings-active-stack">
                                     ${packOptions}
                                 </select>
+                            </div>
+                            <div class="template-create-form" id="template-create-form" hidden>
+                                <div class="template-create-title">New Global Template</div>
+                                <div class="form-row">
+                                    <label class="form-label" for="template-name">Name</label>
+                                    <input class="form-control" type="text" id="template-name" placeholder="e.g. my-stack">
+                                </div>
+                                <div class="form-row">
+                                    <label class="form-label" for="template-stack">Stack Label</label>
+                                    <input class="form-control" type="text" id="template-stack" placeholder="e.g. My Stack">
+                                </div>
+                                <div class="form-row">
+                                    <label class="form-label" for="template-skills">Skills (one per line)</label>
+                                    <textarea class="form-control" id="template-skills" rows="3" placeholder="skill-name&#10;another-skill"></textarea>
+                                </div>
+                                <div class="form-row">
+                                    <label class="form-label" for="template-coverage">Coverage Lines (one per line)</label>
+                                    <textarea class="form-control" id="template-coverage" rows="2" placeholder="src/&#10;tests/"></textarea>
+                                </div>
+                                <div class="form-row">
+                                    <label class="form-label" for="template-verify">Verify Commands (one per line)</label>
+                                    <textarea class="form-control" id="template-verify" rows="2" placeholder="npm test&#10;npm run lint"></textarea>
+                                </div>
+                                <div class="template-create-actions">
+                                    <button class="btn-primary btn-sm" id="template-create-save">Save</button>
+                                    <button class="btn-secondary btn-sm" id="template-create-cancel">Cancel</button>
+                                </div>
                             </div>
                         </div>
 

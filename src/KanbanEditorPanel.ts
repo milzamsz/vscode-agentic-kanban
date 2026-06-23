@@ -19,6 +19,7 @@ import {
     type Priority,
 } from './types';
 import { discoverSkills } from './SkillDiscovery';
+import { StackTemplateStore } from './StackTemplateStore';
 
 /** Minimal interface for prompting re-scaffold on activeStack change. */
 export interface PromptScaffolder {
@@ -38,6 +39,7 @@ export class KanbanEditorPanel {
     private _isInitialised: boolean;
     private readonly _transitionService = new TransitionService();
     private readonly _scaffolder?: PromptScaffolder;
+    private readonly _stackTemplateStore = new StackTemplateStore();
 
     // ── Public API ───────────────────────────────────────────────────────────
 
@@ -586,7 +588,24 @@ export class KanbanEditorPanel {
             }
 
             case 'setActiveStack': {
-                await this._boardConfigStore.update({ activeStack: message.name });
+                const stackName = message.name as string;
+                const currentCfg = this._boardConfigStore.get();
+                const inPacks = (currentCfg.packs ?? []).some(p => p.name === stackName);
+                if (!inPacks) {
+                    // Check global templates and merge if found
+                    const globalTemplates = await this._stackTemplateStore.loadGlobalTemplates();
+                    const globalMatch = globalTemplates.find(t => t.name === stackName);
+                    if (globalMatch) {
+                        await this._boardConfigStore.update({
+                            packs: [...(currentCfg.packs ?? []), globalMatch],
+                            activeStack: stackName,
+                        });
+                    } else {
+                        await this._boardConfigStore.update({ activeStack: stackName });
+                    }
+                } else {
+                    await this._boardConfigStore.update({ activeStack: stackName });
+                }
                 // Re-scaffold prompts when active stack changes
                 if (this._scaffolder) {
                     await this._scaffolder.scaffoldPrompts(true);
@@ -600,6 +619,36 @@ export class KanbanEditorPanel {
                 const discovered = await discoverSkills(wsFolder ?? vscode.Uri.file(process.cwd()), extraDirs);
                 if (this._webviewReady) {
                     this._panel.webview.postMessage({ type: 'skillsList', skills: discovered });
+                }
+                break;
+            }
+
+            case 'requestStackTemplates': {
+                const templates = await this._stackTemplateStore.loadGlobalTemplates();
+                if (this._webviewReady) {
+                    this._panel.webview.postMessage({ type: 'stackTemplatesList', templates });
+                }
+                break;
+            }
+
+            case 'saveStackTemplate': {
+                const template = message.template;
+                if (!template?.name) { break; }
+                await this._stackTemplateStore.upsertGlobalTemplate(template);
+                // Merge into board config packs so resolveVars finds it
+                const cfg = this._boardConfigStore.get();
+                const existingPacks = cfg.packs ?? [];
+                const alreadyPresent = existingPacks.some(p => p.name === template.name);
+                const updatedPacks = alreadyPresent
+                    ? existingPacks.map(p => p.name === template.name ? template : p)
+                    : [...existingPacks, template];
+                await this._boardConfigStore.update({ packs: updatedPacks, activeStack: template.name });
+                if (this._scaffolder) {
+                    await this._scaffolder.scaffoldPrompts(true);
+                }
+                const templates = await this._stackTemplateStore.loadGlobalTemplates();
+                if (this._webviewReady) {
+                    this._panel.webview.postMessage({ type: 'stackTemplatesList', templates });
                 }
                 break;
             }

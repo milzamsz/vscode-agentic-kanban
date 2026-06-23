@@ -2,6 +2,14 @@
 
 All notable changes to Agentic Kanban will be documented here.
 
+## [1.6.8] - 2026-06-24
+
+### Fixed
+- Restored **Global Stack Templates** feature: `~/.agentkanban/templates.yaml` stores reusable stack packs across projects
+- Settings > Skill Packs > Active Stack dropdown now lists local packs, global templates (prefixed `[Global]`), and a `+ Create New Template...` option
+- Selecting `+ Create New Template...` reveals an inline form (name, stack label, skills, coverage, verify commands); Save writes to `templates.yaml`, merges into board config, re-scaffolds prompts, and refreshes the dropdown
+- Selecting a global template as the active stack auto-merges it into `config.packs` so `resolveVars` finds it
+
 ## [1.6.7] - 2026-06-24
 
 ### Added
