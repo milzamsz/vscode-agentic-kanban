@@ -1180,3 +1180,32 @@
         margin-top: 4px;
     }
 
+    /* ── Evidence UI ── */
+    .evidence-grid { display: flex; flex-direction: column; gap: 4px; }
+    .evidence-item { display: flex; align-items: center; gap: 8px; }
+    .evidence-check-name {
+        width: 58px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--vscode-descriptionForeground);
+    }
+    .evidence-status { width: 18px; text-align: center; font-size: 13px; }
+    .btn-ev {
+        padding: 1px 8px;
+        font-size: 11px;
+        border-radius: 3px;
+        border: 1px solid transparent;
+        cursor: pointer;
+        line-height: 1.6;
+    }
+    .btn-ev-pass {
+        background: var(--vscode-testing-iconPassed, #388e3c);
+        color: #fff;
+    }
+    .btn-ev-fail {
+        background: var(--vscode-testing-iconFailed, #c62828);
+        color: #fff;
+    }
+    .btn-ev:hover { opacity: 0.8; }
+

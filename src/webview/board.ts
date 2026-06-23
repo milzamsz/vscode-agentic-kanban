@@ -516,6 +516,18 @@ function buildModalHtml(): string {
                             <div class="datepicker-help" id="datepicker-help" hidden></div>
                         </div>
                     </div>
+                    <div class="form-row" id="modal-evidence-row">
+                        <label class="form-label">Evidence</label>
+                        <div class="evidence-grid">
+                            ${(['lint','test','build','behavior'] as const).map(k => `
+                            <div class="evidence-item">
+                                <span class="evidence-check-name">${k}</span>
+                                <span class="evidence-status" id="ev-status-${k}">—</span>
+                                <button class="btn-ev btn-ev-pass" data-ev-check="${k}" data-ev-result="pass" type="button">Pass</button>
+                                <button class="btn-ev btn-ev-fail" data-ev-check="${k}" data-ev-result="fail" type="button">Fail</button>
+                            </div>`).join('')}
+                        </div>
+                    </div>
                 </div>
                 <div class="datepicker-overlay" id="datepicker-overlay" hidden>
                     <div class="datepicker-overlay-backdrop" id="datepicker-overlay-backdrop"></div>
@@ -666,6 +678,15 @@ function handleClick(e: MouseEvent): void {
             vscode.postMessage({ type: 'sendToChat', taskId: modalTaskId });
             closeModal();
         }
+        return;
+    }
+    const evBtn = t.closest('[data-ev-check]') as HTMLElement | null;
+    if (evBtn && modalTaskId) {
+        const check = evBtn.dataset.evCheck!;
+        const passed = evBtn.dataset.evResult === 'pass';
+        vscode.postMessage({ type: 'recordEvidence', taskId: modalTaskId, check, passed });
+        const statusEl = document.getElementById(`ev-status-${check}`);
+        if (statusEl) { statusEl.textContent = passed ? '✅' : '❌'; }
         return;
     }
     // ── Search handlers ──
@@ -1335,10 +1356,12 @@ function configureModalMode(): void {
     const footerLeft = document.getElementById('modal-footer-left');
     const saveBtn = document.getElementById('modal-save');
 
+    const evidenceRow = document.getElementById('modal-evidence-row');
     if (modalMode === 'create') {
         titleH3?.setAttribute('hidden', '');
         titleInput?.removeAttribute('hidden');
         descRow?.removeAttribute('hidden');
+        evidenceRow?.setAttribute('hidden', '');
         if (footerLeft) {
             footerLeft.style.visibility = 'hidden';
         }
@@ -1349,6 +1372,7 @@ function configureModalMode(): void {
         titleH3?.removeAttribute('hidden');
         titleInput?.setAttribute('hidden', '');
         descRow?.setAttribute('hidden', '');
+        evidenceRow?.removeAttribute('hidden');
         if (footerLeft) {
             footerLeft.style.visibility = 'visible';
         }
@@ -1391,6 +1415,12 @@ function populateModal(task: Task): void {
             .filter((t) => t.id !== task.id && t.slug !== task.slug)
             .map((t) => t.title);
     }, 'add-dep');
+
+    for (const key of ['lint', 'test', 'build', 'behavior'] as const) {
+        const entry = task.evidence?.[key];
+        const el = document.getElementById(`ev-status-${key}`);
+        if (el) { el.textContent = entry ? (entry.passed ? '✅' : '❌') : '—'; }
+    }
 
     renderTags();
     renderDeps();

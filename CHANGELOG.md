@@ -2,6 +2,18 @@
 
 All notable changes to Agentic Kanban will be documented here.
 
+## [1.6.9] - 2026-06-24
+
+### Added
+- **Evidence recording UI** in task modal: lint/test/build/behavior checks with Pass/Fail buttons; status persisted to task frontmatter via `TaskStore`
+- Evidence status indicators (✅/❌/—) shown inline in the modal for each check
+
+### Fixed
+- `TaskStore` now correctly serialises and deserialises `evidence`, `parent`, `superseeds`, `supersededBy`, `blockerResolved` fields (were silently dropped on save)
+- `/evidence` chat command: show evidence status or record pass/fail per check
+- `blockerResolved` flag set automatically when `blocked`/`blocked-by` labels are cleared during `/sweep`
+- `/pack`, `/work`, `/evidence` commands registered in VS Code command palette
+
 ## [1.6.8] - 2026-06-24
 
 ### Fixed
