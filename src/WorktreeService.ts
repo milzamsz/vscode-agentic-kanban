@@ -284,6 +284,8 @@ export class WorktreeService {
                 undefined,
                 undefined,
                 skills,
+                worktreePath,
+                worktreePath,
             );
             const beginIdx = existing.indexOf(AGENTS_MD_BEGIN);
             const endIdx = existing.indexOf(AGENTS_MD_END);

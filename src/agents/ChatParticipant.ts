@@ -15,10 +15,13 @@ import {
     getFirstLane,
     type Priority,
     type ReviewPolicy,
+    type TaskEvidence,
+    type EvidenceEntry,
 } from '../types';
 import { getDefaultProfile, isEnforceWorktrees } from '../settings';
 import { WorkflowDoctor } from '../WorkflowDoctor';
 import { interpolate, resolveVars } from '../PromptTemplate';
+import { TaskEvidenceValidator } from '../TaskEvidenceValidator';
 
 /** Relative path within the workspace for the instruction file. */
 const INSTRUCTION_REL_PATH = '.agentkanban/INSTRUCTION.md';
@@ -45,6 +48,7 @@ const STANDARD_PROMPT_FILES = [
     'stage-review-to-done.md',
     'stage-blocked-and-resume.md',
     'production-readiness-audit.md',
+    'work-on-task.md',
 ];
 
 /** Lite profile uses only basic prompts without planning/review stage prompts. */
@@ -52,6 +56,7 @@ const LITE_PROMPT_FILES = [
     'README.md',
     'new-task-intake.md',
     'stage-backlog-to-planning.md',
+    'work-on-task.md',
 ];
 
 export const AGENTS_MD_BEGIN = '<!-- BEGIN AGENTIC KANBAN \u2014 DO NOT EDIT THIS SECTION -->';
@@ -86,6 +91,7 @@ interface AgentsTaskContext {
     changeRelPath?: string;
     specRelPath?: string;
     priority?: Priority;
+    worktreePath?: string;
 }
 
 function getWorkflowPrompt(profile: 'standard' | 'lite' = 'standard'): string {
@@ -154,6 +160,8 @@ export function buildWorktreeAgentsMdSection(
     specRelPath?: string,
     profile?: 'standard' | 'lite',
     skills?: string[],
+    worktreePath?: string,
+    currentWorkspacePath?: string,
 ): string {
     const isStandard = profile === 'standard';
     const lines = [
@@ -163,6 +171,23 @@ export function buildWorktreeAgentsMdSection(
         `**Active Task:** ${taskTitle}`,
         `**Task File:** \`${taskRelPath}\``,
     ];
+
+    if (worktreePath && currentWorkspacePath) {
+        const norm1 = worktreePath.replace(/\\/g, '/').replace(/\/+$/, '');
+        const norm2 = currentWorkspacePath.replace(/\\/g, '/').replace(/\/+$/, '');
+        const p1 = process.platform === 'win32' ? norm1.toLowerCase() : norm1;
+        const p2 = process.platform === 'win32' ? norm2.toLowerCase() : norm2;
+        if (p1 !== p2) {
+            lines.push(
+                '',
+                '⚠️ **Worktree Warning:** This task is currently active in a separate Git worktree.',
+                `Do NOT implement changes in this root workspace. Open the worktree workspace instead: \`${worktreePath}\``,
+                'You can open the worktree workspace in VS Code using the `@kanban /worktree open` command.',
+                '',
+            );
+        }
+    }
+
     if (changeRelPath) {
         // Spec-driven tasks use `<change>/tasks.md` as the authoritative checklist.
         lines.push(`**Checklist File:** \`${changeRelPath}/tasks.md\``);
@@ -259,7 +284,7 @@ export class ChatParticipant {
                 await this.handleArchive(prompt, response);
                 return;
             case 'prompts':
-                await this.handlePrompts(response);
+                await this.handlePrompts(prompt, response);
                 return;
             case 'sweep':
                 await this.handleSweep(prompt, response);
@@ -270,21 +295,31 @@ export class ChatParticipant {
             case 'pack':
                 await this.handlePack(prompt, response);
                 return;
+            case 'work':
+                await this.handleWork(prompt, response);
+                return;
+            case 'evidence':
+                await this.handleEvidence(prompt, response);
+                return;
             default: {
-                response.markdown('Available commands: `/new`, `/task`, `/refresh`, `/spec`, `/worktree`, `/archive`, `/prompts`, `/sweep`, `/doctor`, `/pack`\n\n');
+                response.markdown('Available commands: `/new`, `/task`, `/refresh`, `/spec`, `/worktree`, `/archive`, `/prompts`, `/sweep`, `/doctor`, `/pack`, `/work`, `/evidence`\n\n');
                 response.markdown('- `@kanban /spec [capability]` - Scaffold spec-driven change artifacts for the selected task\n');
                 response.markdown('- `@kanban /new <task title>` - Create a new task\n');
                 response.markdown('- `@kanban /task <task name>` - Select a task to work on\n');
                 response.markdown('- `@kanban /refresh` - Re-inject agent context for the selected task\n');
                 response.markdown('- `@kanban /worktree` - Create a git worktree for the selected task\n');
                 response.markdown('- `@kanban /archive [slug]` - Move a completed change folder to changes/archive/\n');
-                response.markdown('- `@kanban /prompts` - Write/refresh the bundled stage-driver prompts in .agentkanban/prompts/\n');
+                response.markdown('- `@kanban /prompts` - Open a QuickPick of prompts; select to copy to clipboard\n');
+                response.markdown('- `@kanban /prompts refresh` - Rewrite the bundled stage-driver prompts in .agentkanban/prompts/\n');
                 response.markdown('- `@kanban /worktree open` - Open the task worktree for the selected task in VS Code\n');
                 response.markdown('- `@kanban /worktree remove` - Remove the task worktree\n');
                 response.markdown('- `@kanban /sweep [lane]` - Run an autonomous sweep of ready tasks (default: planning)\n');
                 response.markdown('- `@kanban /doctor` - Run workflow diagnostics for lane drift, blockers, dependencies, and stale worktrees\n');
                 response.markdown('- `@kanban /pack list` - List all configured stack packs\n');
                 response.markdown('- `@kanban /pack use <name>` - Select an active stack pack\n');
+                response.markdown('- `@kanban /work [task name]` - Pick a not-done task and copy a task-specific work prompt to clipboard\n');
+                response.markdown('- `@kanban /evidence [task]` - Show evidence status for a task\n');
+                response.markdown('- `@kanban /evidence <task> lint|test|build|behavior pass|fail ["<notes>"]` - Record evidence for a task\n');
                 return;
             }
         }
@@ -412,14 +447,24 @@ export class ChatParticipant {
                 // File doesn't exist — start fresh
             }
 
-            // When called WITHOUT worktreeTask, check if the existing AGENTS.md
-            // already contains a worktree-enhanced sentinel (written by
-            // WorktreeService during worktree creation). If so, preserve it —
-            // don't downgrade to the standard sentinel.
-            const hasBegin = existing.includes(AGENTS_MD_BEGIN) || existing.includes(AGENTS_MD_BEGIN_LEGACY);
-            if (!worktreeTask && hasBegin && existing.includes('**Active Task:**')) {
-                this.logger.info('chatParticipant', 'Preserving existing worktree-enhanced AGENTS.md sentinel');
-                return agentsUri;
+            let taskContext = worktreeTask;
+            if (!taskContext) {
+                const linkedTask = this.findLinkedWorktreeTask();
+                if (linkedTask) {
+                    const taskUri = this.taskStore.getTaskUri(linkedTask.id);
+                    const taskRelPath = vscode.workspace.asRelativePath(taskUri);
+                    const todoUri = this.taskStore.getTodoUri(linkedTask.id);
+                    const todoRelPath = vscode.workspace.asRelativePath(todoUri);
+                    taskContext = {
+                        title: linkedTask.title,
+                        taskRelPath,
+                        todoRelPath,
+                        changeRelPath: this.getChangeRelPath(linkedTask),
+                        specRelPath: this.getSpecRelPath(linkedTask),
+                        priority: linkedTask.priority,
+                        worktreePath: linkedTask.worktree?.path,
+                    };
+                }
             }
 
             const config = this.boardConfigStore.get();
@@ -430,18 +475,20 @@ export class ChatParticipant {
             const packSkills = activePack?.skills ?? [];
             const resolvedSkills = Array.from(new Set([...projectSkills, ...packSkills]));
 
-            const section = worktreeTask
+            const section = taskContext
                 ? buildWorktreeAgentsMdSection(
-                    worktreeTask.title,
-                    worktreeTask.taskRelPath,
-                    worktreeTask.todoRelPath,
-                    worktreeTask.changeRelPath,
-                    worktreeTask.priority,
+                    taskContext.title,
+                    taskContext.taskRelPath,
+                    taskContext.todoRelPath,
+                    taskContext.changeRelPath,
+                    taskContext.priority,
                     config.reviewPolicy ?? DEFAULT_REVIEW_POLICY,
                     config.enforcement?.mode ?? DEFAULT_ENFORCEMENT[config.profile].mode,
-                    worktreeTask.specRelPath,
+                    taskContext.specRelPath,
                     config.profile,
                     resolvedSkills,
+                    taskContext.worktreePath,
+                    workspaceFolder?.uri.fsPath,
                 )
                 : buildAgentsMdSection(
                     config.enforcement?.mode ?? DEFAULT_ENFORCEMENT[config.profile].mode,
@@ -496,6 +543,7 @@ export class ChatParticipant {
                 changeRelPath: this.getChangeRelPath(linkedTask),
                 specRelPath: this.getSpecRelPath(linkedTask),
                 priority: linkedTask.priority,
+                worktreePath: linkedTask.worktree?.path,
             });
             this.logger.info('chatParticipant', `Synced worktree AGENTS.md for task: ${linkedTask.title}`);
         }
@@ -633,51 +681,16 @@ export class ChatParticipant {
             return;
         }
 
-        this.logger.info('chatParticipant', `/task on: ${task.id} (${task.title})`);
-        this.lastSelectedTaskId = task.id;
-
-        // Sync INSTRUCTION.md and AGENTS.md section from bundled templates
-        const instrUri = this.getIsInitialised() ? await this.syncInstructionFile() : undefined;
-
-        const taskUri = this.taskStore.getTaskUri(task.id);
-        const taskRelPath = vscode.workspace.asRelativePath(taskUri);
-        const todoRelPath = vscode.workspace.asRelativePath(this.taskStore.getTodoUri(task.id));
-        if (this.getIsInitialised()) {
-            await this.syncAgentsMdSection({
-                title: task.title,
-                taskRelPath,
-                todoRelPath,
-                changeRelPath: this.getChangeRelPath(task),
-                specRelPath: this.getSpecRelPath(task),
-                priority: task.priority,
-            });
-        }
-
-        // Attach files as references so they persist in conversation context
-        if (instrUri) { response.reference(instrUri); }
-        response.reference(taskUri);
-
-        // Open the task file in editor
-        try {
-            const doc = await vscode.workspace.openTextDocument(taskUri);
-            await vscode.window.showTextDocument(doc, { preview: false });
-        } catch {
-            // non-fatal — file may already be open
-        }
-
-        // Output context for the user and Copilot
-        if (instrUri) {
-            const instrRelPath = vscode.workspace.asRelativePath(instrUri);
-            response.markdown(`Read \`${instrRelPath}\` for workflow instructions.\n\n`);
-        }
+        // Use the refactored selectTask helper (syncs context, opens file)
+        const { taskRelPath } = await this.selectTask(task, response);
 
         // Inject custom instruction file reference if configured
         const customPath = vscode.workspace.getConfiguration('agentKanban').get<string>('customInstructionFile', '');
-        if (customPath && workspaceFolder) {
+        if (customPath) {
             try {
                 const customUri = customPath.match(/^[a-zA-Z]:[\\/]/) || customPath.startsWith('/')
                     ? vscode.Uri.file(customPath)
-                    : vscode.Uri.joinPath(workspaceFolder.uri, customPath);
+                    : vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, customPath);
                 await vscode.workspace.fs.stat(customUri);
                 const customRelPath = vscode.workspace.asRelativePath(customUri);
                 response.markdown(`Read \`${customRelPath}\` for additional instructions.\n\n`);
@@ -701,6 +714,255 @@ export class ChatParticipant {
         const config = this.boardConfigStore.get();
         response.markdown(getWorkflowPrompt(config.profile));
         response.markdown('Use `@kanban /refresh` to re-inject context if the agent loses track, or `@kanban /worktree` to create an isolated worktree.');
+    }
+
+    /**
+     * Refactored shared selection block: syncs context, opens the task file.
+     * Returns the task's relative path.
+     */
+    private async selectTask(task: NonNullable<ReturnType<TaskStore['get']>>, response: vscode.ChatResponseStream): Promise<{ taskRelPath: string }> {
+        this.lastSelectedTaskId = task.id;
+        this.logger.info('chatParticipant', `Selected task: ${task.id} (${task.title})`);
+
+        const instrUri = this.getIsInitialised() ? await this.syncInstructionFile() : undefined;
+        const taskUri = this.taskStore.getTaskUri(task.id);
+        const taskRelPath = vscode.workspace.asRelativePath(taskUri);
+        const todoRelPath = vscode.workspace.asRelativePath(this.taskStore.getTodoUri(task.id));
+
+        if (this.getIsInitialised()) {
+            await this.syncAgentsMdSection({
+                title: task.title,
+                taskRelPath,
+                todoRelPath,
+                changeRelPath: this.getChangeRelPath(task),
+                specRelPath: this.getSpecRelPath(task),
+                priority: task.priority,
+                worktreePath: task.worktree?.path,
+            });
+        }
+
+        if (instrUri) {
+            response.reference(instrUri);
+            const instrRelPath = vscode.workspace.asRelativePath(instrUri);
+            response.markdown(`Read \`${instrRelPath}\` for workflow instructions.\n\n`);
+        }
+        response.reference(taskUri);
+
+        try {
+            const doc = await vscode.workspace.openTextDocument(taskUri);
+            await vscode.window.showTextDocument(doc, { preview: false });
+        } catch {
+            // non-fatal
+        }
+
+        return { taskRelPath };
+    }
+
+    /**
+     * Pick a not-done task via QuickPick.
+     */
+    private async pickNotDoneTask(): Promise<ReturnType<TaskStore['get']> | undefined> {
+        const tasks = this.taskStore.getAll().filter(t => t.lane !== DONE_LANE);
+        if (tasks.length === 0) { return undefined; }
+
+        type Pick = vscode.QuickPickItem & { id: string };
+        const items: Pick[] = tasks.map(t => ({
+            label: t.title,
+            description: `${t.lane}${t.priority ? ' · ' + t.priority : ''}`,
+            id: t.id,
+        }));
+
+        const picked = await vscode.window.showQuickPick(items, {
+            title: 'Select a task to work on (not done)',
+            ignoreFocusOut: true,
+            placeHolder: 'Choose a task...',
+        });
+
+        return picked ? this.taskStore.get(picked.id) : undefined;
+    }
+
+    /**
+     * Handle the /work command.
+     * Picks a not-done task, syncs context, and copies a task-specific work prompt to clipboard.
+     */
+    private async handleWork(prompt: string, response: vscode.ChatResponseStream): Promise<void> {
+        let task: ReturnType<TaskStore['get']>;
+
+        if (prompt.trim()) {
+            const resolved = this.resolveTaskFromPrompt(prompt.trim());
+            task = resolved.task;
+        } else {
+            task = await this.pickNotDoneTask();
+        }
+
+        if (!task) {
+            response.markdown('No not-done tasks to work on. Use `@kanban /new <title>` to create one.');
+            return;
+        }
+
+        // Select and sync context
+        const { taskRelPath } = await this.selectTask(task, response);
+
+        // Load work-on-task prompt template
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            response.markdown('No workspace folder is open.');
+            return;
+        }
+
+        let promptContent: string;
+        let promptUri: vscode.Uri;
+
+        // Try workspace copy first, fall back to bundled
+        const workspacePromptUri = vscode.Uri.joinPath(workspaceFolder.uri, ...PROMPTS_REL_PATH.split('/'), 'work-on-task.md');
+        const bundledPromptUri = vscode.Uri.joinPath(this.extensionUri, 'assets', 'prompts', 'work-on-task.md');
+
+        try {
+            promptUri = (await this.exists(workspacePromptUri)) ? workspacePromptUri : bundledPromptUri;
+            const bytes = await vscode.workspace.fs.readFile(promptUri);
+            promptContent = new TextDecoder().decode(bytes);
+        } catch (err: any) {
+            response.markdown(`Failed to read work-on-task prompt: ${err.message}`);
+            return;
+        }
+
+        // Resolve vars and interpolate
+        const config = this.boardConfigStore.get();
+        const activePack = config.activeStack
+            ? config.packs?.find(p => p.name === config.activeStack)
+            : undefined;
+        const vars = {
+            ...resolveVars(config, activePack),
+            taskTitle: task.title,
+            taskFile: taskRelPath,
+        };
+        const out = interpolate(promptContent, vars);
+
+        // Copy to clipboard
+        try {
+            await vscode.env.clipboard.writeText(out);
+        } catch (err: any) {
+            response.markdown(`Failed to copy prompt to clipboard: ${err.message}`);
+            return;
+        }
+
+        response.markdown(`Selected **${task.title}** and copied a work prompt to clipboard.\n\n`);
+        response.markdown(`Task file: \`${taskRelPath}\`\n\n`);
+        response.reference(promptUri);
+
+        const laneChain = config.profile === 'lite'
+            ? 'backlog → in-progress → done'
+            : 'backlog → planning → in-progress → review → done';
+        response.markdown(`Workflow: \`${laneChain}\`\n\n`);
+        response.markdown('Paste the prompt into a new chat to carry this task to completion.');
+    }
+
+    /**
+     * Handle the /evidence command.
+     * With no check arg: shows evidence status.
+     * With check + pass|fail: records evidence on the task.
+     */
+    private async handleEvidence(prompt: string, response: vscode.ChatResponseStream): Promise<void> {
+        const VALID_CHECKS = ['lint', 'test', 'build', 'behavior'] as const;
+        type CheckKey = typeof VALID_CHECKS[number];
+
+        let task: ReturnType<TaskStore['get']>;
+        let freeText = '';
+
+        if (prompt.trim()) {
+            const resolved = this.resolveTaskFromPrompt(prompt.trim());
+            task = resolved.task;
+            freeText = resolved.freeText;
+        } else if (this.lastSelectedTaskId) {
+            task = this.taskStore.get(this.lastSelectedTaskId);
+        }
+
+        if (!task) {
+            const activeTasks = this.taskStore.getAll().filter(t => t.lane !== DONE_LANE);
+            if (activeTasks.length === 0) {
+                response.markdown('No active tasks. Use `@kanban /new <title>` to create one.');
+            } else {
+                response.markdown('Active tasks:\n\n');
+                for (const t of activeTasks) {
+                    response.markdown(`- **${t.title}**\n`);
+                }
+                response.markdown('\nUsage: `@kanban /evidence <task> [lint|test|build|behavior] [pass|fail]`');
+            }
+            return;
+        }
+
+        const config = this.boardConfigStore.get();
+        const isStandard = config.profile !== 'lite';
+
+        // Parse check key and pass/fail from remaining text
+        const parts = freeText.trim().split(/\s+/).filter(Boolean);
+        const checkArg = parts[0] as CheckKey | undefined;
+        const resultArg = parts[1]?.toLowerCase();
+        const notesArg = parts.slice(2).join(' ').replace(/^["']|["']$/g, '');
+
+        if (!checkArg || !VALID_CHECKS.includes(checkArg)) {
+            // Show evidence status
+            const evidence = task.evidence;
+            const checks: CheckKey[] = isStandard ? ['lint', 'test', 'build', 'behavior'] : ['behavior'];
+
+            response.markdown(`## Evidence: **${task.title}**\n\n`);
+            for (const c of checks) {
+                const entry = evidence?.[c as keyof TaskEvidence] as EvidenceEntry | undefined;
+                if (!entry) {
+                    response.markdown(`- ❌ **${c}**: not recorded\n`);
+                } else if (!entry.ran) {
+                    response.markdown(`- ⚠️ **${c}**: not run\n`);
+                } else if (entry.passed) {
+                    response.markdown(`- ✅ **${c}**: passed${entry.description ? ` — ${entry.description}` : ''}\n`);
+                } else {
+                    response.markdown(`- ❌ **${c}**: failed${entry.description ? ` — ${entry.description}` : ''}\n`);
+                }
+            }
+
+            const validation = TaskEvidenceValidator.validate(task, isStandard);
+            if (validation.ok) {
+                response.markdown('\n✅ Evidence complete — task is ready for `review → done`.\n');
+            } else {
+                if (validation.missing.length > 0) {
+                    response.markdown(`\nMissing: ${validation.missing.join(', ')}\n`);
+                }
+                if (validation.failed.length > 0) {
+                    response.markdown(`Failed: ${validation.failed.join(', ')}\n`);
+                }
+            }
+            response.markdown('\nUsage: `@kanban /evidence <task> lint|test|build|behavior pass|fail ["<notes>"]`');
+            return;
+        }
+
+        if (resultArg !== 'pass' && resultArg !== 'fail') {
+            response.markdown(`Usage: \`@kanban /evidence ${task.slug ?? task.title} ${checkArg} pass|fail ["<notes>"]\``);
+            return;
+        }
+
+        // Record the evidence entry
+        const entry: EvidenceEntry = {
+            ran: true,
+            passed: resultArg === 'pass',
+            timestamp: new Date().toISOString(),
+            description: notesArg || undefined,
+        };
+
+        if (!task.evidence) { task.evidence = {}; }
+        (task.evidence as any)[checkArg] = entry;
+        await this.taskStore.save(task);
+
+        const icon = resultArg === 'pass' ? '✅' : '❌';
+        response.markdown(`${icon} Recorded **${checkArg}** as **${resultArg}** for **${task.title}**.\n`);
+        if (notesArg) { response.markdown(`Notes: ${notesArg}\n`); }
+
+
+        const validation = TaskEvidenceValidator.validate(task, isStandard);
+        if (validation.ok) {
+            response.markdown('\n✅ All evidence complete — task is ready for `review → done`.\n');
+        } else {
+            const remaining = [...validation.missing, ...validation.failed];
+            response.markdown(`\nRemaining: ${remaining.join(', ')}\n`);
+        }
     }
 
     /**
@@ -779,6 +1041,7 @@ export class ChatParticipant {
                 changeRelPath,
                 specRelPath,
                 priority: task.priority,
+                worktreePath: task.worktree?.path,
             });
 
             response.reference(taskUri);
@@ -868,10 +1131,91 @@ export class ChatParticipant {
     }
 
     /**
-     * Handle the /prompts command. (Re)writes the bundled stage-driver prompts
-     * into `.agentkanban/prompts/`, overwriting to the latest bundled versions.
+     * Handle the /prompts command. Has two modes:
+     * - `/prompts` (no args) opens a QuickPick of prompt files
+     * - `/prompts refresh` rewrites the bundled stage-driver prompts
      */
-    private async handlePrompts(response: vscode.ChatResponseStream): Promise<void> {
+    private async handlePrompts(
+        prompt: string,
+        response: vscode.ChatResponseStream,
+    ): Promise<void> {
+        // Refresh mode: rewrite the bundled prompts
+        if (prompt.trim() === 'refresh') {
+            await this.handlePromptsRefresh(response);
+            return;
+        }
+
+        // Picker mode: show list of prompt files
+        await this.handlePromptsPicker(response);
+    }
+
+    /** Pick a prompt file from the workspace and copy its content to clipboard. */
+    private async handlePromptsPicker(response: vscode.ChatResponseStream): Promise<void> {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            response.markdown('No workspace folder is open.');
+            return;
+        }
+
+        const promptsDir = vscode.Uri.joinPath(workspaceFolder.uri, PROMPTS_REL_PATH);
+        let entries: [string, vscode.FileType][];
+        try {
+            entries = await vscode.workspace.fs.readDirectory(promptsDir);
+        } catch {
+            response.markdown('The `.agentkanban/prompts/` directory does not exist. Run `/prompts refresh` first.');
+            return;
+        }
+
+        // Filter to .md prompt files; relegate README.md (it is docs, not a prompt).
+        const promptFiles = entries
+            .filter(([name, type]) => type === vscode.FileType.File && name.toLowerCase().endsWith('.md'))
+            .map(([name]) => name)
+            .filter(name => name.toLowerCase() !== 'readme.md');
+
+        if (promptFiles.length === 0) {
+            response.markdown('No prompt files found in `.agentkanban/prompts/`. Run `/prompts refresh` first.');
+            return;
+        }
+
+        // Carry the real filename on each item so selection never reconstructs a path.
+        type PromptPick = vscode.QuickPickItem & { filename: string };
+        const items: PromptPick[] = promptFiles.map(name => ({
+            label: name.replace(/\.md$/i, ''),
+            filename: name,
+        }));
+
+        const picked = await vscode.window.showQuickPick(
+            items,
+            {
+                title: 'Select a prompt to copy to clipboard',
+                ignoreFocusOut: true,
+                placeHolder: 'Choose a prompt file...',
+            },
+        );
+
+        if (!picked) {
+            response.markdown('No prompt selected.');
+            return;
+        }
+
+        // Read and copy the selected prompt content
+        const promptPath = vscode.Uri.joinPath(promptsDir, picked.filename);
+        try {
+            const bytes = await vscode.workspace.fs.readFile(promptPath);
+            const content = new TextDecoder().decode(bytes);
+            await vscode.env.clipboard.writeText(content);
+            response.markdown(`Copied **${picked.label}** to clipboard.\n\nUse it in your agent/chat.`);
+            response.reference(promptPath);
+        } catch {
+            response.markdown(`Failed to read prompt \`${picked.filename}\`.`);
+        }
+    }
+
+    /**
+     * Rewrite the bundled stage-driver prompts into `.agentkanban/prompts/`.
+     * This is the behavior for `/prompts refresh`.
+     */
+    private async handlePromptsRefresh(response: vscode.ChatResponseStream): Promise<void> {
         const { created, updated, skipped } = await this.scaffoldPrompts(true);
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (created.length === 0 && updated.length === 0) {
@@ -944,6 +1288,7 @@ export class ChatParticipant {
                 changeRelPath: this.getChangeRelPath(task),
                 specRelPath: this.getSpecRelPath(task),
                 priority: task.priority,
+                worktreePath: task.worktree?.path,
             });
         }
 
@@ -1363,7 +1708,11 @@ export class ChatParticipant {
                 // Move to review
                 task.lane = 'review';
                 if (task.labels) {
-                    task.labels = task.labels.filter(l => l !== 'blocked');
+                    const hadBlocker = task.labels.some(l => l === 'blocked' || l.startsWith('blocked-by:'));
+                    task.labels = task.labels.filter(l => l !== 'blocked' && !l.startsWith('blocked-by:'));
+                    if (hadBlocker) {
+                        task.blockerResolved = true;
+                    }
                 }
                 const successComment = `[comment: sweep success: verification passed on ${new Date().toISOString()}]`;
                 await this.appendCommentToTask(task, successComment);

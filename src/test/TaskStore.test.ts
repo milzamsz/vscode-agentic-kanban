@@ -474,6 +474,48 @@ describe('TaskStore', () => {
             expect(result!.worktree).toBeUndefined();
         });
 
+        it('should round-trip lifecycle fields: parent, supersedes, supersededBy, blockerResolved', () => {
+            const task: Task = {
+                id: 'task_lc_001',
+                title: 'Lifecycle task',
+                lane: 'in-progress',
+                created: '2026-06-24T00:00:00.000Z',
+                updated: '2026-06-24T00:00:00.000Z',
+                description: '',
+                parent: 'task_parent_slug',
+                superseeds: ['task_old_001'],
+                superseededBy: 'task_new_001',
+                blockerResolved: true,
+            };
+            const md = TaskStore.serialise(task);
+            expect(md).toContain('parent: task_parent_slug');
+            expect(md).toContain('task_old_001');
+            expect(md).toContain('superseededBy: task_new_001');
+            expect(md).toContain('blockerResolved: true');
+
+            const result = TaskStore.deserialise(md);
+            expect(result!.parent).toBe('task_parent_slug');
+            expect(result!.superseeds).toEqual(['task_old_001']);
+            expect(result!.superseededBy).toBe('task_new_001');
+            expect(result!.blockerResolved).toBe(true);
+        });
+
+        it('should omit lifecycle fields when not set', () => {
+            const task: Task = {
+                id: 'task_lc_002',
+                title: 'No lifecycle',
+                lane: 'backlog',
+                created: '2026-06-24T00:00:00.000Z',
+                updated: '2026-06-24T00:00:00.000Z',
+                description: '',
+            };
+            const md = TaskStore.serialise(task);
+            expect(md).not.toMatch(/^parent:/m);
+            expect(md).not.toMatch(/^superseeds:/m);
+            expect(md).not.toMatch(/^superseededBy:/m);
+            expect(md).not.toMatch(/^blockerResolved:/m);
+        });
+
         it('should serialise lane to YAML frontmatter', () => {
             const task: Task = {
                 id: 'task_014',

@@ -2,7 +2,7 @@
     "name": "agentic-kanban",
     "displayName": "Agentic Kanban",
     "description": "A profile-driven Kanban board for AI-assisted software development with persistent markdown task conversations.",
-    "version": "1.6.5",
+    "version": "1.6.9",
     "publisher": "milzam",
     "license": "Elastic-2.0",
     "icon": "images/icon.png",
@@ -133,6 +133,15 @@
                     "default": false,
                     "description": "Require a git worktree before using /refresh. When enabled, the command prompts to create a worktree if one doesn't exist.",
                     "scope": "resource"
+                },
+                "agentKanban.skillsDirs": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [],
+                    "description": "Additional directories to scan for agent skills. Supports ~/ for home directory and workspace-relative paths.",
+                    "scope": "resource"
                 }
             }
         },
@@ -179,6 +188,18 @@
                     {
                         "name": "doctor",
                         "description": "run workflow diagnostics for lane drift, blockers, dependencies, and worktrees"
+                    },
+                    {
+                        "name": "pack",
+                        "description": "list|use <name> - manage stack packs"
+                    },
+                    {
+                        "name": "work",
+                        "description": "[task name] - pick a not-done task and copy a work prompt to clipboard"
+                    },
+                    {
+                        "name": "evidence",
+                        "description": "[task] [lint|test|build|behavior] [pass|fail] - view or record task evidence"
                     }
                 ]
             }

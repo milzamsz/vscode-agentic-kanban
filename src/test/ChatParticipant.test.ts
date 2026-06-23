@@ -4,7 +4,7 @@ import { TaskStore } from '../TaskStore';
 import { BoardConfigStore } from '../BoardConfigStore';
 import type { Task, BoardConfig } from '../types';
 import { DEFAULT_ENFORCEMENT, DEFAULT_REVIEW_POLICY, PROFILE_LANES } from '../types';
-import { Uri, commands, workspace, window } from 'vscode';
+import { Uri, commands, workspace, window, env } from 'vscode';
 
 const execMock = vi.hoisted(() => vi.fn());
 vi.mock('child_process', () => {
@@ -666,6 +666,7 @@ describe('ChatParticipant', () => {
             'README.md', 'new-task-intake.md', 'stage-backlog-to-planning.md',
             'stage-planning-to-review.md', 'stage-review-to-in-progress.md',
             'stage-review-to-done.md', 'stage-blocked-and-resume.md', 'production-readiness-audit.md',
+            'work-on-task.md',
         ];
         const seedAssets = (extra: Record<string, string> = {}) => {
             const files: Record<string, string> = { ...extra };
@@ -689,13 +690,13 @@ describe('ChatParticipant', () => {
             expect(fs.has('/test-workspace/.agentkanban/prompts/stage-planning-to-review.md')).toBe(true);
         });
 
-        it('/prompts overwrites to the bundled versions', async () => {
+        it('/prompts refresh overwrites to the bundled versions', async () => {
             const fs = seedAssets({
                 '/test-workspace/.agentkanban/prompts/README.md': '# my edited readme',
             });
 
             const response = mockResponse();
-            await participant.handleRequest(mockRequest('prompts', ''), {} as any, response, mockToken);
+            await participant.handleRequest(mockRequest('prompts', 'refresh'), {} as any, response, mockToken);
 
             expect(fs.text('/test-workspace/.agentkanban/prompts/README.md')).toBe('# bundled README.md');
             expect(response.messages.some((m: string) => m.includes('Refreshed stage-driver prompts'))).toBe(true);
@@ -916,10 +917,12 @@ describe('ChatParticipant', () => {
             const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);
 
             // Call WITHOUT worktreeTask — should NOT overwrite the enhanced sentinel
-            const result = await participant.syncAgentsMdSection();
+            await participant.syncAgentsMdSection();
 
-            expect(result).toBeDefined();
-            expect(writeSpy).not.toHaveBeenCalled();
+            expect(writeSpy).toHaveBeenCalled();
+            const written = new TextDecoder().decode(writeSpy.mock.calls[0][1] as Uint8Array);
+            expect(written).not.toContain('**Active Task:**');
+            expect(written).toContain('Read `.agentkanban/INSTRUCTION.md` for task workflow rules.');
         });
 
         it('should overwrite standard sentinel normally when no enhanced sentinel exists', async () => {
@@ -936,6 +939,38 @@ describe('ChatParticipant', () => {
             await participant.syncAgentsMdSection();
 
             expect(writeSpy).toHaveBeenCalled();
+        });
+
+        it('should rebuild the enhanced sentinel from the linked worktree task when called without worktreeTask', async () => {
+            const linkedTask: Task = {
+                id: 'task_worktree_1',
+                title: 'Linked Task',
+                lane: 'review',
+                created: '2026-06-24T00:00:00.000Z',
+                updated: '2026-06-24T00:00:00.000Z',
+                description: 'Repair AGENTS sync',
+                priority: 'medium',
+                worktree: {
+                    path: '/test-workspace',
+                    branch: 'agentkanban/task_worktree_1',
+                    created: '2026-06-24T00:00:00.000Z',
+                },
+                extras: {
+                    change: '.agentkanban/changes/linked-task',
+                    spec: '.agentkanban/specs/linked-task/spec.md',
+                },
+            };
+            (taskStore as any).tasks.set(linkedTask.id, linkedTask);
+            vi.spyOn(workspace.fs, 'readFile').mockResolvedValueOnce(new TextEncoder().encode('# My AGENTS\n'));
+            const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);
+
+            await participant.syncAgentsMdSection();
+
+            expect(writeSpy).toHaveBeenCalled();
+            const written = new TextDecoder().decode(writeSpy.mock.calls[0][1] as Uint8Array);
+            expect(written).toContain('**Active Task:** Linked Task');
+            expect(written).toContain('**Task File:** `.agentkanban/tasks/task_worktree_1.md`');
+            expect(written).toContain('**Checklist File:** `.agentkanban/changes/linked-task/tasks.md`');
         });
 
         it('should overwrite enhanced sentinel when called WITH worktreeTask', async () => {
@@ -1331,6 +1366,35 @@ describe('ChatParticipant', () => {
             expect(written).toContain('Read the linked spec change artifacts before planning, implementing, reviewing, or marking done.');
         });
 
+        it('should write a warning if the task has a worktree path but we are not inside the worktree workspace', async () => {
+            vi.spyOn(workspace.fs, 'readFile').mockRejectedValueOnce(new Error('not found'));
+            const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);
+
+            await participant.syncAgentsMdSection({
+                title: 'My Feature',
+                taskRelPath: '.agentkanban/tasks/task_001.md',
+                worktreePath: '/other/worktree/path',
+            });
+
+            const written = new TextDecoder().decode(writeSpy.mock.calls[0][1] as Uint8Array);
+            expect(written).toContain('⚠️ **Worktree Warning:**');
+            expect(written).toContain('Do NOT implement changes in this root workspace');
+        });
+
+        it('should not write a warning if we are inside the worktree workspace', async () => {
+            vi.spyOn(workspace.fs, 'readFile').mockRejectedValueOnce(new Error('not found'));
+            const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);
+
+            await participant.syncAgentsMdSection({
+                title: 'My Feature',
+                taskRelPath: '.agentkanban/tasks/task_001.md',
+                worktreePath: '/test-workspace',
+            });
+
+            const written = new TextDecoder().decode(writeSpy.mock.calls[0][1] as Uint8Array);
+            expect(written).not.toContain('⚠️ **Worktree Warning:**');
+        });
+
         it('should write default sentinel when no worktreeTask is provided', async () => {
             vi.spyOn(workspace.fs, 'readFile').mockRejectedValueOnce(new Error('not found'));
             const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);
@@ -1395,6 +1459,69 @@ describe('ChatParticipant', () => {
 
             const content = new TextDecoder().decode(writeSpy.mock.calls[0][1] as Uint8Array);
             expect(content).toContain('Priority high: planning review by independent-agent, implementation review by independent-agent');
+        });
+    });
+
+    describe('/work command', () => {
+        let task: Task;
+
+        beforeEach(() => {
+            task = {
+                id: 'task_work_1',
+                title: 'Auth Feature',
+                lane: 'planning',
+                created: '2026-03-08T10:00:00.000Z',
+                updated: '2026-03-08T10:00:00.000Z',
+                description: '',
+            };
+            (taskStore as any).tasks.clear();
+            (taskStore as any).tasks.set(task.id, task);
+
+            vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(
+                new TextEncoder().encode('# bundled work-on-task.md\n{{taskTitle}}\n{{taskFile}}\n{{profile}}\n{{lanes}}'),
+            );
+            vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);
+            vi.spyOn(workspace, 'openTextDocument').mockResolvedValue({} as any);
+            vi.spyOn(window, 'showTextDocument').mockResolvedValue(undefined as any);
+            vi.spyOn(window, 'showQuickPick').mockResolvedValue(undefined);
+            vi.spyOn(env.clipboard, 'writeText').mockResolvedValue(undefined);
+        });
+
+        it('should list /work in available commands', async () => {
+            const response = mockResponse();
+            await participant.handleRequest(mockRequest(undefined, ''), {} as any, response, mockToken);
+
+            expect(response.messages.some((m: string) => m.includes('/work'))).toBe(true);
+        });
+
+        it('should copy work prompt to clipboard when task name is given', async () => {
+            const clipSpy = vi.spyOn(env.clipboard, 'writeText');
+
+            const response = mockResponse();
+            await participant.handleRequest(mockRequest('work', 'Auth Feature'), {} as any, response, mockToken);
+
+            expect(clipSpy).toHaveBeenCalled();
+            const prompt = clipSpy.mock.calls[0][0] as string;
+            expect(prompt).toContain('Auth Feature');
+            expect(prompt).toContain('.agentkanban/tasks/task_work_1.md');
+            expect(prompt).toContain('standard');
+            expect(prompt).toContain('backlog → planning → in-progress → review → done');
+        });
+
+        it('should show message when no not-done tasks exist', async () => {
+            (taskStore as any).tasks.clear();
+
+            const response = mockResponse();
+            await participant.handleRequest(mockRequest('work', ''), {} as any, response, mockToken);
+
+            expect(response.messages.some((m: string) => m.includes('No not-done tasks'))).toBe(true);
+        });
+
+        it('should report no match for unknown task name', async () => {
+            const response = mockResponse();
+            await participant.handleRequest(mockRequest('work', 'Nonexistent'), {} as any, response, mockToken);
+
+            expect(response.messages.some((m: string) => m.includes('No not-done tasks'))).toBe(true);
         });
     });
 

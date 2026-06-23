@@ -200,12 +200,11 @@ export class BoardConfigStore {
 
     static serialise(config: BoardConfig): string {
         const normalised = normaliseBoardConfig(config);
-        const payload: BoardConfig = {
+        const payload: Record<string, unknown> = {
             profile: normalised.profile,
             profileVersion: normalised.profileVersion,
             lanes: normalised.lanes,
             users: normalised.users,
-            labels: normalised.labels,
             enforcement: normalised.enforcement,
             reviewPolicy: normalised.reviewPolicy,
             worktreePolicy: normalised.worktreePolicy,
@@ -223,6 +222,10 @@ export class BoardConfigStore {
         }
         if (normalised.skills !== undefined) {
             payload.skills = normalised.skills;
+        }
+        // labels last for readability
+        if (normalised.labels !== undefined) {
+            payload.labels = normalised.labels;
         }
         return CONFIG_HEADER + stringify(payload, { lineWidth: 0 });
     }

@@ -2,6 +2,53 @@
 
 All notable changes to Agentic Kanban will be documented here.
 
+## [1.6.9] - 2026-06-24
+
+### Added
+- **Evidence recording UI** in task modal: lint/test/build/behavior checks with Pass/Fail buttons; status persisted to task frontmatter via `TaskStore`
+- Evidence status indicators (✅/❌/—) shown inline in the modal for each check
+
+### Fixed
+- `TaskStore` now correctly serialises and deserialises `evidence`, `parent`, `superseeds`, `supersededBy`, `blockerResolved` fields (were silently dropped on save)
+- `/evidence` chat command: show evidence status or record pass/fail per check
+- `blockerResolved` flag set automatically when `blocked`/`blocked-by` labels are cleared during `/sweep`
+- `/pack`, `/work`, `/evidence` commands registered in VS Code command palette
+
+## [1.6.8] - 2026-06-24
+
+### Fixed
+- Restored **Global Stack Templates** feature: `~/.agentkanban/templates.yaml` stores reusable stack packs across projects
+- Settings > Skill Packs > Active Stack dropdown now lists local packs, global templates (prefixed `[Global]`), and a `+ Create New Template...` option
+- Selecting `+ Create New Template...` reveals an inline form (name, stack label, skills, coverage, verify commands); Save writes to `templates.yaml`, merges into board config, re-scaffolds prompts, and refreshes the dropdown
+- Selecting a global template as the active stack auto-merges it into `config.packs` so `resolveVars` finds it
+
+## [1.6.7] - 2026-06-24
+
+### Added
+- `/work` chat command: QuickPick of not-done tasks, copies a fully interpolated work prompt to clipboard
+- `work-on-task.md` bundled prompt: profile-aware single-task driver (Lite/Standard)
+- Profile-aware interpolation vars: `{{profile}}`, `{{lanes}}`, `{{advance}}` resolved from board config
+- `selectTask()` helper refactored for reuse across `/task` and `/work` commands
+
+### Changed
+- `resolveVars()` now emits profile-specific lane strings and advancement instructions
+- Prompt arrays (`STANDARD_PROMPT_FILES`, `LITE_PROMPT_FILES`) include `work-on-task.md`
+
+## [1.6.6] - 2026-06-23
+
+### Added
+- `/prompts` command now opens a QuickPick of prompt files for arrow-key selection; copies selected prompt content to clipboard
+- `/prompts refresh` preserves the original scaffold/rewrite behavior
+- Settings modal Skill Packs tab now shows discovered skills as a checkbox list (replaces free-text input)
+- `agentKanban.skillsDirs` setting to specify additional skill directories to scan
+- Settings modal (sidebar): Board Config tab (enforcement, WIP limits, worktree policy, transition policies, review-policy matrix) and Skill Packs tab (activeStack, skills, pack cards)
+- `labels` serialised last in `board.yaml` for readability
+
+### Changed
+- Removed "New Task" button from sidebar
+- Verification commands section removed from Settings modal
+- Settings modal tab buttons styled with underline indicator
+
 ## [1.6.5] - 2026-06-23
 
 - **Restore Branding Assets**: copied and renamed the new three-column logos and icons directly from `.temp/` to their original repository and documentation locations (`images/icon.png`, `images/kanban-icon.svg`, `images/kanban-icon-128x128.svg`, and `docs/src/assets/logo.svg`).

@@ -4,6 +4,7 @@ import type { BoardConfigStore } from './BoardConfigStore';
 import type { LogService } from './LogService';
 import { NO_OP_LOGGER } from './LogService';
 import { displayLane } from './types';
+import { KanbanEditorPanel } from './KanbanEditorPanel';
 
 /**
  * Slim sidebar webview showing per-lane task counts and shortcuts.
@@ -48,6 +49,9 @@ export class BoardViewProvider implements vscode.WebviewViewProvider {
                 await vscode.commands.executeCommand('agentKanban.openBoard');
             } else if (message.type === 'newTask') {
                 await vscode.commands.executeCommand('agentKanban.newTask');
+            } else if (message.type === 'openSettings') {
+                await vscode.commands.executeCommand('agentKanban.openBoard');
+                KanbanEditorPanel.currentPanel?.triggerSettingsModal();
             } else if (message.type === 'initialise') {
                 await vscode.commands.executeCommand('agentKanban.initialise');
             } else if (message.type === 'focusSidebar') {
@@ -203,14 +207,14 @@ export class BoardViewProvider implements vscode.WebviewViewProvider {
 </head>
 <body>
     <div class="actions">
-        <button class="btn btn-sec" id="btn-new">+ New Task</button>
+        <button class="btn btn-sec" id="btn-settings" title="Open Settings">⚙ Settings</button>
     </div>
     <div class="summary">${totalActive} active task${totalActive !== 1 ? 's' : ''}</div>
     <div class="section-label">Lanes</div>
     <div class="lanes">${lanesHtml}</div>
     <script nonce="${nonce}">
         const vscode = acquireVsCodeApi();
-        document.getElementById('btn-new').addEventListener('click', () => vscode.postMessage({ type: 'newTask' }));
+        document.getElementById('btn-settings').addEventListener('click', () => vscode.postMessage({ type: 'openSettings' }));
         // When focus shifts to this sidebar (e.g. Activity Bar icon click in "focus" mode),
         // re-open the board editor panel so it is always shown alongside the sidebar.
         window.addEventListener('focus', () => vscode.postMessage({ type: 'focusSidebar' }));

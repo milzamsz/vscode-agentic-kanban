@@ -80,21 +80,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.subscriptions.push(
         vscode.window.registerWebviewPanelSerializer(KanbanEditorPanel.VIEW_TYPE, {
             async deserializeWebviewPanel(panel: vscode.WebviewPanel) {
-                KanbanEditorPanel.revive(panel, context.extensionUri, taskStore, boardConfigStore, logger, isInitialised, worktreeService);
+                KanbanEditorPanel.revive(panel, context.extensionUri, taskStore, boardConfigStore, logger, isInitialised, worktreeService, chatParticipantHandler);
             },
         }),
     );
 
     context.subscriptions.push(
         vscode.commands.registerCommand('agentKanban.openBoard', () => {
-            KanbanEditorPanel.createOrShow(context.extensionUri, taskStore, boardConfigStore, logger, isInitialised, worktreeService);
+            KanbanEditorPanel.createOrShow(context.extensionUri, taskStore, boardConfigStore, logger, isInitialised, worktreeService, chatParticipantHandler);
         }),
     );
 
     context.subscriptions.push(
         vscode.commands.registerCommand('agentKanban.newTask', () => {
-            KanbanEditorPanel.createOrShow(context.extensionUri, taskStore, boardConfigStore, logger, isInitialised, worktreeService);
+            KanbanEditorPanel.createOrShow(context.extensionUri, taskStore, boardConfigStore, logger, isInitialised, worktreeService, chatParticipantHandler);
             KanbanEditorPanel.currentPanel?.triggerCreateModal();
+        }),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('agentKanban.openSettings', () => {
+            KanbanEditorPanel.createOrShow(context.extensionUri, taskStore, boardConfigStore, logger, isInitialised, worktreeService, chatParticipantHandler);
+            KanbanEditorPanel.currentPanel?.triggerSettingsModal();
         }),
     );
 

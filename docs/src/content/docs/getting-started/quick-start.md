@@ -5,6 +5,24 @@ description: Walk through the standard developer-agent lifecycle end-to-end.
 
 Get up and running with the **Standard** spec-driven development loop in a few minutes.
 
+```mermaid
+flowchart TD
+    A[Write PLAN.md] --> B[Install Agentic Kanban<br/>& Initialise workspace]
+    B --> C{Select Workflow Profile}
+    C -->|Lite| D[backlog -> in-progress -> done]
+    C -->|Standard| E[backlog -> planning -> in-progress -> review -> done]
+    D --> F[Run a Prompting template<br/>to implement PLAN.md]
+    E --> F
+    F --> G[Plan / approve]
+    G --> H[Implement in a Git worktree]
+    H --> I[Dev & verify<br/>lint - test - build]
+    I --> J{Verified?}
+    J -->|No| H
+    J -->|Yes| K[Move to done]
+```
+
+> See the [Prompting templates](/getting-started/prompting/) for copy-pasteable prompts.
+
 ---
 
 ## 1. Initialise the Workspace

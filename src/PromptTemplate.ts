@@ -24,12 +24,39 @@ export function interpolate(content: string, vars: Record<string, string>): stri
     });
 }
 
+function getLanes(profile: 'standard' | 'lite'): string {
+    return profile === 'lite'
+        ? 'backlog → in-progress → done'
+        : 'backlog → planning → in-progress → review → done';
+}
+
+function getAdvance(profile: 'standard' | 'lite'): string {
+    if (profile === 'lite') {
+        return [
+            'Lite workflow:',
+            '- Verify inside `in-progress` (no separate review lane).',
+            '- Move directly to `done` after verification passes.',
+            '- Worktree is optional unless board policy requires it.',
+        ].join('\n');
+    }
+    return [
+        'Standard workflow:',
+        '- `in-progress` → implementation + verification.',
+        '- Set `lane: review` after verification passes. Review is a human gate.',
+        '- `review → done` only after the human review gate passes.',
+        '- Worktree per board policy.',
+    ].join('\n');
+}
+
 /**
  * Resolves configuration values and active pack stack settings into variables
  * for prompt interpolation.
  */
 export function resolveVars(config: BoardConfig, activePack?: StackPack): Record<string, string> {
     const stack = activePack?.stack ?? '';
+    const profile = config.profile;
+    const lanes = getLanes(profile);
+    const advance = getAdvance(profile);
     
     // Union of project-level skills and active pack skills
     const projectSkills = config.skills ?? [];
@@ -72,5 +99,8 @@ export function resolveVars(config: BoardConfig, activePack?: StackPack): Record
         lint,
         test,
         build,
+        profile,
+        lanes,
+        advance,
     };
 }

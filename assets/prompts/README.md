@@ -35,6 +35,7 @@ intake -> backlog --[plan]-> planning ==[planning->review: AUTO]==> review --[au
 | [stage-review-to-in-progress.md](stage-review-to-in-progress.md) | revise: send a rejected task back to implementation |
 | [stage-blocked-and-resume.md](stage-blocked-and-resume.md) | block one / sweep blocked to resume cleared |
 | [production-readiness-audit.md](production-readiness-audit.md) | gate run by `review->done` (evidence the behavior RUNS, not a status write) |
+| [work-on-task.md](work-on-task.md) | single-task driver; used by `/work` (pick a not-done task, copy interpolated prompt to clipboard) |
 
 > The middle steps (`planning->in-progress`, `in-progress->review`) are not separate prompts -- the
 > autonomous driver does them inline. Use the granular flow only if you split it out later.

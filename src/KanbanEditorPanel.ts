@@ -18,6 +18,13 @@ import {
     wipExceeded,
     type Priority,
 } from './types';
+import { discoverSkills } from './SkillDiscovery';
+import { StackTemplateStore } from './StackTemplateStore';
+
+/** Minimal interface for prompting re-scaffold on activeStack change. */
+export interface PromptScaffolder {
+    scaffoldPrompts(overwrite?: boolean): Promise<{ created: string[]; updated: string[]; skipped: string[] }>;
+}
 
 export class KanbanEditorPanel {
     public static readonly VIEW_TYPE = 'agentKanban.boardPanel';
@@ -31,6 +38,8 @@ export class KanbanEditorPanel {
     private _pendingMessages: unknown[] = [];
     private _isInitialised: boolean;
     private readonly _transitionService = new TransitionService();
+    private readonly _scaffolder?: PromptScaffolder;
+    private readonly _stackTemplateStore = new StackTemplateStore();
 
     // ── Public API ───────────────────────────────────────────────────────────
 
@@ -42,6 +51,7 @@ export class KanbanEditorPanel {
         logger?: LogService,
         isInitialised = true,
         worktreeService?: WorktreeService,
+        scaffolder?: PromptScaffolder,
     ): KanbanEditorPanel {
         const column =
             vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
@@ -77,6 +87,7 @@ export class KanbanEditorPanel {
             logger,
             isInitialised,
             worktreeService,
+            scaffolder,
         );
         return KanbanEditorPanel.currentPanel;
     }
@@ -90,6 +101,7 @@ export class KanbanEditorPanel {
         logger?: LogService,
         isInitialised = true,
         worktreeService?: WorktreeService,
+        scaffolder?: PromptScaffolder,
     ): void {
         KanbanEditorPanel.currentPanel = new KanbanEditorPanel(
             panel,
@@ -99,6 +111,7 @@ export class KanbanEditorPanel {
             logger,
             isInitialised,
             worktreeService,
+            scaffolder,
         );
     }
 
@@ -123,6 +136,15 @@ export class KanbanEditorPanel {
         }
     }
 
+    public triggerSettingsModal(): void {
+        const msg = { type: 'openSettings' };
+        if (this._webviewReady) {
+            this._panel.webview.postMessage(msg);
+        } else {
+            this._pendingMessages.push(msg);
+        }
+    }
+
     // ── Constructor ──────────────────────────────────────────────────────────
 
     private constructor(
@@ -133,11 +155,13 @@ export class KanbanEditorPanel {
         logger?: LogService,
         isInitialised = true,
         worktreeService?: WorktreeService,
+        scaffolder?: PromptScaffolder,
     ) {
         this._panel = panel;
         this._logger = logger ?? NO_OP_LOGGER;
         this._isInitialised = isInitialised;
         this._worktreeService = worktreeService;
+        this._scaffolder = scaffolder;
 
         // Enforce options (important when reviving a deserialized panel)
         this._panel.webview.options = {
@@ -545,6 +569,86 @@ export class KanbanEditorPanel {
                     vscode.window.showWarningMessage('Worktree directory no longer exists.');
                     task.worktree = undefined;
                     await this._taskStore.save(task);
+                }
+                break;
+            }
+
+            // ── Settings modal handlers ──
+
+            case 'saveBoardConfig': {
+                const partial: Record<string, unknown> = {};
+                if (message.enforcement !== undefined) { partial.enforcement = message.enforcement; }
+                if (message.reviewPolicy !== undefined) { partial.reviewPolicy = message.reviewPolicy; }
+                if (message.worktreePolicy !== undefined) { partial.worktreePolicy = message.worktreePolicy; }
+                if (message.wipLimits !== undefined) { partial.wipLimits = message.wipLimits; }
+                if (message.policies !== undefined) { partial.policies = message.policies; }
+                if (message.skills !== undefined) { partial.skills = message.skills; }
+                await this._boardConfigStore.update(partial);
+                break;
+            }
+
+            case 'setActiveStack': {
+                const stackName = message.name as string;
+                const currentCfg = this._boardConfigStore.get();
+                const inPacks = (currentCfg.packs ?? []).some(p => p.name === stackName);
+                if (!inPacks) {
+                    // Check global templates and merge if found
+                    const globalTemplates = await this._stackTemplateStore.loadGlobalTemplates();
+                    const globalMatch = globalTemplates.find(t => t.name === stackName);
+                    if (globalMatch) {
+                        await this._boardConfigStore.update({
+                            packs: [...(currentCfg.packs ?? []), globalMatch],
+                            activeStack: stackName,
+                        });
+                    } else {
+                        await this._boardConfigStore.update({ activeStack: stackName });
+                    }
+                } else {
+                    await this._boardConfigStore.update({ activeStack: stackName });
+                }
+                // Re-scaffold prompts when active stack changes
+                if (this._scaffolder) {
+                    await this._scaffolder.scaffoldPrompts(true);
+                }
+                break;
+            }
+
+            case 'requestSkills': {
+                const extraDirs = vscode.workspace.getConfiguration('agentKanban').get<string[]>('skillsDirs', []);
+                const wsFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
+                const discovered = await discoverSkills(wsFolder ?? vscode.Uri.file(process.cwd()), extraDirs);
+                if (this._webviewReady) {
+                    this._panel.webview.postMessage({ type: 'skillsList', skills: discovered });
+                }
+                break;
+            }
+
+            case 'requestStackTemplates': {
+                const templates = await this._stackTemplateStore.loadGlobalTemplates();
+                if (this._webviewReady) {
+                    this._panel.webview.postMessage({ type: 'stackTemplatesList', templates });
+                }
+                break;
+            }
+
+            case 'saveStackTemplate': {
+                const template = message.template;
+                if (!template?.name) { break; }
+                await this._stackTemplateStore.upsertGlobalTemplate(template);
+                // Merge into board config packs so resolveVars finds it
+                const cfg = this._boardConfigStore.get();
+                const existingPacks = cfg.packs ?? [];
+                const alreadyPresent = existingPacks.some(p => p.name === template.name);
+                const updatedPacks = alreadyPresent
+                    ? existingPacks.map(p => p.name === template.name ? template : p)
+                    : [...existingPacks, template];
+                await this._boardConfigStore.update({ packs: updatedPacks, activeStack: template.name });
+                if (this._scaffolder) {
+                    await this._scaffolder.scaffoldPrompts(true);
+                }
+                const templates = await this._stackTemplateStore.loadGlobalTemplates();
+                if (this._webviewReady) {
+                    this._panel.webview.postMessage({ type: 'stackTemplatesList', templates });
                 }
                 break;
             }

@@ -99,6 +99,12 @@ class RelativePattern {
     constructor(public base: any, public pattern: string) { }
 }
 
+const env = {
+    clipboard: {
+        writeText: vi.fn().mockResolvedValue(undefined),
+    },
+};
+
 const lm = {
     selectChatModels: async (_selector?: any) => [] as any[],
 };
@@ -137,6 +143,7 @@ export {
     workspace,
     window,
     commands,
+    env,
     chat,
     ViewColumn,
     RelativePattern,

@@ -1,4 +1,6 @@
 import type { Task, BoardConfig, Priority } from '../types';
+import type { SettingsDiscoveredSkill, SettingsSkillStatusFilter } from './settingsSkills';
+import { getSettingsSkillsViewModel, getPersistedSkillSelection } from './settingsSkills';
 
 declare function acquireVsCodeApi(): {
     postMessage(message: unknown): void;
@@ -44,6 +46,14 @@ interface ModalSnapshot {
     dependsOn: string[];
 }
 let modalSnapshot: ModalSnapshot | null = null;
+
+// ── Settings Modal state ───────────────────────────────────────────────
+let settingsMode = false; // true when settings modal is open
+let settingsDiscoveredSkills: SettingsDiscoveredSkill[] = [];
+let settingsSkillFilter = '';
+let settingsSkillStatusFilter: SettingsSkillStatusFilter = 'all';
+let settingsSelectedSkills = new Set<string>();
+let stackTemplates: import('../types').StackPack[] = [];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -100,7 +110,7 @@ const PRIORITY_LABELS: Record<string, string> = {
 // ── Message Handling ─────────────────────────────────────────────────────────
 
 window.addEventListener('message', (event: MessageEvent) => {
-    const msg = event.data as { type: string; state?: BoardState };
+    const msg = event.data as { type: string; state?: BoardState; skills?: Array<{ name: string; description?: string }>; templates?: import('../types').StackPack[] };
     if (msg.type === 'stateUpdate' && msg.state) {
         if (isDragging) {
             pendingState = msg.state;
@@ -111,6 +121,15 @@ window.addEventListener('message', (event: MessageEvent) => {
     }
     if (msg.type === 'openCreateModal') {
         openCreateModal();
+    }
+    if (msg.type === 'openSettings') {
+        openSettingsModal();
+    }
+    if (msg.type === 'skillsList') {
+        handleSkillsList(msg.skills ?? []);
+    }
+    if (msg.type === 'stackTemplatesList') {
+        handleStackTemplatesList(msg.templates ?? []);
     }
 });
 
@@ -331,6 +350,7 @@ function buildBoardHtml(): string {
         ${buildDiscardConfirmHtml()}
         ${buildConfirmDialogHtml()}
         ${buildDepGraphModalHtml()}
+        ${buildSettingsModalHtml()}
     `;
 }
 
@@ -541,6 +561,21 @@ function setupEventListeners(): void {
         if ((e.target as HTMLElement)?.id === 'search-input') {
             handleSearchInput(e.target as HTMLInputElement);
         }
+        if ((e.target as HTMLElement)?.id === 'settings-skill-filter') {
+            settingsSkillFilter = (e.target as HTMLInputElement).value;
+            renderSkillsCheckboxes();
+        }
+    });
+    document.addEventListener('change', (e: Event) => {
+        if ((e.target as HTMLElement)?.classList.contains('skill-checkbox')) {
+            const checkbox = e.target as HTMLInputElement;
+            if (checkbox.checked) {
+                settingsSelectedSkills.add(checkbox.value);
+            } else {
+                settingsSelectedSkills.delete(checkbox.value);
+            }
+            renderSkillsCheckboxes();
+        }
     });
 }
 
@@ -577,6 +612,39 @@ function handleClick(e: MouseEvent): void {
     }
     if ((t as HTMLElement).id === 'dep-graph-close' || (t as HTMLElement).id === 'dep-graph-backdrop') {
         closeDepGraph();
+        return;
+    }
+    // Settings modal handlers
+    if ((t as HTMLElement).id === 'settings-save') {
+        saveSettingsModal();
+        return;
+    }
+    if ((t as HTMLElement).id === 'settings-cancel' || (t as HTMLElement).id === 'settings-close') {
+        closeSettingsModal();
+        return;
+    }
+    if ((t as HTMLElement).id === 'settings-backdrop' && e.target === document.getElementById('settings-backdrop')) {
+        closeSettingsModal();
+        return;
+    }
+    if ((t as HTMLElement).matches('[data-settings-skill-filter]')) {
+        settingsSkillStatusFilter = ((t as HTMLElement).getAttribute('data-settings-skill-filter') as SettingsSkillStatusFilter) || 'all';
+        renderSkillsCheckboxes();
+        return;
+    }
+    // Settings tab switching
+    if ((t as HTMLElement).closest('.settings-tab')) {
+        const tab = (t as HTMLElement).closest('.settings-tab') as HTMLElement;
+        const tabName = tab.dataset.tab;
+        document.querySelectorAll('.settings-tab').forEach(el => el.classList.remove('active'));
+        tab.classList.add('active');
+        document.querySelectorAll('.settings-panel').forEach(el => el.setAttribute('hidden', ''));
+        const targetId = tabName === 'skill-packs' ? 'settings-skill-packs' : 'settings-board-config';
+        document.getElementById(targetId)?.removeAttribute('hidden');
+        if (tabName === 'skill-packs') {
+            renderSkillsCheckboxes();
+            vscode.postMessage({ type: 'requestStackTemplates' });
+        }
         return;
     }
     if ((t as HTMLElement).id === 'modal-close') {
@@ -991,9 +1059,10 @@ function openCreateModal(): void {
     if (descEl) {
         descEl.value = '';
     }
+
     const laneEl = document.getElementById('modal-lane') as HTMLSelectElement | null;
-    if (laneEl && state.config.lanes.length > 0) {
-        laneEl.value = state.config.lanes[0];
+    if (laneEl) {
+        laneEl.value = state.config.lanes[0] ?? '';
     }
     const priorityEl = document.getElementById('modal-priority') as HTMLSelectElement | null;
     if (priorityEl) {
@@ -1018,6 +1087,277 @@ function openCreateModal(): void {
     renderDeps();
     captureModalSnapshot();
     titleInput?.focus();
+}
+
+// ── Settings Modal Functions ──────────────────────────────────────────
+
+function openSettingsModal(): void {
+    settingsMode = true;
+    settingsSelectedSkills = new Set(state.config.skills || []);
+    const backdrop = document.getElementById('settings-backdrop');
+    if (backdrop) {
+        backdrop.removeAttribute('hidden');
+    }
+    vscode.postMessage({ type: 'requestSkills' });
+    vscode.postMessage({ type: 'requestStackTemplates' });
+
+    const filterInput = document.getElementById('settings-skill-filter');
+    if (filterInput) {
+        (filterInput as HTMLInputElement).value = settingsSkillFilter;
+    }
+    
+    // Initial render
+    renderSkillsCheckboxes();
+
+    // Wire Active Stack dropdown for Create New
+    const stackSelect = document.getElementById('settings-active-stack') as HTMLSelectElement | null;
+    if (stackSelect) {
+        stackSelect.addEventListener('change', (e) => {
+            const val = (e.target as HTMLSelectElement).value;
+            if (val === '__create_new__') {
+                const form = document.getElementById('template-create-form');
+                form?.removeAttribute('hidden');
+                // Reset dropdown to previous value to avoid saving __create_new__
+                stackSelect.value = state.config.activeStack ?? '';
+            }
+        });
+    }
+    const saveTplBtn = document.getElementById('template-create-save');
+    if (saveTplBtn) {
+        saveTplBtn.addEventListener('click', handleCreateTemplateSave);
+    }
+    const cancelTplBtn = document.getElementById('template-create-cancel');
+    if (cancelTplBtn) {
+        cancelTplBtn.addEventListener('click', () => {
+            document.getElementById('template-create-form')?.setAttribute('hidden', '');
+        });
+    }
+}
+
+function handleCreateTemplateSave(): void {
+    const nameInput = document.getElementById('template-name') as HTMLInputElement | null;
+    const stackInput = document.getElementById('template-stack') as HTMLInputElement | null;
+    const skillsInput = document.getElementById('template-skills') as HTMLTextAreaElement | null;
+    const coverageInput = document.getElementById('template-coverage') as HTMLTextAreaElement | null;
+    const verifyCmdsInput = document.getElementById('template-verify') as HTMLTextAreaElement | null;
+
+    const name = nameInput?.value.trim() ?? '';
+    if (!name) {
+        nameInput?.focus();
+        return;
+    }
+
+    const splitLines = (v: string) => v.split('\n').map(s => s.trim()).filter(Boolean);
+    const template = {
+        name,
+        stack: stackInput?.value.trim() || undefined,
+        skills: splitLines(skillsInput?.value ?? ''),
+        coverage: splitLines(coverageInput?.value ?? ''),
+        verifyCmds: splitLines(verifyCmdsInput?.value ?? ''),
+    };
+
+    vscode.postMessage({ type: 'saveStackTemplate', template });
+    document.getElementById('template-create-form')?.setAttribute('hidden', '');
+
+    // Clear form
+    if (nameInput) { nameInput.value = ''; }
+    if (stackInput) { stackInput.value = ''; }
+    if (skillsInput) { skillsInput.value = ''; }
+    if (coverageInput) { coverageInput.value = ''; }
+    if (verifyCmdsInput) { verifyCmdsInput.value = ''; }
+}
+
+function handleSkillsList(skills: SettingsDiscoveredSkill[]): void {
+    settingsDiscoveredSkills = skills;
+    // Re-render the skills checkbox list if the Skill Packs panel is visible
+    const panel = document.getElementById('settings-skill-packs');
+    if (panel && !panel.hasAttribute('hidden')) {
+        renderSkillsCheckboxes();
+    }
+}
+
+function renderSkillsCheckboxes(): void {
+    const container = document.getElementById('settings-skills-list');
+    if (!container) {
+        return;
+    }
+    const config = state.config;
+    const summary = document.getElementById('settings-skills-summary');
+    const warning = document.getElementById('settings-skills-warning');
+    const skillsVM = getSettingsSkillsViewModel(
+        settingsDiscoveredSkills,
+        settingsSelectedSkills,
+        config.skills || [],
+        settingsSkillFilter,
+        settingsSkillStatusFilter
+    );
+
+    if (summary) {
+        summary.innerHTML = `
+            <button type="button" class="settings-summary-chip${settingsSkillStatusFilter === 'all' ? ' active' : ''}" data-settings-skill-filter="all">Installed ${skillsVM.installedCount}</button>
+            <button type="button" class="settings-summary-chip${settingsSkillStatusFilter === 'active' ? ' active' : ''}" data-settings-skill-filter="active">Active ${skillsVM.activeInstalledCount}</button>
+            <button type="button" class="settings-summary-chip${settingsSkillStatusFilter === 'inactive' ? ' active' : ''}" data-settings-skill-filter="inactive">Inactive ${Math.max(0, skillsVM.installedCount - skillsVM.activeInstalledCount)}</button>
+        `;
+    }
+
+    if (warning) {
+        if (skillsVM.configuredMissing.length > 0) {
+            warning.innerHTML = `
+                <strong>Configured but not discovered:</strong>
+                ${skillsVM.configuredMissing.map((skill) => `<code>${esc(skill)}</code>`).join(', ')}.
+                Saving this form on this machine will remove them from <code>board.yaml</code>.
+            `;
+            warning.removeAttribute('hidden');
+        } else {
+            warning.setAttribute('hidden', '');
+            warning.innerHTML = '';
+        }
+    }
+    
+    if (skillsVM.filtered.length === 0) {
+        container.innerHTML = `<div class="settings-skills-empty">${skillsVM.emptyMessage || 'No skills match your search.'}</div>`;
+        return;
+    }
+
+    container.innerHTML = skillsVM.filtered.map(skill => {
+        const checked = settingsSelectedSkills.has(skill.name) ? 'checked' : '';
+        const descHtml = skill.description ? `<div class="skill-desc">${esc(skill.description)}</div>` : '';
+        const sourceHtml = skill.sourceLabel ? `<span class="skill-source-badge">${esc(skill.sourceLabel)}</span>` : '';
+        return `
+            <label class="skill-checkbox-label">
+                <input type="checkbox" class="skill-checkbox" value="${esc(skill.name)}" ${checked}>
+                <div class="skill-info">
+                    <div class="skill-heading">
+                        <span class="skill-name">${esc(skill.name)}</span>
+                        ${sourceHtml}
+                    </div>
+                    ${descHtml}
+                </div>
+            </label>
+        `;
+    }).join('');
+}
+
+function handleStackTemplatesList(templates: import('../types').StackPack[]): void {
+    stackTemplates = templates;
+    const panel = document.getElementById('settings-skill-packs');
+    if (panel && !panel.hasAttribute('hidden')) {
+        renderActiveStackDropdown();
+    }
+}
+
+function renderActiveStackDropdown(): void {
+    const select = document.getElementById('settings-active-stack') as HTMLSelectElement | null;
+    if (!select) { return; }
+    const config = state.config;
+    const localPacks = config.packs ?? [];
+    const localNames = new Set(localPacks.map(p => p.name));
+    const globalOnly = stackTemplates.filter(t => !localNames.has(t.name));
+    const allOptions = [
+        ...localPacks.map(p => {
+            const label = typeof p.stack === 'string' ? p.stack : p.name;
+            return `<option value="${esc(p.name)}" ${config.activeStack === p.name ? 'selected' : ''}>${esc(label)}</option>`;
+        }),
+        ...globalOnly.map(t => {
+            const label = typeof t.stack === 'string' ? t.stack : t.name;
+            return `<option value="${esc(t.name)}" ${config.activeStack === t.name ? 'selected' : ''}>[Global] ${esc(label)}</option>`;
+        }),
+        `<option value="__create_new__">+ Create New Template...</option>`,
+    ];
+    select.innerHTML = allOptions.join('');
+}
+
+function closeSettingsModal(): void {
+    settingsMode = false;
+    settingsSkillFilter = '';
+    settingsSkillStatusFilter = 'all';
+    settingsSelectedSkills = new Set<string>();
+    const backdrop = document.getElementById('settings-backdrop');
+    if (backdrop) {
+        backdrop.setAttribute('hidden', '');
+    }
+}
+
+function saveSettingsModal(): void {
+    const config = state.config;
+
+    const enforcementMode = (document.getElementById('settings-enforcement-mode') as HTMLSelectElement)?.value || 'warn';
+    const allowed = (document.getElementById('settings-allowed') as HTMLSelectElement)?.value || 'true';
+    const actors = (document.getElementById('settings-actors') as HTMLSelectElement)?.value || 'agent';
+    const requireReason = (document.getElementById('settings-require-reason') as HTMLSelectElement)?.value || 'true';
+
+    const worktreeRequired = (document.getElementById('settings-worktree-required') as HTMLSelectElement)?.value || 'true';
+    const wipLimit = parseInt((document.getElementById('settings-wip-limit') as HTMLInputElement)?.value || '1', 10);
+
+    const transitionChecklist = (document.getElementById('settings-transition-checklist') as HTMLSelectElement)?.value || '1';
+    const transitionSpec = (document.getElementById('settings-transition-spec') as HTMLSelectElement)?.value || '1';
+    const transitionDescription = (document.getElementById('settings-transition-description') as HTMLSelectElement)?.value || '1';
+    const transitionWorktree = (document.getElementById('settings-transition-worktree') as HTMLSelectElement)?.value || '1';
+
+    const verificationTest = (document.getElementById('settings-verification-test') as HTMLInputElement)?.value || '';
+    const verificationLint = (document.getElementById('settings-verification-lint') as HTMLInputElement)?.value || '';
+    const verificationBuild = (document.getElementById('settings-verification-build') as HTMLInputElement)?.value || '';
+
+    // Review policy matrix
+    const reviewPolicy: Record<string, { planning: string; implementation: string }> = { ...(config.reviewPolicy || {}) };
+    document.querySelectorAll('.settings-review-planning').forEach(el => {
+        const select = el as HTMLSelectElement;
+        const level = select.dataset.level as string;
+        if (level) {
+            if (!reviewPolicy[level]) reviewPolicy[level] = { planning: 'self-agent', implementation: 'self-agent' };
+            reviewPolicy[level].planning = select.value;
+        }
+    });
+    document.querySelectorAll('.settings-review-implementation').forEach(el => {
+        const select = el as HTMLSelectElement;
+        const level = select.dataset.level as string;
+        if (level) {
+            if (!reviewPolicy[level]) reviewPolicy[level] = { planning: 'self-agent', implementation: 'self-agent' };
+            reviewPolicy[level].implementation = select.value;
+        }
+    });
+
+    const activeStack = (document.getElementById('settings-active-stack') as HTMLSelectElement)?.value || '';
+    // Gather checked skills from checkbox list
+    const skills = getPersistedSkillSelection(settingsDiscoveredSkills, settingsSelectedSkills);
+
+    const update: Record<string, unknown> = {
+        enforcement: {
+            mode: enforcementMode,
+            overrides: {
+                allowed: allowed === 'true',
+                actors: actors ? actors.split(',').map((a: string) => a.trim()) : ['agent'],
+                requireReason: requireReason === 'true',
+            },
+        },
+        worktreePolicy: {
+            requiredForImplementation: worktreeRequired === 'true',
+        },
+        wipLimits: { 'in-progress': wipLimit },
+        reviewPolicy,
+        policies: {
+            transition: {
+                requireChecklistForInProgress: transitionChecklist === '1',
+                requireSpecForInProgress: transitionSpec === '1',
+                requireDescriptionForReview: transitionDescription === '1',
+                requireWorktreeForInProgress: transitionWorktree === '1',
+            },
+            verification: {
+                testCommand: verificationTest,
+                lintCommand: verificationLint,
+                buildCommand: verificationBuild,
+            },
+        },
+        skills,
+    };
+
+    vscode.postMessage({ type: 'saveBoardConfig', ...update });
+
+    if (activeStack && activeStack !== '__create_new__' && activeStack !== config.activeStack) {
+        vscode.postMessage({ type: 'setActiveStack', name: activeStack });
+    }
+
+    closeSettingsModal();
 }
 
 function configureModalMode(): void {
@@ -1856,6 +2196,304 @@ function buildDepGraphModalHtml(): string {
                 <div class="modal-body dep-graph-body" style="overflow: auto; max-height: 70vh;">
                     <div id="dep-graph-svg-container" style="position: relative; width: 100%; min-height: 400px;">
                         <!-- SVG graph will be rendered here dynamically -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+// ── Settings Modal ───────────────────────────────────────────────────────────
+
+function buildSettingsModalHtml(): string {
+    const config = state.config;
+    const reviewPolicyLevels = ['low', 'medium', 'high', 'critical'];
+
+    const enforcementMatrix = reviewPolicyLevels
+        .map(level => {
+            const row = config.reviewPolicy?.[level as keyof typeof config.reviewPolicy];
+            return {
+                level,
+                planning: row?.planning || 'self-agent',
+                implementation: row?.implementation || 'self-agent',
+            };
+        })
+        .map(row => {
+            return `
+                <tr>
+                    <td class="policy-level-cell">${row.level.toUpperCase()}</td>
+                    <td>
+                        <select class="form-control settings-review-planning" data-level="${row.level}" data-field="planning">
+                            <option value="self-agent" ${row.planning === 'self-agent' ? 'selected' : ''}>Self-Agent</option>
+                            <option value="independent-agent" ${row.planning === 'independent-agent' ? 'selected' : ''}>Independent-Agent</option>
+                            <option value="independent-agent+human" ${row.planning === 'independent-agent+human' ? 'selected' : ''}>Independent-Agent+Human</option>
+                        </select>
+                    </td>
+                    <td>
+                        <select class="form-control settings-review-implementation" data-level="${row.level}" data-field="implementation">
+                            <option value="self-agent" ${row.implementation === 'self-agent' ? 'selected' : ''}>Self-Agent</option>
+                            <option value="independent-agent" ${row.implementation === 'independent-agent' ? 'selected' : ''}>Independent-Agent</option>
+                            <option value="independent-agent+human" ${row.implementation === 'independent-agent+human' ? 'selected' : ''}>Independent-Agent+Human</option>
+                        </select>
+                    </td>
+                </tr>
+            `;
+        })
+        .join('');
+
+    const transition = config.policies?.transition || {};
+    const verification = config.policies?.verification || {};
+
+    const localPackNames = new Set((config.packs || []).map(p => p.name));
+    const globalOnlyTemplates = stackTemplates.filter(t => !localPackNames.has(t.name));
+    const packOptions = [
+        ...(config.packs || []).map(pack => {
+            const stackName = typeof pack.stack === 'string' ? pack.stack : pack.name;
+            return `<option value="${esc(pack.name)}" ${config.activeStack === pack.name ? 'selected' : ''}>${esc(stackName)}</option>`;
+        }),
+        ...globalOnlyTemplates.map(t => {
+            const stackName = typeof t.stack === 'string' ? t.stack : t.name;
+            return `<option value="${esc(t.name)}" ${config.activeStack === t.name ? 'selected' : ''}>[Global] ${esc(stackName)}</option>`;
+        }),
+        `<option value="__create_new__">+ Create New Template...</option>`,
+    ].join('');
+
+    const packCards = (config.packs || []).map(pack => {
+        const stackName = typeof pack.stack === 'string' ? pack.stack : pack.name;
+        const skillsList = (pack.skills || []).map(s => `<span class="skill-badge">${s}</span>`).join('');
+        const coverageList = (pack.coverage || []).map(c => `<span class="coverage-badge">${c}</span>`).join('');
+        const verifyList = (pack.verifyCmds || []).map(c => `<span class="verify-cmd-badge">${c}</span>`).join('');
+        return `
+            <div class="skill-card">
+                <div class="skill-card-title">${stackName}</div>
+                <div class="skill-card-body">
+                    <div class="skill-list">${skillsList}</div>
+                    <div class="skill-coverage">${coverageList}</div>
+                    <div class="skill-verify">${verifyList}</div>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    return `
+        <div class="modal-backdrop" id="settings-backdrop" hidden>
+            <div class="modal settings-modal" id="settings-modal" role="dialog" aria-modal="true">
+                <div class="modal-header">
+                    <h3 class="modal-title">Settings</h3>
+                    <button class="icon-btn" id="settings-close" title="Close">&times;</button>
+                </div>
+                <div class="modal-body settings-body">
+                    <div class="settings-tabs">
+                        <button class="settings-tab active" data-tab="board-config">Board Config</button>
+                        <button class="settings-tab" data-tab="skill-packs">Skill Packs</button>
+                    </div>
+
+                    <div class="settings-panel active" id="settings-board-config">
+                        <div class="section">
+                            <h4 class="section-label">Enforcement</h4>
+                            <div class="form-row">
+                                <label class="form-label">Mode</label>
+                                <select class="form-control" id="settings-enforcement-mode">
+                                    <option value="warn" ${config.enforcement?.mode === 'warn' ? 'selected' : ''}>Warn</option>
+                                    <option value="strict" ${config.enforcement?.mode === 'strict' ? 'selected' : ''}>Strict</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
+                                <label class="form-label">Overrides</label>
+                                <div class="settings-nested">
+                                    <div class="form-row">
+                                        <label class="form-label">Allowed</label>
+                                        <select class="form-control" id="settings-allowed">
+                                            <option value="true" ${config.enforcement?.overrides?.allowed !== false ? 'selected' : ''}>Yes</option>
+                                            <option value="false" ${config.enforcement?.overrides?.allowed === false ? 'selected' : ''}>No</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-row">
+                                        <label class="form-label">Actors</label>
+                                        <select class="form-control" id="settings-actors">
+                                            <option value="agent" ${config.enforcement?.overrides?.actors?.includes('agent') ? 'selected' : ''}>Agent</option>
+                                            <option value="human" ${config.enforcement?.overrides?.actors?.includes('human') ? 'selected' : ''}>Human</option>
+                                            <option value="human,agent" ${config.enforcement?.overrides?.actors?.join(',') === 'human,agent' ? 'selected' : ''}>Human, Agent</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-row">
+                                        <label class="form-label">Require Reason</label>
+                                        <select class="form-control" id="settings-require-reason">
+                                            <option value="true" ${config.enforcement?.overrides?.requireReason !== false ? 'selected' : ''}>Yes</option>
+                                            <option value="false" ${config.enforcement?.overrides?.requireReason === false ? 'selected' : ''}>No</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="section">
+                            <h4 class="section-label">Worktree Policy</h4>
+                            <div class="form-row">
+                                <label class="form-label">Require Worktree for Implementation</label>
+                                <select class="form-control" id="settings-worktree-required">
+                                    <option value="true" ${config.worktreePolicy?.requiredForImplementation === true ? 'selected' : ''}>Yes</option>
+                                    <option value="false" ${config.worktreePolicy?.requiredForImplementation === false ? 'selected' : ''}>No</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="section">
+                            <h4 class="section-label">WIP Limits</h4>
+                            <div class="form-row">
+                                <label class="form-label">Max tasks in in-progress</label>
+                                <input class="form-control" type="number" id="settings-wip-limit" min="0" value="${config.wipLimits?.['in-progress'] ?? 1}">
+                            </div>
+                        </div>
+
+                        <div class="section">
+                            <h4 class="section-label">Transition Policies</h4>
+                            <div class="settings-transition-grid">
+                                <div class="transition-row">
+                                    <span class="transition-label">Checklist Required for In-Progress</span>
+                                    <select class="form-control" id="settings-transition-checklist">
+                                        <option value="1" ${transition.requireChecklistForInProgress !== false ? 'selected' : ''}>Yes</option>
+                                        <option value="0" ${transition.requireChecklistForInProgress === false ? 'selected' : ''}>No</option>
+                                    </select>
+                                </div>
+                                <div class="transition-row">
+                                    <span class="transition-label">Spec Required for In-Progress</span>
+                                    <select class="form-control" id="settings-transition-spec">
+                                        <option value="1" ${transition.requireSpecForInProgress !== false ? 'selected' : ''}>Yes</option>
+                                        <option value="0" ${transition.requireSpecForInProgress === false ? 'selected' : ''}>No</option>
+                                    </select>
+                                </div>
+                                <div class="transition-row">
+                                    <span class="transition-label">Description Required for Review</span>
+                                    <select class="form-control" id="settings-transition-description">
+                                        <option value="1" ${transition.requireDescriptionForReview !== false ? 'selected' : ''}>Yes</option>
+                                        <option value="0" ${transition.requireDescriptionForReview === false ? 'selected' : ''}>No</option>
+                                    </select>
+                                </div>
+                                <div class="transition-row">
+                                    <span class="transition-label">Worktree Required for In-Progress</span>
+                                    <select class="form-control" id="settings-transition-worktree">
+                                        <option value="1" ${transition.requireWorktreeForInProgress === true ? 'selected' : ''}>Yes</option>
+                                        <option value="0" ${transition.requireWorktreeForInProgress !== true ? 'selected' : ''}>No</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="section">
+                            <h4 class="section-label">Verification Commands</h4>
+                            <div class="form-row">
+                                <label class="form-label" for="settings-verification-test">Test</label>
+                                <input class="form-control" type="text" id="settings-verification-test" placeholder="npm test" value="${esc((verification as any).testCommand || '')}">
+                            </div>
+                            <div class="form-row">
+                                <label class="form-label" for="settings-verification-lint">Lint</label>
+                                <input class="form-control" type="text" id="settings-verification-lint" placeholder="npx tsc --noEmit" value="${esc((verification as any).lintCommand || '')}">
+                            </div>
+                            <div class="form-row">
+                                <label class="form-label" for="settings-verification-build">Build</label>
+                                <input class="form-control" type="text" id="settings-verification-build" placeholder="npm run build" value="${esc((verification as any).buildCommand || '')}">
+                            </div>
+                        </div>
+
+                        <div class="section">
+                            <h4 class="section-label">Review Policy Matrix</h4>
+                            <div class="settings-table-container">
+                                <table class="settings-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Level</th>
+                                            <th>Planning</th>
+                                            <th>Implementation</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${enforcementMatrix}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-panel" id="settings-skill-packs" hidden>
+                        <div class="section">
+                            <h4 class="section-label">Active Stack</h4>
+                            <div class="form-row">
+                                <select class="form-control" id="settings-active-stack">
+                                    ${packOptions}
+                                </select>
+                            </div>
+                            <div class="template-create-form" id="template-create-form" hidden>
+                                <div class="template-create-title">New Global Template</div>
+                                <div class="form-row">
+                                    <label class="form-label" for="template-name">Name</label>
+                                    <input class="form-control" type="text" id="template-name" placeholder="e.g. my-stack">
+                                </div>
+                                <div class="form-row">
+                                    <label class="form-label" for="template-stack">Stack Label</label>
+                                    <input class="form-control" type="text" id="template-stack" placeholder="e.g. My Stack">
+                                </div>
+                                <div class="form-row">
+                                    <label class="form-label" for="template-skills">Skills (one per line)</label>
+                                    <textarea class="form-control" id="template-skills" rows="3" placeholder="skill-name&#10;another-skill"></textarea>
+                                </div>
+                                <div class="form-row">
+                                    <label class="form-label" for="template-coverage">Coverage Lines (one per line)</label>
+                                    <textarea class="form-control" id="template-coverage" rows="2" placeholder="src/&#10;tests/"></textarea>
+                                </div>
+                                <div class="form-row">
+                                    <label class="form-label" for="template-verify">Verify Commands (one per line)</label>
+                                    <textarea class="form-control" id="template-verify" rows="2" placeholder="npm test&#10;npm run lint"></textarea>
+                                </div>
+                                <div class="template-create-actions">
+                                    <button class="btn-primary btn-sm" id="template-create-save">Save</button>
+                                    <button class="btn-secondary btn-sm" id="template-create-cancel">Cancel</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="section">
+                            <h4 class="section-label">Project Skills</h4>
+                            <div class="form-row">
+                                <label class="form-label">Installed Skills</label>
+                                <div class="settings-helper-text">Checked skills are active for this project and loaded into the managed agent context.</div>
+                                <div class="settings-skills-summary" id="settings-skills-summary">
+                                    <button type="button" class="settings-summary-chip active" data-settings-skill-filter="all">Installed 0</button>
+                                    <button type="button" class="settings-summary-chip" data-settings-skill-filter="active">Active 0</button>
+                                    <button type="button" class="settings-summary-chip" data-settings-skill-filter="inactive">Inactive 0</button>
+                                </div>
+                                <div class="settings-skills-warning" id="settings-skills-warning" hidden></div>
+                                <input type="text" class="form-control" id="settings-skill-filter" placeholder="Filter skills..." />
+                                <div class="settings-skills-list" id="settings-skills-list">
+                                    ${(config.skills || []).length > 0
+                                        ? `<div class="settings-skills-loading">Loading discovered skills...</div>`
+                                        : `<div class="settings-skills-empty">No skills configured. Discovering...</div>`
+                                    }
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="section">
+                            <h4 class="section-label">Stack Packs</h4>
+                            <div class="settings-packs-list">
+                                ${packCards}
+                            </div>
+                        </div>
+
+                        <div class="section">
+                            <h4 class="section-label">How to add more</h4>
+                            <div class="settings-help-note">
+                                <p><strong>Project Skills</strong> come from skill folders discovered on this machine, including <code>~/.agents/skills/</code>, <code>~/.codex/skills/</code>, <code>workspace/skills/</code>, and <code>workspace/.claude/skills/</code>.</p>
+                                <p><strong>Stack Packs</strong> come from this workspace's <code>.agentkanban/packs.yaml</code>, the active settings in <code>.agentkanban/board.yaml</code>, and any global templates saved from this modal.</p>
+                                <p>After adding a skill folder or pack, reopen Settings to refresh the installed list.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <div class="modal-actions">
+                        <button class="btn-primary" id="settings-save">Save</button>
+                        <button class="btn-secondary" id="settings-cancel">Cancel</button>
                     </div>
                 </div>
             </div>
