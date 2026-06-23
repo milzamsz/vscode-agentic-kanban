@@ -427,7 +427,7 @@ function buildCardHtml(task: Task): string {
                 <div class="card-date">${formatIsoToDate(task.updated)}</div>
                 <div class="card-footer-actions">
                     ${task.worktree
-            ? `<button class="icon-btn card-worktree-open" data-worktree-open-task-id="${esc(task.id)}" title="Open worktree">${ICON_BRANCH}</button>`
+            ? `<button class="icon-btn card-worktree-open" data-worktree-open-task-id="${esc(task.id)}" title="Open worktree: ${esc(task.worktree.branch)}">${ICON_BRANCH}</button>`
             : `<button class="icon-btn card-worktree-create" data-worktree-create-task-id="${esc(task.id)}" title="Create worktree">${ICON_BRANCH_ADD}</button>`
         }
                     <button class="icon-btn card-archive" data-archive-task-id="${esc(task.id)}" title="Archive task">${ICON_ARCHIVE}</button>
@@ -450,6 +450,14 @@ function buildModalHtml(): string {
                     <button class="icon-btn" id="modal-close" title="Close">&times;</button>
                 </div>
                 <div class="modal-body">
+                    <div class="form-row" id="modal-branch-info-row" hidden>
+                        <label class="form-label">Branch</label>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span id="modal-branch-info" style="font-family: monospace; font-size: 13px; color: var(--vscode-textLink-foreground); padding: 4px 8px; background: rgba(0,0,0,0.05); border-radius: 4px; word-break: break-all;"></span>
+                            <button class="icon-btn" id="modal-btn-copy-branch" title="Copy branch name" type="button" style="padding: 2px 4px;">📋</button>
+                            <button class="btn-secondary btn-sm" id="modal-btn-open-worktree" type="button" style="padding: 2px 6px; font-size: 11px;">Open Worktree</button>
+                        </div>
+                    </div>
                     <div class="form-row" id="modal-description-row" hidden>
                         <label class="form-label" for="modal-description">Description</label>
                         <textarea class="form-control" id="modal-description" rows="3" placeholder="Describe the task…"></textarea>
@@ -689,6 +697,30 @@ function handleClick(e: MouseEvent): void {
         }
         return;
     }
+    // ── Branch and Worktree handlers ──
+    if ((t as HTMLElement).id === 'modal-btn-copy-branch' || (t as HTMLElement).closest('#modal-btn-copy-branch')) {
+        const copyBranchBtn = document.getElementById('modal-btn-copy-branch');
+        const branchText = document.getElementById('modal-branch-info')?.textContent;
+        if (copyBranchBtn && branchText) {
+            navigator.clipboard.writeText(branchText);
+            const originalTitle = copyBranchBtn.getAttribute('title');
+            copyBranchBtn.setAttribute('title', 'Copied!');
+            copyBranchBtn.textContent = '✅';
+            setTimeout(() => {
+                copyBranchBtn.setAttribute('title', originalTitle || 'Copy branch name');
+                copyBranchBtn.textContent = '📋';
+            }, 1000);
+        }
+        return;
+    }
+    if ((t as HTMLElement).id === 'modal-btn-open-worktree' || (t as HTMLElement).closest('#modal-btn-open-worktree')) {
+        if (modalTaskId) {
+            vscode.postMessage({ type: 'openWorktree', taskId: modalTaskId });
+            closeModal();
+        }
+        return;
+    }
+
     // ── Search handlers ──
     if ((t as HTMLElement).id === 'search-clear-btn' || (t as HTMLElement).id === 'search-clear-btn2') {
         searchQuery = '';
@@ -1371,6 +1403,7 @@ function configureModalMode(): void {
         titleH3?.setAttribute('hidden', '');
         titleInput?.removeAttribute('hidden');
         descRow?.removeAttribute('hidden');
+        document.getElementById('modal-branch-info-row')?.setAttribute('hidden', '');
         if (footerLeft) {
             footerLeft.style.visibility = 'hidden';
         }
@@ -1394,6 +1427,17 @@ function populateModal(task: Task): void {
     const titleEl = document.getElementById('modal-task-title');
     if (titleEl) {
         titleEl.textContent = task.title;
+    }
+
+    const branchInfoRow = document.getElementById('modal-branch-info-row');
+    const branchInfoEl = document.getElementById('modal-branch-info');
+    if (branchInfoRow && branchInfoEl) {
+        if (task.worktree?.branch) {
+            branchInfoEl.textContent = task.worktree.branch;
+            branchInfoRow.removeAttribute('hidden');
+        } else {
+            branchInfoRow.setAttribute('hidden', '');
+        }
     }
 
     const laneEl = document.getElementById('modal-lane') as HTMLSelectElement | null;
