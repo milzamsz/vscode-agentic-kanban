@@ -747,9 +747,56 @@
         color: var(--vscode-descriptionForeground);
     }
 
+    .settings-helper-text {
+        font-size: 12px;
+        color: var(--vscode-descriptionForeground);
+        margin-bottom: 6px;
+    }
+
+    .settings-skills-summary {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 6px;
+    }
+
+    .settings-summary-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 8px;
+        border: 1px solid var(--vscode-widget-border);
+        border-radius: 999px;
+        font-size: 11px;
+        color: var(--vscode-foreground);
+        background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+        cursor: pointer;
+        transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+    }
+
+    .settings-summary-chip:hover {
+        background: rgba(127, 127, 127, 0.12);
+    }
+
+    .settings-summary-chip.active {
+        background: var(--vscode-button-secondaryBackground, rgba(127, 127, 127, 0.18));
+        border-color: var(--vscode-focusBorder);
+        color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+    }
+
+    .settings-skills-warning {
+        margin-bottom: 8px;
+        padding: 8px 10px;
+        border-radius: 4px;
+        border: 1px solid var(--vscode-inputValidation-warningBorder, var(--vscode-widget-border));
+        background: var(--vscode-inputValidation-warningBackground, rgba(255, 196, 0, 0.08));
+        color: var(--vscode-foreground);
+        font-size: 12px;
+        line-height: 1.4;
+    }
+
     .skill-checkbox-label {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         gap: 8px;
         padding: 4px;
         cursor: pointer;
@@ -770,6 +817,14 @@
         display: flex;
         flex-direction: column;
         gap: 2px;
+        min-width: 0;
+    }
+
+    .skill-heading {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
     }
 
     .skill-name {
@@ -780,6 +835,35 @@
     .skill-desc {
         font-size: 11px;
         color: var(--vscode-descriptionForeground);
+    }
+
+    .skill-source-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 1px 6px;
+        border-radius: 999px;
+        font-size: 10px;
+        border: 1px solid var(--vscode-widget-border);
+        color: var(--vscode-descriptionForeground);
+        background: rgba(127, 127, 127, 0.08);
+    }
+
+    .settings-help-note {
+        padding: 10px 12px;
+        border: 1px solid var(--vscode-widget-border);
+        border-radius: 6px;
+        background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+        font-size: 12px;
+        color: var(--vscode-foreground);
+        line-height: 1.45;
+    }
+
+    .settings-help-note p {
+        margin: 0 0 8px;
+    }
+
+    .settings-help-note p:last-child {
+        margin-bottom: 0;
     }
 
     .modal-header {
@@ -1179,33 +1263,4 @@
         justify-content: flex-end;
         margin-top: 4px;
     }
-
-    /* ── Evidence UI ── */
-    .evidence-grid { display: flex; flex-direction: column; gap: 4px; }
-    .evidence-item { display: flex; align-items: center; gap: 8px; }
-    .evidence-check-name {
-        width: 58px;
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        color: var(--vscode-descriptionForeground);
-    }
-    .evidence-status { width: 18px; text-align: center; font-size: 13px; }
-    .btn-ev {
-        padding: 1px 8px;
-        font-size: 11px;
-        border-radius: 3px;
-        border: 1px solid transparent;
-        cursor: pointer;
-        line-height: 1.6;
-    }
-    .btn-ev-pass {
-        background: var(--vscode-testing-iconPassed, #388e3c);
-        color: #fff;
-    }
-    .btn-ev-fail {
-        background: var(--vscode-testing-iconFailed, #c62828);
-        color: #fff;
-    }
-    .btn-ev:hover { opacity: 0.8; }
 

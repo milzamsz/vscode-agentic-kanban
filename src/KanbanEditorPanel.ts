@@ -631,19 +631,6 @@ export class KanbanEditorPanel {
                 break;
             }
 
-            case 'recordEvidence': {
-                const task = this._taskStore.get(message.taskId);
-                if (!task) { break; }
-                if (!task.evidence) { task.evidence = {}; }
-                (task.evidence as Record<string, { ran: boolean; passed: boolean; timestamp: string }>)[message.check] = {
-                    ran: true,
-                    passed: message.passed as boolean,
-                    timestamp: new Date().toISOString(),
-                };
-                await this._taskStore.save(task);
-                break;
-            }
-
             case 'saveStackTemplate': {
                 const template = message.template;
                 if (!template?.name) { break; }

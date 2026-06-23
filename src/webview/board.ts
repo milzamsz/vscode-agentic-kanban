@@ -52,6 +52,7 @@ let settingsMode = false; // true when settings modal is open
 let settingsDiscoveredSkills: SettingsDiscoveredSkill[] = [];
 let settingsSkillFilter = '';
 let settingsSkillStatusFilter: SettingsSkillStatusFilter = 'all';
+let settingsSelectedSkills = new Set<string>();
 let stackTemplates: import('../types').StackPack[] = [];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -516,18 +517,6 @@ function buildModalHtml(): string {
                             <div class="datepicker-help" id="datepicker-help" hidden></div>
                         </div>
                     </div>
-                    <div class="form-row" id="modal-evidence-row">
-                        <label class="form-label">Evidence</label>
-                        <div class="evidence-grid">
-                            ${(['lint','test','build','behavior'] as const).map(k => `
-                            <div class="evidence-item">
-                                <span class="evidence-check-name">${k}</span>
-                                <span class="evidence-status" id="ev-status-${k}">—</span>
-                                <button class="btn-ev btn-ev-pass" data-ev-check="${k}" data-ev-result="pass" type="button">Pass</button>
-                                <button class="btn-ev btn-ev-fail" data-ev-check="${k}" data-ev-result="fail" type="button">Fail</button>
-                            </div>`).join('')}
-                        </div>
-                    </div>
                 </div>
                 <div class="datepicker-overlay" id="datepicker-overlay" hidden>
                     <div class="datepicker-overlay-backdrop" id="datepicker-overlay-backdrop"></div>
@@ -571,6 +560,21 @@ function setupEventListeners(): void {
         }
         if ((e.target as HTMLElement)?.id === 'search-input') {
             handleSearchInput(e.target as HTMLInputElement);
+        }
+        if ((e.target as HTMLElement)?.id === 'settings-skill-filter') {
+            settingsSkillFilter = (e.target as HTMLInputElement).value;
+            renderSkillsCheckboxes();
+        }
+    });
+    document.addEventListener('change', (e: Event) => {
+        if ((e.target as HTMLElement)?.classList.contains('skill-checkbox')) {
+            const checkbox = e.target as HTMLInputElement;
+            if (checkbox.checked) {
+                settingsSelectedSkills.add(checkbox.value);
+            } else {
+                settingsSelectedSkills.delete(checkbox.value);
+            }
+            renderSkillsCheckboxes();
         }
     });
 }
@@ -621,6 +625,11 @@ function handleClick(e: MouseEvent): void {
     }
     if ((t as HTMLElement).id === 'settings-backdrop' && e.target === document.getElementById('settings-backdrop')) {
         closeSettingsModal();
+        return;
+    }
+    if ((t as HTMLElement).matches('[data-settings-skill-filter]')) {
+        settingsSkillStatusFilter = ((t as HTMLElement).getAttribute('data-settings-skill-filter') as SettingsSkillStatusFilter) || 'all';
+        renderSkillsCheckboxes();
         return;
     }
     // Settings tab switching
@@ -678,15 +687,6 @@ function handleClick(e: MouseEvent): void {
             vscode.postMessage({ type: 'sendToChat', taskId: modalTaskId });
             closeModal();
         }
-        return;
-    }
-    const evBtn = t.closest('[data-ev-check]') as HTMLElement | null;
-    if (evBtn && modalTaskId) {
-        const check = evBtn.dataset.evCheck!;
-        const passed = evBtn.dataset.evResult === 'pass';
-        vscode.postMessage({ type: 'recordEvidence', taskId: modalTaskId, check, passed });
-        const statusEl = document.getElementById(`ev-status-${check}`);
-        if (statusEl) { statusEl.textContent = passed ? '✅' : '❌'; }
         return;
     }
     // ── Search handlers ──
@@ -1093,6 +1093,7 @@ function openCreateModal(): void {
 
 function openSettingsModal(): void {
     settingsMode = true;
+    settingsSelectedSkills = new Set(state.config.skills || []);
     const backdrop = document.getElementById('settings-backdrop');
     if (backdrop) {
         backdrop.removeAttribute('hidden');
@@ -1100,23 +1101,9 @@ function openSettingsModal(): void {
     vscode.postMessage({ type: 'requestSkills' });
     vscode.postMessage({ type: 'requestStackTemplates' });
 
-    // Initialize filter listeners
     const filterInput = document.getElementById('settings-skill-filter');
     if (filterInput) {
         (filterInput as HTMLInputElement).value = settingsSkillFilter;
-        filterInput.addEventListener('input', (e) => {
-            settingsSkillFilter = (e.target as HTMLInputElement).value;
-            renderSkillsCheckboxes();
-        });
-    }
-    
-    const statusFilter = document.getElementById('settings-skill-status-filter');
-    if (statusFilter) {
-        (statusFilter as HTMLSelectElement).value = settingsSkillStatusFilter;
-        statusFilter.addEventListener('change', (e) => {
-            settingsSkillStatusFilter = (e.target as HTMLSelectElement).value as SettingsSkillStatusFilter;
-            renderSkillsCheckboxes();
-        });
     }
     
     // Initial render
@@ -1180,7 +1167,7 @@ function handleCreateTemplateSave(): void {
     if (verifyCmdsInput) { verifyCmdsInput.value = ''; }
 }
 
-function handleSkillsList(skills: Array<{ name: string; description?: string }>): void {
+function handleSkillsList(skills: SettingsDiscoveredSkill[]): void {
     settingsDiscoveredSkills = skills;
     // Re-render the skills checkbox list if the Skill Packs panel is visible
     const panel = document.getElementById('settings-skill-packs');
@@ -1195,31 +1182,55 @@ function renderSkillsCheckboxes(): void {
         return;
     }
     const config = state.config;
-    
-    // Use the settingsSkills module for filtered results
+    const summary = document.getElementById('settings-skills-summary');
+    const warning = document.getElementById('settings-skills-warning');
     const skillsVM = getSettingsSkillsViewModel(
         settingsDiscoveredSkills,
-        config.skills || [],
+        settingsSelectedSkills,
         config.skills || [],
         settingsSkillFilter,
         settingsSkillStatusFilter
     );
+
+    if (summary) {
+        summary.innerHTML = `
+            <button type="button" class="settings-summary-chip${settingsSkillStatusFilter === 'all' ? ' active' : ''}" data-settings-skill-filter="all">Installed ${skillsVM.installedCount}</button>
+            <button type="button" class="settings-summary-chip${settingsSkillStatusFilter === 'active' ? ' active' : ''}" data-settings-skill-filter="active">Active ${skillsVM.activeInstalledCount}</button>
+            <button type="button" class="settings-summary-chip${settingsSkillStatusFilter === 'inactive' ? ' active' : ''}" data-settings-skill-filter="inactive">Inactive ${Math.max(0, skillsVM.installedCount - skillsVM.activeInstalledCount)}</button>
+        `;
+    }
+
+    if (warning) {
+        if (skillsVM.configuredMissing.length > 0) {
+            warning.innerHTML = `
+                <strong>Configured but not discovered:</strong>
+                ${skillsVM.configuredMissing.map((skill) => `<code>${esc(skill)}</code>`).join(', ')}.
+                Saving this form on this machine will remove them from <code>board.yaml</code>.
+            `;
+            warning.removeAttribute('hidden');
+        } else {
+            warning.setAttribute('hidden', '');
+            warning.innerHTML = '';
+        }
+    }
     
     if (skillsVM.filtered.length === 0) {
         container.innerHTML = `<div class="settings-skills-empty">${skillsVM.emptyMessage || 'No skills match your search.'}</div>`;
         return;
     }
-    
-    const selectedSkills = new Set(config.skills || []);
 
     container.innerHTML = skillsVM.filtered.map(skill => {
-        const checked = selectedSkills.has(skill.name) ? 'checked' : '';
+        const checked = settingsSelectedSkills.has(skill.name) ? 'checked' : '';
         const descHtml = skill.description ? `<div class="skill-desc">${esc(skill.description)}</div>` : '';
+        const sourceHtml = skill.sourceLabel ? `<span class="skill-source-badge">${esc(skill.sourceLabel)}</span>` : '';
         return `
             <label class="skill-checkbox-label">
                 <input type="checkbox" class="skill-checkbox" value="${esc(skill.name)}" ${checked}>
                 <div class="skill-info">
-                    <span class="skill-name">${esc(skill.name)}</span>
+                    <div class="skill-heading">
+                        <span class="skill-name">${esc(skill.name)}</span>
+                        ${sourceHtml}
+                    </div>
                     ${descHtml}
                 </div>
             </label>
@@ -1260,6 +1271,7 @@ function closeSettingsModal(): void {
     settingsMode = false;
     settingsSkillFilter = '';
     settingsSkillStatusFilter = 'all';
+    settingsSelectedSkills = new Set<string>();
     const backdrop = document.getElementById('settings-backdrop');
     if (backdrop) {
         backdrop.setAttribute('hidden', '');
@@ -1307,8 +1319,7 @@ function saveSettingsModal(): void {
 
     const activeStack = (document.getElementById('settings-active-stack') as HTMLSelectElement)?.value || '';
     // Gather checked skills from checkbox list
-    const checkedBoxes = document.querySelectorAll('#settings-skills-list .skill-checkbox:checked') as NodeListOf<HTMLInputElement>;
-    const skills = Array.from(checkedBoxes).map(cb => cb.value).filter(Boolean);
+    const skills = getPersistedSkillSelection(settingsDiscoveredSkills, settingsSelectedSkills);
 
     const update: Record<string, unknown> = {
         enforcement: {
@@ -1356,12 +1367,10 @@ function configureModalMode(): void {
     const footerLeft = document.getElementById('modal-footer-left');
     const saveBtn = document.getElementById('modal-save');
 
-    const evidenceRow = document.getElementById('modal-evidence-row');
     if (modalMode === 'create') {
         titleH3?.setAttribute('hidden', '');
         titleInput?.removeAttribute('hidden');
         descRow?.removeAttribute('hidden');
-        evidenceRow?.setAttribute('hidden', '');
         if (footerLeft) {
             footerLeft.style.visibility = 'hidden';
         }
@@ -1372,7 +1381,6 @@ function configureModalMode(): void {
         titleH3?.removeAttribute('hidden');
         titleInput?.setAttribute('hidden', '');
         descRow?.setAttribute('hidden', '');
-        evidenceRow?.removeAttribute('hidden');
         if (footerLeft) {
             footerLeft.style.visibility = 'visible';
         }
@@ -1415,12 +1423,6 @@ function populateModal(task: Task): void {
             .filter((t) => t.id !== task.id && t.slug !== task.slug)
             .map((t) => t.title);
     }, 'add-dep');
-
-    for (const key of ['lint', 'test', 'build', 'behavior'] as const) {
-        const entry = task.evidence?.[key];
-        const el = document.getElementById(`ev-status-${key}`);
-        if (el) { el.textContent = entry ? (entry.passed ? '✅' : '❌') : '—'; }
-    }
 
     renderTags();
     renderDeps();
@@ -2453,15 +2455,15 @@ function buildSettingsModalHtml(): string {
                         <div class="section">
                             <h4 class="section-label">Project Skills</h4>
                             <div class="form-row">
-                                <label class="form-label">Installed Skills (checked = active)</label>
-                                <div class="settings-skill-filters">
-                                    <input type="text" class="form-control" id="settings-skill-filter" placeholder="Filter skills..." />
-                                    <select class="form-control" id="settings-skill-status-filter" style="max-width:110px">
-                                        <option value="all">All</option>
-                                        <option value="active">Active</option>
-                                        <option value="inactive">Inactive</option>
-                                    </select>
+                                <label class="form-label">Installed Skills</label>
+                                <div class="settings-helper-text">Checked skills are active for this project and loaded into the managed agent context.</div>
+                                <div class="settings-skills-summary" id="settings-skills-summary">
+                                    <button type="button" class="settings-summary-chip active" data-settings-skill-filter="all">Installed 0</button>
+                                    <button type="button" class="settings-summary-chip" data-settings-skill-filter="active">Active 0</button>
+                                    <button type="button" class="settings-summary-chip" data-settings-skill-filter="inactive">Inactive 0</button>
                                 </div>
+                                <div class="settings-skills-warning" id="settings-skills-warning" hidden></div>
+                                <input type="text" class="form-control" id="settings-skill-filter" placeholder="Filter skills..." />
                                 <div class="settings-skills-list" id="settings-skills-list">
                                     ${(config.skills || []).length > 0
                                         ? `<div class="settings-skills-loading">Loading discovered skills...</div>`
@@ -2475,6 +2477,15 @@ function buildSettingsModalHtml(): string {
                             <h4 class="section-label">Stack Packs</h4>
                             <div class="settings-packs-list">
                                 ${packCards}
+                            </div>
+                        </div>
+
+                        <div class="section">
+                            <h4 class="section-label">How to add more</h4>
+                            <div class="settings-help-note">
+                                <p><strong>Project Skills</strong> come from skill folders discovered on this machine, including <code>~/.agents/skills/</code>, <code>~/.codex/skills/</code>, <code>workspace/skills/</code>, and <code>workspace/.claude/skills/</code>.</p>
+                                <p><strong>Stack Packs</strong> come from this workspace's <code>.agentkanban/packs.yaml</code>, the active settings in <code>.agentkanban/board.yaml</code>, and any global templates saved from this modal.</p>
+                                <p>After adding a skill folder or pack, reopen Settings to refresh the installed list.</p>
                             </div>
                         </div>
                     </div>
