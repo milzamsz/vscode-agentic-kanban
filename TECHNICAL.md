@@ -325,9 +325,10 @@ The instruction file reference is injected into the chat response as: `Read .age
 The section is delimited by `<!-- BEGIN AGENTIC KANBAN — DO NOT EDIT THIS SECTION -->` and `<!-- END AGENTIC KANBAN -->` sentinel comments. Legacy `AGENT KANBAN` markers (pre-rename) are still recognised when reading an existing section and are upgraded in place; new output always uses the `AGENTIC KANBAN` markers. The method:
 
 1. Reads existing `AGENTS.md` (or starts with empty string if the file doesn't exist)
-2. If called without `worktreeTask` and the existing sentinel contains `**Active Task:**`, preserves the worktree-enhanced sentinel (avoids downgrading)
-3. Finds the sentinel block (if present) and replaces it, or appends the block at the end
-4. Writes the file back — user content outside the sentinels is never modified
+2. Rebuilds task-specific context from `worktreeTask` when provided, or from the currently linked worktree task when the current workspace is itself a task worktree
+3. Falls back to the standard non-task sentinel in normal workspaces so stale `**Active Task:**` blocks do not survive indefinitely
+4. Finds the sentinel block (if present) and replaces it, or appends the block at the end
+5. Writes the file back — user content outside the sentinels is never modified
 
 **Basic sentinel** (no task selected):
 ```markdown
@@ -457,11 +458,20 @@ Manages git worktree lifecycle for Agentic Kanban tasks. Wraps `git worktree add
 | `agentKanban.worktreeRequiredForImplementation` | `profile-default` | Seeds or applies `worktreePolicy.requiredForImplementation`; `profile-default` keeps the built-in Lite or Standard default. |
 | `agentKanban.worktreeRoot` | `../{repo}-worktrees` | Root directory for worktrees. `{repo}` is replaced with the repository name. |
 | `agentKanban.worktreeOpenBehavior` | `current` | Open worktree in `current` window or a `new` window. |
+| `agentKanban.skillsDirs` | `[]` | Additional skill directories scanned by `SkillDiscovery`; supports `~/` and workspace-relative paths. |
 | `agentKanban.enforceWorktrees` | `false` | Soft-gates `/refresh` until the selected task has a linked worktree. |
 
 ### Branch Naming
 
-All worktree branches use the `agentkanban/` prefix followed by the task slug (derived from the task ID, truncated and sanitised).
+All task worktree branches use the `agentkanban/` prefix followed by the task slug (derived from the task ID, truncated and sanitised). Repository maintenance outside the task-worktree path follows short-lived `fix/*`, `docs/*`, and `chore/*` branches. `main` is the only release source of truth; `release/*` is optional and short-lived for larger stabilization windows only.
+
+### CI And Release Automation
+
+- `.github/workflows/ci.yml` validates the full release-critical path on pushes and pull requests targeting `main`: `npm test`, `npm run lint`, `npm run build`, and `npx @vscode/vsce package`.
+- `.github/workflows/release.yml` runs on version tags and rejects the release before packaging when:
+  - the pushed tag version does not match `package.json.version`
+  - the tagged commit is not contained in `origin/main`
+- This keeps the canonical release chain aligned as `main` commit -> `package.json.version` -> `v<version>` tag -> GitHub Release asset.
 
 ## SlashCommandProvider (`SlashCommandProvider.ts`)
 
@@ -480,6 +490,19 @@ Completions are suppressed inside YAML frontmatter (between `---` delimiters) an
 ## KanbanEditorPanel (`KanbanEditorPanel.ts`)
 
 Full editor panel providing the Kanban board UI with worktree support. Registered as a webview panel serialiser so it survives window reloads.
+
+### Settings Skill Packs UX
+
+- The Settings modal requests discovered skills from the host with `requestSkills`.
+- `SkillDiscovery.discoverSkills()` returns `name`, optional `description`, raw `source`, and a normalized `sourceLabel` for UI display.
+- `KanbanEditorPanel` forwards that discovered skill payload unchanged through the `skillsList` webview message, and `board.ts` consumes it as `SettingsDiscoveredSkill[]` so `sourceLabel` stays typed end to end.
+- The webview Skill Packs tab keeps a local selection set while the modal is open so filter re-renders do not discard unsaved checkbox changes.
+- Skill list presentation is derived through `src/webview/settingsSkills.ts`, which computes:
+  - installed and active counts
+  - filtered skill results
+  - configured-but-undiscovered skill warnings
+  - persisted save selection limited to currently discovered skills
+- Save semantics are unchanged: missing skills are still dropped on save, but the UI now warns before that happens.
 
 ### Worktree Integration
 

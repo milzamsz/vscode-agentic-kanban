@@ -193,7 +193,7 @@ export const DEFAULT_REVIEW_POLICY: ReviewPolicy = {
 
 export const DEFAULT_WORKTREE_POLICY: Record<WorkflowProfile, WorktreePolicy> = {
     lite: { requiredForImplementation: false },
-    standard: { requiredForImplementation: true },
+    standard: { requiredForImplementation: false },
 };
 
 export const DEFAULT_WIP_LIMITS: Record<WorkflowProfile, Record<string, number>> = {
@@ -232,7 +232,7 @@ export const DEFAULT_POLICIES: Record<WorkflowProfile, BoardPolicies> = {
             requireChecklistForInProgress: true,
             requireSpecForInProgress: true,
             requireDescriptionForReview: true,
-            requireWorktreeForInProgress: true,
+            requireWorktreeForInProgress: false,
         },
         verification: {},
     },

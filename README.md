@@ -6,7 +6,7 @@ Spec-driven, agent-assisted software delivery in VS Code, with every plan, check
 
 📖 **[Read the Documentation](https://agentic-kanban-docs.pages.dev/)**
 
-![Version 1.6.0](https://img.shields.io/badge/version-1.6.0-2563eb)
+![Version 1.6.9](https://img.shields.io/badge/version-1.6.9-2563eb)
 [![Elastic License 2.0](https://img.shields.io/badge/license-Elastic%202.0%20source--available-f59e0b)](LICENSE)
 [![GitHub Release](https://img.shields.io/github/v/release/milzamsz/vscode-agentic-kanban?label=GitHub%20Release)](https://github.com/milzamsz/vscode-agentic-kanban/releases)
 
@@ -126,7 +126,7 @@ labels:
 
 The skill's guardrail keeps "Add OAuth2 login" out of any sweep until `establish-auth-storage` reaches `done`. Independent ready tasks in the same lane are swept in parallel; this dependent chain stays ordered.
 
-**5. `planning -> in-progress`.** Standard requires a worktree for implementation:
+**5. `planning -> in-progress`.** A worktree can be created for isolated implementation (optional by default, but recommended for larger Standard tasks):
 
 ```text
 @kanban /worktree
@@ -195,7 +195,7 @@ Remove or rename an existing destination before creating a link at the same path
 Download `agentic-kanban-<version>.vsix` from [GitHub Releases](https://github.com/milzamsz/vscode-agentic-kanban/releases), then install it in VS Code:
 
 ```bash
-code --install-extension agentic-kanban-1.6.0.vsix
+code --install-extension agentic-kanban-<version>.vsix
 ```
 
 To update later, download the newer VSIX from the same release page and run the same command again.
@@ -215,7 +215,7 @@ cd vscode-agentic-kanban
 npm ci
 npm run build
 npx @vscode/vsce package
-code --install-extension agentic-kanban-1.6.0.vsix
+code --install-extension agentic-kanban-<version>.vsix
 ```
 
 ## Workflow Profiles
@@ -234,7 +234,7 @@ Lite is intended for smaller changes and fast paths. Planning can remain lightwe
 backlog -> planning -> in-progress -> review -> done
 ```
 
-Standard separates planning, implementation, and implementation review. Moving from `planning` to `in-progress` is the explicit plan approval step. Worktrees are required by the default Standard policy, and a task must pass through `review` before `done`.
+Standard separates planning, implementation, and implementation review. Moving from `planning` to `in-progress` is the explicit plan approval step. Worktrees are optional by default in the Standard profile (configurable in `board.yaml` via `worktreePolicy.requiredForImplementation` or `policies.transition.requireWorktreeForInProgress`), and a task must pass through `review` before `done`.
 
 Blockers do not move a task into a special lane. Add `blocked` for an external blocker or `blocked-by:<slug>` for a task dependency while leaving the task in its active lane.
 
@@ -464,6 +464,7 @@ Agentic Kanban uses several context layers:
 | `agentKanban.worktreeRoot` | Resource | `../{repo}-worktrees` | Worktree root; `{repo}` is replaced with the repository name |
 | `agentKanban.worktreeOpenBehavior` | Resource | `current` | Open worktrees in the `current` or a `new` window |
 | `agentKanban.enforceWorktrees` | Resource | `false` | Require a task worktree before `/refresh`, prompting for creation when absent |
+| `agentKanban.skillsDirs` | Resource | `[]` | Additional skill directories to scan; supports `~/` and workspace-relative paths |
 
 ### Board Configuration
 
@@ -471,27 +472,123 @@ VS Code settings seed `board.yaml`; they do not silently override it. `board.yam
 
 Use **Agentic Kanban: Apply Settings to Board Config** when you want the current workspace settings to update an existing `board.yaml`. If the target profile would leave tasks in lanes that do not exist in that profile, the command warns before applying the change. Human overrides still respect the board's `enforcement.overrides` policy, and agent guidance is refreshed from the live `enforcement` and `reviewPolicy` values in `board.yaml`.
 
+### Skill Packs Settings
+
+The Settings modal includes a **Skill Packs** tab for stack selection and project skill activation.
+
+- **Project Skills** are discovered from installed skill folders on this machine, including `~/.agents/skills/`, `~/.codex/skills/`, workspace `skills/`, workspace `.claude/skills/`, and any extra directories configured through `agentKanban.skillsDirs`.
+- **Checked = active**. Checked skills are written to `board.yaml` and loaded into the managed agent context for the project.
+- The installed skill list shows **Installed**, **Active**, and **Inactive** filters, plus a source badge for each discovered skill.
+- If `board.yaml` references skills that are not currently discovered, Settings shows a warning before save instead of silently hiding them.
+- **Stack Packs** come from `.agentkanban/packs.yaml`, the active `packs` entries in `.agentkanban/board.yaml`, and global templates saved from the Settings modal.
+- After adding a new skill folder or pack, reopen Settings to refresh the discovered list.
+
 ## Maintainer Release Flow
 
 GitHub Releases is the primary distribution path for this fork.
 
-1. Update the version in `package.json` and any matching release docs.
-2. Commit the release changes on `main`.
-3. Create the release tag:
+### Branch Model
 
-```bash
-git tag v1.6.0
+This repository follows lightweight GitHub Flow with `main` as the only release source of truth.
+
+- `main`: stable, releasable code
+- `agentkanban/<task-slug>`: preferred task branches created through Agentic Kanban worktrees
+- `fix/<slug>`: manual bug-fix branches outside the task worktree flow
+- `docs/<slug>`: documentation-only branches
+- `chore/<slug>`: repository, dependency, CI, or maintenance branches
+- `release/<version>`: optional short-lived stabilization branch for larger releases only
+- `hotfix/<slug>`: critical production fixes when needed
+
+There is no permanent `develop` branch. Normal flow is:
+
+```text
+task branch -> pull request -> main -> tag -> GitHub Release
 ```
 
-4. Push the branch and tag:
+### Pull Request Validation
+
+Every pull request to `main` should pass the full release-critical validation path:
 
 ```bash
-git push origin main
-git push origin v1.6.0
+npm test
+npm run lint
+npm run build
+npx @vscode/vsce package --out /tmp/agentic-kanban-ci.vsix
 ```
 
-5. Wait for GitHub Actions to run the release workflow.
-6. Verify the new GitHub Release includes `agentic-kanban-1.6.0.vsix` and that the install command works in VS Code.
+This keeps packaging failures out of the release tag path.
+
+### Patch / Minor Release
+
+1. Start from `main` and create a short-lived release-preparation branch:
+
+```bash
+git switch main
+git pull --ff-only
+git switch -c chore/release-<version>
+```
+
+2. Update the version in `package.json`, `package-lock.json`, `CHANGELOG.md`, the README badge, and any matching release docs.
+3. Run the full verification sequence:
+
+```bash
+npm ci
+npm test
+npm run lint
+npm run build
+npx @vscode/vsce package --out /tmp/agentic-kanban-<version>.vsix
+```
+
+4. Open a pull request into `main` and merge only after CI passes.
+5. After the release commit is on `main`, create the release tag from `main`:
+
+```bash
+git switch main
+git pull --ff-only
+git tag v<version>
+git push origin v<version>
+```
+
+6. Wait for GitHub Actions to run the release workflow.
+7. Verify the new GitHub Release includes `agentic-kanban-<version>.vsix` and that the install command works in VS Code.
+
+Release tags are accepted only when:
+
+- `v<version>` matches `package.json.version`
+- the tagged commit is already contained in `main`
+
+### Release Hygiene
+
+- Keep `CHANGELOG.md` updated on `main` before tagging.
+- Do not commit `.vsix` files to Git. Local packages are for testing only; the canonical distributable VSIX lives in GitHub Release assets.
+- Old long-lived branches such as `release/v1.6.5` or `dependabot-and-lite-enhancements` should be merged or retired before future releases so `main` stays the single source of truth.
+
+### GitHub Repository Setup
+
+Apply these settings in GitHub repository administration:
+
+**Branch ruleset for `main`**
+- require pull request before merging
+- require status checks
+- require conversation resolution
+- require linear history
+- block force pushes
+- block branch deletion
+
+**Required checks**
+- require the CI workflow that runs `test`, `lint`, `build`, and `package`
+
+**Approvals**
+- single maintainer: `0` required approvals is acceptable if PR + CI are still mandatory
+- multiple maintainers: raise to `1` required approval and enable stale approval dismissal
+
+**Tag ruleset for `v*`**
+- restrict creation
+- restrict updates
+- restrict deletion
+
+**General repository setting**
+- enable automatic deletion of head branches after merge
 
 ## Development
 
@@ -503,7 +600,7 @@ npm run build
 npm run watch
 npm run lint
 npm test
-npx @vscode/vsce package
+npx @vscode/vsce package --out /tmp/agentic-kanban-local.vsix
 ```
 
 Press `F5` in VS Code to launch the Extension Development Host.
@@ -514,7 +611,7 @@ The release verification sequence is:
 npm run lint
 npm test
 npm run build
-npx @vscode/vsce package
+npx @vscode/vsce package --out /tmp/agentic-kanban-local.vsix
 ```
 
 ## Contributing
@@ -522,6 +619,8 @@ npx @vscode/vsce package
 Use [GitHub Issues](https://github.com/milzamsz/vscode-agentic-kanban/issues) for bugs and proposals. Pull requests are welcome at [milzamsz/vscode-agentic-kanban](https://github.com/milzamsz/vscode-agentic-kanban).
 
 Please keep workflow behavior documented, add focused tests for code changes, and run the full verification sequence before opening a pull request. Contributions are accepted under the repository's Elastic License 2.0 terms, so review the license before submitting work.
+
+When contributing release or CI changes, keep `main` as the only release source of truth and avoid introducing a permanent `develop` branch or committing VSIX artifacts into Git.
 
 ## Credits
 

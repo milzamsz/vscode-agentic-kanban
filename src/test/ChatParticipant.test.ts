@@ -917,10 +917,12 @@ describe('ChatParticipant', () => {
             const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);
 
             // Call WITHOUT worktreeTask — should NOT overwrite the enhanced sentinel
-            const result = await participant.syncAgentsMdSection();
+            await participant.syncAgentsMdSection();
 
-            expect(result).toBeDefined();
-            expect(writeSpy).not.toHaveBeenCalled();
+            expect(writeSpy).toHaveBeenCalled();
+            const written = new TextDecoder().decode(writeSpy.mock.calls[0][1] as Uint8Array);
+            expect(written).not.toContain('**Active Task:**');
+            expect(written).toContain('Read `.agentkanban/INSTRUCTION.md` for task workflow rules.');
         });
 
         it('should overwrite standard sentinel normally when no enhanced sentinel exists', async () => {
@@ -937,6 +939,38 @@ describe('ChatParticipant', () => {
             await participant.syncAgentsMdSection();
 
             expect(writeSpy).toHaveBeenCalled();
+        });
+
+        it('should rebuild the enhanced sentinel from the linked worktree task when called without worktreeTask', async () => {
+            const linkedTask: Task = {
+                id: 'task_worktree_1',
+                title: 'Linked Task',
+                lane: 'review',
+                created: '2026-06-24T00:00:00.000Z',
+                updated: '2026-06-24T00:00:00.000Z',
+                description: 'Repair AGENTS sync',
+                priority: 'medium',
+                worktree: {
+                    path: '/test-workspace',
+                    branch: 'agentkanban/task_worktree_1',
+                    created: '2026-06-24T00:00:00.000Z',
+                },
+                extras: {
+                    change: '.agentkanban/changes/linked-task',
+                    spec: '.agentkanban/specs/linked-task/spec.md',
+                },
+            };
+            (taskStore as any).tasks.set(linkedTask.id, linkedTask);
+            vi.spyOn(workspace.fs, 'readFile').mockResolvedValueOnce(new TextEncoder().encode('# My AGENTS\n'));
+            const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);
+
+            await participant.syncAgentsMdSection();
+
+            expect(writeSpy).toHaveBeenCalled();
+            const written = new TextDecoder().decode(writeSpy.mock.calls[0][1] as Uint8Array);
+            expect(written).toContain('**Active Task:** Linked Task');
+            expect(written).toContain('**Task File:** `.agentkanban/tasks/task_worktree_1.md`');
+            expect(written).toContain('**Checklist File:** `.agentkanban/changes/linked-task/tasks.md`');
         });
 
         it('should overwrite enhanced sentinel when called WITH worktreeTask', async () => {
@@ -1330,6 +1364,35 @@ describe('ChatParticipant', () => {
             expect(written).toContain('**Spec Change:** `.agentkanban/changes/my_feature`');
             expect(written).toContain('**Spec Proposal:** `.agentkanban/changes/my_feature/proposal.md`');
             expect(written).toContain('Read the linked spec change artifacts before planning, implementing, reviewing, or marking done.');
+        });
+
+        it('should write a warning if the task has a worktree path but we are not inside the worktree workspace', async () => {
+            vi.spyOn(workspace.fs, 'readFile').mockRejectedValueOnce(new Error('not found'));
+            const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);
+
+            await participant.syncAgentsMdSection({
+                title: 'My Feature',
+                taskRelPath: '.agentkanban/tasks/task_001.md',
+                worktreePath: '/other/worktree/path',
+            });
+
+            const written = new TextDecoder().decode(writeSpy.mock.calls[0][1] as Uint8Array);
+            expect(written).toContain('⚠️ **Worktree Warning:**');
+            expect(written).toContain('Do NOT implement changes in this root workspace');
+        });
+
+        it('should not write a warning if we are inside the worktree workspace', async () => {
+            vi.spyOn(workspace.fs, 'readFile').mockRejectedValueOnce(new Error('not found'));
+            const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);
+
+            await participant.syncAgentsMdSection({
+                title: 'My Feature',
+                taskRelPath: '.agentkanban/tasks/task_001.md',
+                worktreePath: '/test-workspace',
+            });
+
+            const written = new TextDecoder().decode(writeSpy.mock.calls[0][1] as Uint8Array);
+            expect(written).not.toContain('⚠️ **Worktree Warning:**');
         });
 
         it('should write default sentinel when no worktreeTask is provided', async () => {

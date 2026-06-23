@@ -91,6 +91,7 @@ interface AgentsTaskContext {
     changeRelPath?: string;
     specRelPath?: string;
     priority?: Priority;
+    worktreePath?: string;
 }
 
 function getWorkflowPrompt(profile: 'standard' | 'lite' = 'standard'): string {
@@ -159,6 +160,8 @@ export function buildWorktreeAgentsMdSection(
     specRelPath?: string,
     profile?: 'standard' | 'lite',
     skills?: string[],
+    worktreePath?: string,
+    currentWorkspacePath?: string,
 ): string {
     const isStandard = profile === 'standard';
     const lines = [
@@ -168,6 +171,23 @@ export function buildWorktreeAgentsMdSection(
         `**Active Task:** ${taskTitle}`,
         `**Task File:** \`${taskRelPath}\``,
     ];
+
+    if (worktreePath && currentWorkspacePath) {
+        const norm1 = worktreePath.replace(/\\/g, '/').replace(/\/+$/, '');
+        const norm2 = currentWorkspacePath.replace(/\\/g, '/').replace(/\/+$/, '');
+        const p1 = process.platform === 'win32' ? norm1.toLowerCase() : norm1;
+        const p2 = process.platform === 'win32' ? norm2.toLowerCase() : norm2;
+        if (p1 !== p2) {
+            lines.push(
+                '',
+                '⚠️ **Worktree Warning:** This task is currently active in a separate Git worktree.',
+                `Do NOT implement changes in this root workspace. Open the worktree workspace instead: \`${worktreePath}\``,
+                'You can open the worktree workspace in VS Code using the `@kanban /worktree open` command.',
+                '',
+            );
+        }
+    }
+
     if (changeRelPath) {
         // Spec-driven tasks use `<change>/tasks.md` as the authoritative checklist.
         lines.push(`**Checklist File:** \`${changeRelPath}/tasks.md\``);
@@ -427,14 +447,24 @@ export class ChatParticipant {
                 // File doesn't exist — start fresh
             }
 
-            // When called WITHOUT worktreeTask, check if the existing AGENTS.md
-            // already contains a worktree-enhanced sentinel (written by
-            // WorktreeService during worktree creation). If so, preserve it —
-            // don't downgrade to the standard sentinel.
-            const hasBegin = existing.includes(AGENTS_MD_BEGIN) || existing.includes(AGENTS_MD_BEGIN_LEGACY);
-            if (!worktreeTask && hasBegin && existing.includes('**Active Task:**')) {
-                this.logger.info('chatParticipant', 'Preserving existing worktree-enhanced AGENTS.md sentinel');
-                return agentsUri;
+            let taskContext = worktreeTask;
+            if (!taskContext) {
+                const linkedTask = this.findLinkedWorktreeTask();
+                if (linkedTask) {
+                    const taskUri = this.taskStore.getTaskUri(linkedTask.id);
+                    const taskRelPath = vscode.workspace.asRelativePath(taskUri);
+                    const todoUri = this.taskStore.getTodoUri(linkedTask.id);
+                    const todoRelPath = vscode.workspace.asRelativePath(todoUri);
+                    taskContext = {
+                        title: linkedTask.title,
+                        taskRelPath,
+                        todoRelPath,
+                        changeRelPath: this.getChangeRelPath(linkedTask),
+                        specRelPath: this.getSpecRelPath(linkedTask),
+                        priority: linkedTask.priority,
+                        worktreePath: linkedTask.worktree?.path,
+                    };
+                }
             }
 
             const config = this.boardConfigStore.get();
@@ -445,18 +475,20 @@ export class ChatParticipant {
             const packSkills = activePack?.skills ?? [];
             const resolvedSkills = Array.from(new Set([...projectSkills, ...packSkills]));
 
-            const section = worktreeTask
+            const section = taskContext
                 ? buildWorktreeAgentsMdSection(
-                    worktreeTask.title,
-                    worktreeTask.taskRelPath,
-                    worktreeTask.todoRelPath,
-                    worktreeTask.changeRelPath,
-                    worktreeTask.priority,
+                    taskContext.title,
+                    taskContext.taskRelPath,
+                    taskContext.todoRelPath,
+                    taskContext.changeRelPath,
+                    taskContext.priority,
                     config.reviewPolicy ?? DEFAULT_REVIEW_POLICY,
                     config.enforcement?.mode ?? DEFAULT_ENFORCEMENT[config.profile].mode,
-                    worktreeTask.specRelPath,
+                    taskContext.specRelPath,
                     config.profile,
                     resolvedSkills,
+                    taskContext.worktreePath,
+                    workspaceFolder?.uri.fsPath,
                 )
                 : buildAgentsMdSection(
                     config.enforcement?.mode ?? DEFAULT_ENFORCEMENT[config.profile].mode,
@@ -511,6 +543,7 @@ export class ChatParticipant {
                 changeRelPath: this.getChangeRelPath(linkedTask),
                 specRelPath: this.getSpecRelPath(linkedTask),
                 priority: linkedTask.priority,
+                worktreePath: linkedTask.worktree?.path,
             });
             this.logger.info('chatParticipant', `Synced worktree AGENTS.md for task: ${linkedTask.title}`);
         }
@@ -704,6 +737,7 @@ export class ChatParticipant {
                 changeRelPath: this.getChangeRelPath(task),
                 specRelPath: this.getSpecRelPath(task),
                 priority: task.priority,
+                worktreePath: task.worktree?.path,
             });
         }
 
@@ -1007,6 +1041,7 @@ export class ChatParticipant {
                 changeRelPath,
                 specRelPath,
                 priority: task.priority,
+                worktreePath: task.worktree?.path,
             });
 
             response.reference(taskUri);
@@ -1253,6 +1288,7 @@ export class ChatParticipant {
                 changeRelPath: this.getChangeRelPath(task),
                 specRelPath: this.getSpecRelPath(task),
                 priority: task.priority,
+                worktreePath: task.worktree?.path,
             });
         }
 

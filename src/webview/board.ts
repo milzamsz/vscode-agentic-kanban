@@ -2373,8 +2373,8 @@ function buildSettingsModalHtml(): string {
                                 <div class="transition-row">
                                     <span class="transition-label">Worktree Required for In-Progress</span>
                                     <select class="form-control" id="settings-transition-worktree">
-                                        <option value="1" ${transition.requireWorktreeForInProgress !== false ? 'selected' : ''}>Yes</option>
-                                        <option value="0" ${transition.requireWorktreeForInProgress === false ? 'selected' : ''}>No</option>
+                                        <option value="1" ${transition.requireWorktreeForInProgress === true ? 'selected' : ''}>Yes</option>
+                                        <option value="0" ${transition.requireWorktreeForInProgress !== true ? 'selected' : ''}>No</option>
                                     </select>
                                 </div>
                             </div>

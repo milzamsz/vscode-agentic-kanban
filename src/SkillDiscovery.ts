@@ -7,6 +7,7 @@ export interface DiscoveredSkill {
     name: string;
     description?: string;
     source: string;
+    sourceLabel: string;
 }
 
 /**
@@ -79,7 +80,12 @@ export async function discoverSkills(
                     // SKILL.md not found or parse failed - use dir name only
                 }
 
-                skillsMap.set(name, { name, description, source: dir });
+                skillsMap.set(name, {
+                    name,
+                    description,
+                    source: dir,
+                    sourceLabel: getSkillSourceLabel(dir, workspacePath, homeDir),
+                });
             }
         } catch {
             // Directory doesn't exist or not accessible - skip silently
@@ -88,6 +94,45 @@ export async function discoverSkills(
 
     // Sort by name
     return Array.from(skillsMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function getSkillSourceLabel(sourceDir: string, workspacePath: string, homeDir: string): string {
+    const normalizedSource = path.normalize(sourceDir);
+    const normalizedWorkspace = path.normalize(workspacePath);
+    const normalizedHome = path.normalize(homeDir);
+
+    const knownHomeDirs = [
+        path.join(normalizedHome, '.agents', 'skills'),
+        path.join(normalizedHome, '.claude', 'skills'),
+        path.join(normalizedHome, '.codex', 'skills'),
+        path.join(normalizedHome, '.antigravity', 'skills'),
+    ];
+
+    for (const dir of knownHomeDirs) {
+        if (normalizedSource === dir) {
+            return `~/${path.relative(normalizedHome, dir).replace(/\\/g, '/')}`;
+        }
+    }
+
+    const workspaceClaude = path.join(normalizedWorkspace, '.claude', 'skills');
+    if (normalizedSource === workspaceClaude) {
+        return 'workspace/.claude/skills';
+    }
+
+    const workspaceSkills = path.join(normalizedWorkspace, 'skills');
+    if (normalizedSource === workspaceSkills) {
+        return 'workspace/skills';
+    }
+
+    if (normalizedSource.startsWith(normalizedWorkspace + path.sep)) {
+        return `workspace/${path.relative(normalizedWorkspace, normalizedSource).replace(/\\/g, '/')}`;
+    }
+
+    if (normalizedSource.startsWith(normalizedHome + path.sep)) {
+        return `~/${path.relative(normalizedHome, normalizedSource).replace(/\\/g, '/')}`;
+    }
+
+    return normalizedSource.replace(/\\/g, '/');
 }
 
 /**

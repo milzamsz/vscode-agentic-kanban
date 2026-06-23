@@ -59,7 +59,7 @@ export class TransitionService {
         const reqChecklist = transPolicies?.requireChecklistForInProgress ?? (config.profile === 'standard');
         const reqSpec = transPolicies?.requireSpecForInProgress ?? (config.profile === 'standard');
         const reqDescription = transPolicies?.requireDescriptionForReview ?? (config.profile === 'standard');
-        const reqWorktree = transPolicies?.requireWorktreeForInProgress ?? (config.worktreePolicy?.requiredForImplementation ?? (config.profile === 'standard'));
+        const reqWorktree = transPolicies?.requireWorktreeForInProgress ?? (config.worktreePolicy?.requiredForImplementation ?? false);
 
         if (toLane === 'in-progress' && reqWorktree && !task.worktree) {
             addBlockingRule('This profile requires a worktree before a task can enter IN PROGRESS.');

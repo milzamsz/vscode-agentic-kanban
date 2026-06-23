@@ -70,14 +70,17 @@ Paste the PASS/FAIL report in the task. Any unresolved FAIL blocks `done` - fix 
 <!-- BEGIN AGENTIC KANBAN — DO NOT EDIT THIS SECTION -->
 ## Agentic Kanban
 
-**Active Task:** Implement workflow policies, verification, dependency graph, and sweep
-**Task File:** `.agentkanban/tasks/task_20260617_workflow_enhancements_1_3_4_5.md`
-**Checklist File:** `.agentkanban/tasks/todo_20260617_workflow_enhancements_1_3_4_5.md`
-
-Enforcement mode: `warn`
-Priority high: planning review by independent-agent, implementation review by independent-agent
-Read the task file above before responding.
 Read `.agentkanban/INSTRUCTION.md` for task workflow rules.
 Read `.agentkanban/memory.md` for project context.
-IMPORTANT: ALWAYS respond in and at the end of the task file.
+
+Enforcement mode: `warn`
+Review policy:
+low: planning=self-agent, implementation=self-agent
+medium: planning=self-agent, implementation=self-agent
+high: planning=independent-agent, implementation=independent-agent
+critical: planning=independent-agent, implementation=independent-agent+human
+
+Load these project skills before working: `agentic-kanban`, `astro`, `brainstorming`, `release`, `release-changelog`.
+
+If a task file (`.agentkanban/tasks/**/*.md`) was referenced earlier in this conversation, re-read it before responding and always respond in and at the end the task file.
 <!-- END AGENTIC KANBAN -->

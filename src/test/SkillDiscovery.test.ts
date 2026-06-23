@@ -47,6 +47,7 @@ describe('discoverSkills', () => {
         expect(skills[1].description).toBeUndefined();
         // first source wins (.claude resolved before .codex; earlier dirs threw)
         expect(norm({ fsPath: skills[0].source })).toContain('.claude/skills');
+        expect(skills[0].sourceLabel).toBe('~/.claude/skills');
     });
 
     it('returns empty when no skill directories exist', async () => {
@@ -66,5 +67,24 @@ describe('discoverSkills', () => {
 
         expect(seen).toContain('/home/user/custom-skills');
         expect(seen).toContain('/test-workspace/rel/skills');
+    });
+
+    it('labels workspace and custom sources for the UI', async () => {
+        vi.spyOn(workspace.fs, 'readDirectory').mockImplementation(async (uri: any) => {
+            const p = norm(uri);
+            if (p.endsWith('/test-workspace/skills')) {
+                return [['skill-local', FileType.Directory]] as Array<[string, number]>;
+            }
+            if (p.endsWith('/home/user/custom-skills')) {
+                return [['skill-custom', FileType.Directory]] as Array<[string, number]>;
+            }
+            throw new Error('ENOENT');
+        });
+        vi.spyOn(workspace.fs, 'readFile').mockRejectedValue(new Error('ENOENT'));
+
+        const skills = await discoverSkills(Uri.file('/test-workspace'), ['~/custom-skills']);
+
+        expect(skills.find((s) => s.name === 'skill-local')?.sourceLabel).toBe('workspace/skills');
+        expect(skills.find((s) => s.name === 'skill-custom')?.sourceLabel).toBe('~/custom-skills');
     });
 });

@@ -66,6 +66,12 @@ describe('getSettingsSkillsViewModel', () => {
         const vm = getSettingsSkillsViewModel(discovered, [], [], 'nonexistent');
         expect(vm.emptyMessage).toMatch(/no skills match/i);
     });
+
+    it('filters by source label as well as name and description', () => {
+        const discovered = [skill('agentic-kanban', 'Workflow skill', '~/.agents/skills'), skill('astro', 'Astro skill', 'workspace/skills')];
+        const vm = getSettingsSkillsViewModel(discovered, [], [], 'workspace/skills');
+        expect(vm.filtered.map(s => s.name)).toEqual(['astro']);
+    });
 });
 
 describe('getPersistedSkillSelection', () => {
