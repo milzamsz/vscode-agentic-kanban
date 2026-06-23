@@ -4,7 +4,7 @@
 
 Spec-driven, agent-assisted software delivery in VS Code, with every plan, checklist, conversation, blocker, and specification kept as durable, version-control-friendly Markdown.
 
-📖 **[Read the Documentation](https://agentic-kanban.pages.dev/)**
+📖 **[Read the Documentation](https://agentic-kanban-docs.pages.dev/)**
 
 ![Version 1.6.0](https://img.shields.io/badge/version-1.6.0-2563eb)
 [![Elastic License 2.0](https://img.shields.io/badge/license-Elastic%202.0%20source--available-f59e0b)](LICENSE)

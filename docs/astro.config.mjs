@@ -4,7 +4,7 @@ import mdx from '@astrojs/mdx';
 import mermaid from 'astro-mermaid';
 
 export default defineConfig({
-  site: 'https://agentic-kanban.pages.dev',
+  site: 'https://agentic-kanban-docs.pages.dev',
   base: '/',
   vite: {
     ssr: {
