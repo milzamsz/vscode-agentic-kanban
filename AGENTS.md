@@ -70,12 +70,12 @@ Paste the PASS/FAIL report in the task. Any unresolved FAIL blocks `done` - fix 
 <!-- BEGIN AGENTIC KANBAN — DO NOT EDIT THIS SECTION -->
 ## Agentic Kanban
 
-**Active Task:** Enhance dependency graph - draw lines to related tasks
-**Task File:** `.agentkanban/tasks/task_20260623_depgrp_enhance_dependency_graph_lines.md`
-**Checklist File:** `.agentkanban/tasks/todo_20260623_depgrp_enhance_dependency_graph_lines.md`
+**Active Task:** Implement workflow policies, verification, dependency graph, and sweep
+**Task File:** `.agentkanban/tasks/task_20260617_workflow_enhancements_1_3_4_5.md`
+**Checklist File:** `.agentkanban/tasks/todo_20260617_workflow_enhancements_1_3_4_5.md`
 
 Enforcement mode: `warn`
-Priority medium: planning review by self-agent, implementation review by self-agent
+Priority high: planning review by independent-agent, implementation review by independent-agent
 Read the task file above before responding.
 Read `.agentkanban/INSTRUCTION.md` for task workflow rules.
 Read `.agentkanban/memory.md` for project context.
