@@ -647,6 +647,22 @@
         align-items: center;
     }
 
+    .settings-skill-filters {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 6px;
+    }
+
+    .settings-skill-filters input,
+    .settings-skill-filters select {
+        flex: 1;
+    }
+
+    .settings-skill-filters select {
+        flex: 0;
+        max-width: 110px;
+    }
+
     .settings-skills-input input {
         flex: 1;
     }

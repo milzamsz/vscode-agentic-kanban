@@ -1,4 +1,6 @@
 import type { Task, BoardConfig, Priority } from '../types';
+import type { SettingsDiscoveredSkill, SettingsSkillStatusFilter } from './settingsSkills';
+import { getSettingsSkillsViewModel, getPersistedSkillSelection } from './settingsSkills';
 
 declare function acquireVsCodeApi(): {
     postMessage(message: unknown): void;
@@ -47,7 +49,9 @@ let modalSnapshot: ModalSnapshot | null = null;
 
 // ── Settings Modal state ───────────────────────────────────────────────
 let settingsMode = false; // true when settings modal is open
-let settingsDiscoveredSkills: Array<{ name: string; description?: string }> = [];
+let settingsDiscoveredSkills: SettingsDiscoveredSkill[] = [];
+let settingsSkillFilter = '';
+let settingsSkillStatusFilter: SettingsSkillStatusFilter = 'all';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1068,6 +1072,28 @@ function openSettingsModal(): void {
         backdrop.removeAttribute('hidden');
     }
     vscode.postMessage({ type: 'requestSkills' });
+    
+    // Initialize filter listeners
+    const filterInput = document.getElementById('settings-skill-filter');
+    if (filterInput) {
+        (filterInput as HTMLInputElement).value = settingsSkillFilter;
+        filterInput.addEventListener('input', (e) => {
+            settingsSkillFilter = (e.target as HTMLInputElement).value;
+            renderSkillsCheckboxes();
+        });
+    }
+    
+    const statusFilter = document.getElementById('settings-skill-status-filter');
+    if (statusFilter) {
+        (statusFilter as HTMLSelectElement).value = settingsSkillStatusFilter;
+        statusFilter.addEventListener('change', (e) => {
+            settingsSkillStatusFilter = (e.target as HTMLSelectElement).value as SettingsSkillStatusFilter;
+            renderSkillsCheckboxes();
+        });
+    }
+    
+    // Initial render
+    renderSkillsCheckboxes();
 }
 
 function handleSkillsList(skills: Array<{ name: string; description?: string }>): void {
@@ -1085,14 +1111,24 @@ function renderSkillsCheckboxes(): void {
         return;
     }
     const config = state.config;
-    const selectedSkills = new Set(config.skills || []);
     
-    if (settingsDiscoveredSkills.length === 0) {
-        container.innerHTML = '<div class="settings-skills-empty">No skills discovered on this machine.</div>';
+    // Use the settingsSkills module for filtered results
+    const skillsVM = getSettingsSkillsViewModel(
+        settingsDiscoveredSkills,
+        config.skills || [],
+        config.skills || [],
+        settingsSkillFilter,
+        settingsSkillStatusFilter
+    );
+    
+    if (skillsVM.filtered.length === 0) {
+        container.innerHTML = `<div class="settings-skills-empty">${skillsVM.emptyMessage || 'No skills match your search.'}</div>`;
         return;
     }
+    
+    const selectedSkills = new Set(config.skills || []);
 
-    container.innerHTML = settingsDiscoveredSkills.map(skill => {
+    container.innerHTML = skillsVM.filtered.map(skill => {
         const checked = selectedSkills.has(skill.name) ? 'checked' : '';
         const descHtml = skill.description ? `<div class="skill-desc">${esc(skill.description)}</div>` : '';
         return `
@@ -1109,6 +1145,8 @@ function renderSkillsCheckboxes(): void {
 
 function closeSettingsModal(): void {
     settingsMode = false;
+    settingsSkillFilter = '';
+    settingsSkillStatusFilter = 'all';
     const backdrop = document.getElementById('settings-backdrop');
     if (backdrop) {
         backdrop.setAttribute('hidden', '');
@@ -2258,6 +2296,14 @@ function buildSettingsModalHtml(): string {
                             <h4 class="section-label">Project Skills</h4>
                             <div class="form-row">
                                 <label class="form-label">Installed Skills (checked = active)</label>
+                                <div class="settings-skill-filters">
+                                    <input type="text" class="form-control" id="settings-skill-filter" placeholder="Filter skills..." />
+                                    <select class="form-control" id="settings-skill-status-filter" style="max-width:110px">
+                                        <option value="all">All</option>
+                                        <option value="active">Active</option>
+                                        <option value="inactive">Inactive</option>
+                                    </select>
+                                </div>
                                 <div class="settings-skills-list" id="settings-skills-list">
                                     ${(config.skills || []).length > 0
                                         ? `<div class="settings-skills-loading">Loading discovered skills...</div>`
