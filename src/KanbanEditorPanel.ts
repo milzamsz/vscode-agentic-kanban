@@ -9,6 +9,7 @@ import type { WorktreeService } from './WorktreeService';
 import type { LogService } from './LogService';
 import { NO_OP_LOGGER } from './LogService';
 import { TransitionService } from './TransitionService';
+import type { WorkspaceRegistry, ProjectContext } from './WorkspaceRegistry';
 import {
     getFirstLane,
     isProtectedLane,
@@ -52,6 +53,7 @@ export class KanbanEditorPanel {
         isInitialised = true,
         worktreeService?: WorktreeService,
         scaffolder?: PromptScaffolder,
+        registry?: WorkspaceRegistry,
     ): KanbanEditorPanel {
         const column =
             vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
@@ -102,6 +104,7 @@ export class KanbanEditorPanel {
         isInitialised = true,
         worktreeService?: WorktreeService,
         scaffolder?: PromptScaffolder,
+        registry?: WorkspaceRegistry,
     ): void {
         KanbanEditorPanel.currentPanel = new KanbanEditorPanel(
             panel,
@@ -147,6 +150,8 @@ export class KanbanEditorPanel {
 
     // ── Constructor ──────────────────────────────────────────────────────────
 
+    private _registry: WorkspaceRegistry | undefined;
+
     private constructor(
         panel: vscode.WebviewPanel,
         private readonly _extensionUri: vscode.Uri,
@@ -156,12 +161,14 @@ export class KanbanEditorPanel {
         isInitialised = true,
         worktreeService?: WorktreeService,
         scaffolder?: PromptScaffolder,
+        registry?: WorkspaceRegistry,
     ) {
         this._panel = panel;
         this._logger = logger ?? NO_OP_LOGGER;
         this._isInitialised = isInitialised;
         this._worktreeService = worktreeService;
         this._scaffolder = scaffolder;
+        this._registry = registry;
 
         // Enforce options (important when reviving a deserialized panel)
         this._panel.webview.options = {
@@ -239,10 +246,25 @@ export class KanbanEditorPanel {
             };
         }));
         const currentBranch = this._worktreeService ? await this._worktreeService.getCurrentBranch() : '';
+        const workspaceInfo = this._buildWorkspaceInfo();
         await this._panel.webview.postMessage({
             type: 'stateUpdate',
-            state: { tasks: enriched, config, isInitialised: this._isInitialised, currentBranch },
+            state: { tasks: enriched, config, isInitialised: this._isInitialised, currentBranch, ...workspaceInfo },
         });
+    }
+
+    /** Build workspace list info for the webview. */
+    private _buildWorkspaceInfo(): { workspaceList?: Array<{ uri: string; name: string; initialised: boolean }>; activeWorkspaceUri?: string } {
+        if (!this._registry) { return {}; }
+        const contexts = this._registry.getContexts();
+        return {
+            workspaceList: contexts.map(ctx => ({
+                uri: ctx.folder.uri.toString(),
+                name: ctx.folder.name,
+                initialised: ctx.isInitialised,
+            })),
+            activeWorkspaceUri: this._registry.getActiveContext()?.folder.uri.toString(),
+        };
     }
 
     // ── Message Handlers ─────────────────────────────────────────────────────
@@ -350,6 +372,25 @@ export class KanbanEditorPanel {
                     body = '\n## Conversation\n\n### user\n\n';
                 }
                 await this._taskStore.saveWithBody(task, body);
+                break;
+            }
+
+            case 'switchWorkspace': {
+                if (!this._registry) { break; }
+                const targetUri = message.uri as string;
+                if (!targetUri) { break; }
+                await this._registry.setActiveContext(targetUri);
+                // Push updated state with the new active project
+                await this._sendState();
+                break;
+            }
+
+            case 'initialiseWorkspace': {
+                if (!this._registry) { break; }
+                const initUri = message.uri as string;
+                if (!initUri) { break; }
+                // Trigger the initialise command which will handle profile selection
+                await vscode.commands.executeCommand('agentKanban.initialise');
                 break;
             }
 

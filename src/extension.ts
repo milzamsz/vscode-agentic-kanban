@@ -9,6 +9,7 @@ import { WorktreeService } from './WorktreeService';
 import { SlashCommandProvider } from './SlashCommandProvider';
 import { LogService, NO_OP_LOGGER } from './LogService';
 import { DEFAULT_PROFILE, type WorkflowProfile } from './types';
+import { WorkspaceRegistry, type ProjectContext } from './WorkspaceRegistry';
 import {
     countTasksOutsideProfileLanes,
     getDefaultProfile,
@@ -16,63 +17,81 @@ import {
     resolveWorktreePolicy,
 } from './settings';
 
+// ---------------------------------------------------------------------------
+// Global shared instances (one per VS Code window)
+// ---------------------------------------------------------------------------
+
+let _registry: WorkspaceRegistry | undefined;
+let _chatParticipantHandler: ChatParticipant | undefined;
+let _boardViewProvider: BoardViewProvider | undefined;
+
+/** Convenience: resolve the active project context from the registry. */
+function getActiveContext(): ProjectContext | undefined {
+    return _registry?.getActiveContext();
+}
+
+/** Convenience: get the active project's TaskStore. */
+function activeTaskStore(): TaskStore | undefined {
+    return getActiveContext()?.taskStore;
+}
+
+/** Convenience: get the active project's BoardConfigStore. */
+function activeBoardConfigStore(): BoardConfigStore | undefined {
+    return getActiveContext()?.boardConfigStore;
+}
+
+/** Convenience: get the active project's WorktreeService. */
+function activeWorktreeService(): WorktreeService | undefined {
+    return getActiveContext()?.worktreeService;
+}
+
+/** Convenience: get the active project's LogService. */
+function activeLogger(): LogService {
+    return getActiveContext()?.logService ?? NO_OP_LOGGER;
+}
+
+// ---------------------------------------------------------------------------
+// Activation
+// ---------------------------------------------------------------------------
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-    if (!workspaceFolder) {
+    const folders = vscode.workspace.workspaceFolders;
+    if (!folders || folders.length === 0) {
         return;
     }
 
-    // Detect initialisation state FIRST — before creating LogService — so that
-    // the log directory (inside .agentkanban/) is never created on a fresh workspace.
-    // Presence of .agentkanban/board.yaml is the initialisation signal.
-    const boardYamlUri = vscode.Uri.joinPath(workspaceFolder.uri, '.agentkanban', 'board.yaml');
-    let isInitialised = false;
-    try {
-        await vscode.workspace.fs.stat(boardYamlUri);
-        isInitialised = true;
-    } catch {
-        // File absent — workspace not yet initialised
+    // Create the registry
+    _registry = new WorkspaceRegistry(context, context.extensionUri);
+
+    // Build contexts for all workspace folders
+    for (const folder of folders) {
+        await _registry.ensureContext(folder);
     }
 
-    // Create LogService — enabled by setting or env var, requires reload to change.
-    // Only enabled when the workspace is already initialised; this prevents the
-    // LogService constructor from creating .agentkanban/logs/ on a fresh workspace.
-    const config = vscode.workspace.getConfiguration('agentKanban');
-    const loggingEnabled = isInitialised && (
-        config.get<boolean>('enableLogging', false)
-        || process.env.AGENT_KANBAN_DEBUG === '1'
-    );
-    const logDir = path.join(workspaceFolder.uri.fsPath, '.agentkanban', 'logs');
-    const logger = loggingEnabled ? new LogService(logDir, { enabled: true }) : NO_OP_LOGGER;
-    if (logger.isEnabled) {
-        logger.info('extension', 'Logging activated');
-    }
-
-    const taskStore = new TaskStore(workspaceFolder.uri, logger);
-    const boardConfigStore = new BoardConfigStore(workspaceFolder.uri, logger);
-    const worktreeService = new WorktreeService(workspaceFolder.uri, logger);
-
-    const chatParticipantHandler = new ChatParticipant(
-        taskStore,
-        boardConfigStore,
+    // Create one shared ChatParticipant (global surface, delegates through registry)
+    _chatParticipantHandler = new ChatParticipant(
+        // Pass a proxy-style resolver so ChatParticipant always works on active context
+        createDelegatingTaskStore(),
+        createDelegatingBoardConfigStore(),
         context.extensionUri,
-        () => isInitialised,
-        logger,
-        worktreeService,
+        () => _registry?.getActiveContext()?.isInitialised ?? false,
+        NO_OP_LOGGER, // ChatParticipant uses activeLogger() internally; this is the fallback
+        undefined,     // worktreeService resolved per-command from active context
     );
 
-    const boardViewProvider = new BoardViewProvider(
+    // Create one shared sidebar provider
+    _boardViewProvider = new BoardViewProvider(
         context.extensionUri,
-        taskStore,
-        boardConfigStore,
-        isInitialised,
-        logger,
+        createDelegatingTaskStore(),
+        createDelegatingBoardConfigStore(),
+        () => _registry?.getActiveContext()?.isInitialised ?? false,
+        NO_OP_LOGGER,
     );
 
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(
             'agentKanban.boardView',
-            boardViewProvider,
+            _boardViewProvider,
         ),
     );
 
@@ -80,33 +99,79 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.subscriptions.push(
         vscode.window.registerWebviewPanelSerializer(KanbanEditorPanel.VIEW_TYPE, {
             async deserializeWebviewPanel(panel: vscode.WebviewPanel) {
-                KanbanEditorPanel.revive(panel, context.extensionUri, taskStore, boardConfigStore, logger, isInitialised, worktreeService, chatParticipantHandler);
+                const revivedCtx = _registry?.getActiveContext();
+                KanbanEditorPanel.revive(
+                    panel,
+                    context.extensionUri,
+                    createDelegatingTaskStore(),
+                    createDelegatingBoardConfigStore(),
+                    NO_OP_LOGGER,
+                    revivedCtx?.isInitialised ?? false,
+                    revivedCtx?.worktreeService,
+                    _chatParticipantHandler!,
+                    _registry,
+                );
             },
         }),
     );
 
     context.subscriptions.push(
         vscode.commands.registerCommand('agentKanban.openBoard', () => {
-            KanbanEditorPanel.createOrShow(context.extensionUri, taskStore, boardConfigStore, logger, isInitialised, worktreeService, chatParticipantHandler);
+            const ctx = getActiveContext();
+            if (!ctx) { return; }
+            KanbanEditorPanel.createOrShow(
+                context.extensionUri,
+                createDelegatingTaskStore(),
+                createDelegatingBoardConfigStore(),
+                NO_OP_LOGGER,
+                ctx.isInitialised,
+                activeWorktreeService(),
+                _chatParticipantHandler!,
+                _registry,
+            );
         }),
     );
 
     context.subscriptions.push(
         vscode.commands.registerCommand('agentKanban.newTask', () => {
-            KanbanEditorPanel.createOrShow(context.extensionUri, taskStore, boardConfigStore, logger, isInitialised, worktreeService, chatParticipantHandler);
+            const ctx = getActiveContext();
+            if (!ctx) { return; }
+            KanbanEditorPanel.createOrShow(
+                context.extensionUri,
+                createDelegatingTaskStore(),
+                createDelegatingBoardConfigStore(),
+                NO_OP_LOGGER,
+                ctx.isInitialised,
+                activeWorktreeService(),
+                _chatParticipantHandler!,
+                _registry,
+            );
             KanbanEditorPanel.currentPanel?.triggerCreateModal();
         }),
     );
 
     context.subscriptions.push(
         vscode.commands.registerCommand('agentKanban.openSettings', () => {
-            KanbanEditorPanel.createOrShow(context.extensionUri, taskStore, boardConfigStore, logger, isInitialised, worktreeService, chatParticipantHandler);
+            const ctx = getActiveContext();
+            if (!ctx) { return; }
+            KanbanEditorPanel.createOrShow(
+                context.extensionUri,
+                createDelegatingTaskStore(),
+                createDelegatingBoardConfigStore(),
+                NO_OP_LOGGER,
+                ctx.isInitialised,
+                activeWorktreeService(),
+                _chatParticipantHandler!,
+                _registry,
+            );
             KanbanEditorPanel.currentPanel?.triggerSettingsModal();
         }),
     );
 
     context.subscriptions.push(
         vscode.commands.registerCommand('agentKanban.openTask', async (taskId: string) => {
+            const taskStore = activeTaskStore();
+            if (!taskStore) { return; }
             const task = taskStore.get(taskId);
             if (task) {
                 const uri = taskStore.getTaskUri(taskId);
@@ -118,44 +183,51 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     context.subscriptions.push(
         vscode.commands.registerCommand('agentKanban.resetMemory', async () => {
-            const memoryUri = vscode.Uri.joinPath(workspaceFolder.uri, '.agentkanban', 'memory.md');
+            const ctx = getActiveContext();
+            if (!ctx) { return; }
+            const memoryUri = vscode.Uri.joinPath(ctx.folder.uri, '.agentkanban', 'memory.md');
             try {
                 await vscode.workspace.fs.writeFile(memoryUri, new TextEncoder().encode('# Memory\n'));
                 vscode.window.showInformationMessage('Agentic Kanban memory has been reset.');
-                logger.info('extension', 'Memory reset');
+                ctx.logService.info('extension', 'Memory reset');
             } catch (err: any) {
                 vscode.window.showErrorMessage(`Failed to reset memory: ${err.message}`);
             }
         }),
     );
 
-    // Housekeeping: reconcile assignees/labels from task frontmatter into board.yaml
-    const runHousekeeping = async () => {
-        const tasks = taskStore.getAll();
-        await boardConfigStore.reconcileMetadata(tasks);
-    };
+    // Full first-time setup for a specific folder — creates dirs, writes config & instruction files.
+    const doInitialise = async (folderUri: vscode.Uri, profile: WorkflowProfile) => {
+        const ctx = _registry!.getContextByUri(folderUri.toString());
+        if (!ctx) {
+            vscode.window.showErrorMessage('Cannot initialise: project context not found.');
+            return;
+        }
 
-    // Full first-time setup — creates dirs, writes config & instruction files.
-    const doInitialise = async (profile: WorkflowProfile) => {
-        await boardConfigStore.initialise(profile, {
+        await ctx.boardConfigStore.initialise(profile, {
             enforcement: resolveEnforcement(profile),
             worktreePolicy: resolveWorktreePolicy(profile),
         });
-        await taskStore.initialise();
-        await chatParticipantHandler.syncPacksYaml(false);
-        await boardConfigStore.loadExternalPacksIfAbsent();
-        await chatParticipantHandler.syncInstructionFile();
-        await chatParticipantHandler.scaffoldPrompts(false);
-        await chatParticipantHandler.syncAgentsMdSection();
-        isInitialised = true;
-        boardViewProvider.setInitialised(true);
-        KanbanEditorPanel.currentPanel?.setInitialised(true);
-        await runHousekeeping();
-        logger.info('extension', 'Workspace initialised');
+        await ctx.taskStore.initialise();
+        await _chatParticipantHandler!.syncPacksYamlForContext(ctx);
+        await ctx.boardConfigStore.loadExternalPacksIfAbsent();
+        await _chatParticipantHandler!.syncInstructionFileForContext(ctx);
+        await _chatParticipantHandler!.scaffoldPromptsForContext(ctx, false);
+        await _chatParticipantHandler!.syncAgentsMdSectionForContext(ctx);
+        // Update initialised flag
+        (ctx as { isInitialised: boolean }).isInitialised = true;
+        _boardViewProvider?.refresh();
+        KanbanEditorPanel.currentPanel?.refresh();
+        await ctx.logService.info('extension', 'Workspace initialised');
     };
 
     context.subscriptions.push(
         vscode.commands.registerCommand('agentKanban.initialise', async (requestedProfile?: WorkflowProfile) => {
+            const ctx = getActiveContext();
+            if (!ctx) {
+                vscode.window.showWarningMessage('No project selected. Open a workspace folder first.');
+                return;
+            }
             const defaultProfile = getDefaultProfile();
             const quickPickItems = [
                 { label: 'Lite', description: 'backlog -> in-progress -> done', value: 'lite' as WorkflowProfile },
@@ -172,23 +244,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             if (!selectedProfile) {
                 return;
             }
-            await doInitialise(selectedProfile.value ?? DEFAULT_PROFILE);
+            await doInitialise(ctx.folder.uri, selectedProfile.value ?? DEFAULT_PROFILE);
             vscode.window.showInformationMessage('Agentic Kanban initialised successfully.');
         }),
     );
 
     context.subscriptions.push(
         vscode.commands.registerCommand('agentKanban.applySettingsToBoardConfig', async () => {
-            if (!isInitialised) {
+            const ctx = getActiveContext();
+            if (!ctx) { return; }
+            if (!ctx.isInitialised) {
                 vscode.window.showWarningMessage('Initialise Agentic Kanban before applying board settings.');
                 return;
             }
 
             const targetProfile = getDefaultProfile();
-            const activeTasks = taskStore.getAll().filter((task) => !taskStore.isArchived(task));
+            const activeTasks = ctx.taskStore.getAll().filter((task) => !ctx.taskStore.isArchived(task));
             const conflicts = countTasksOutsideProfileLanes(activeTasks, targetProfile);
 
-            if (boardConfigStore.get().profile !== targetProfile && conflicts.length > 0) {
+            if (ctx.boardConfigStore.get().profile !== targetProfile && conflicts.length > 0) {
                 const summary = conflicts.map((entry) => `${entry.count} in ${entry.lane}`).join(', ');
                 const confirmation = await vscode.window.showWarningMessage(
                     `Switching the board profile to ${targetProfile} leaves tasks in lanes missing from that profile: ${summary}. Continue?`,
@@ -200,7 +274,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 }
             }
 
-            await boardConfigStore.update({
+            await ctx.boardConfigStore.update({
                 profile: targetProfile,
                 enforcement: resolveEnforcement(targetProfile),
                 worktreePolicy: resolveWorktreePolicy(targetProfile),
@@ -213,114 +287,123 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const participant = vscode.chat.createChatParticipant(
         'agentKanban.chat',
         async (request, chatContext, response, token) => {
-            await chatParticipantHandler.handleRequest(request, chatContext, response, token);
+            await _chatParticipantHandler!.handleRequest(request, chatContext, response, token);
         },
     );
     participant.iconPath = vscode.Uri.joinPath(context.extensionUri, 'images', 'kanban-icon.svg');
     participant.followupProvider = {
         provideFollowups() {
-            return chatParticipantHandler.getFollowups();
+            return _chatParticipantHandler!.getFollowups();
         },
     };
     context.subscriptions.push(participant);
 
-    // File watcher for task markdown files — debounced to coalesce
-    // delete+create pairs that file-system moves produce.
-    const mdWatcher = vscode.workspace.createFileSystemWatcher(
-        new vscode.RelativePattern(workspaceFolder, '.agentkanban/tasks/**/*.md'),
-    );
-    let reloadTimer: ReturnType<typeof setTimeout> | undefined;
-    const debouncedReload = () => {
-        if (reloadTimer) { clearTimeout(reloadTimer); }
-        reloadTimer = setTimeout(async () => {
-            reloadTimer = undefined;
-            await taskStore.reload();
-        }, 200);
-    };
-    mdWatcher.onDidChange(debouncedReload);
-    mdWatcher.onDidCreate(debouncedReload);
-    mdWatcher.onDidDelete(debouncedReload);
-    context.subscriptions.push(mdWatcher);
-
-    // File watchers for spec and change directories — triggers board refresh
-    // so specMissing/changeMissing badges stay accurate when these files change.
-    const specWatcher = vscode.workspace.createFileSystemWatcher(
-        new vscode.RelativePattern(workspaceFolder, '.agentkanban/specs/**/*'),
-    );
-    specWatcher.onDidChange(debouncedReload);
-    specWatcher.onDidCreate(debouncedReload);
-    specWatcher.onDidDelete(debouncedReload);
-    context.subscriptions.push(specWatcher);
-
-    const changeWatcher = vscode.workspace.createFileSystemWatcher(
-        new vscode.RelativePattern(workspaceFolder, '.agentkanban/changes/**/*'),
-    );
-    changeWatcher.onDidChange(debouncedReload);
-    changeWatcher.onDidCreate(debouncedReload);
-    changeWatcher.onDidDelete(debouncedReload);
-    context.subscriptions.push(changeWatcher);
-
-    // File watcher for board config — reloads config when user edits board.yaml
-    const yamlWatcher = vscode.workspace.createFileSystemWatcher(
-        new vscode.RelativePattern(workspaceFolder, '.agentkanban/board.yaml'),
-    );
-    yamlWatcher.onDidChange(async () => { await boardConfigStore.init(); });
-    context.subscriptions.push(yamlWatcher);
-
-    // Slash command completions for task markdown files
-    const taskDocSelector: vscode.DocumentSelector = {
-        language: 'markdown',
-        pattern: new vscode.RelativePattern(workspaceFolder, '.agentkanban/tasks/**/*.md'),
-    };
-    context.subscriptions.push(
-        vscode.languages.registerCompletionItemProvider(
-            taskDocSelector,
-            new SlashCommandProvider(),
-            '/',
-        ),
-    );
-
-    if (isInitialised) {
-        // Workspace already set up — read existing config and tasks, sync managed files
-        await boardConfigStore.init();
-        await taskStore.init();
-        await chatParticipantHandler.syncInstructionFile();
-        await chatParticipantHandler.scaffoldPrompts(false);
-        await chatParticipantHandler.syncAgentsMdSection();
-        // If this workspace is a task worktree, sync the enhanced sentinel
-        await chatParticipantHandler.syncWorktreeAgentsMd();
-        // Clean up stale worktree metadata (worktree path no longer exists)
-        await cleanStaleWorktreeMetadata(taskStore, worktreeService, logger);
-        await runHousekeeping();
-        const housekeepingInterval = setInterval(runHousekeeping, 10 * 60 * 1000);
+    // Initialise all initialised projects (load config, tasks, sync AGENTS.md)
+    for (const ctx of _registry.getContexts()) {
+        if (!ctx.isInitialised) { continue; }
+        await ctx.boardConfigStore.init();
+        await ctx.taskStore.init();
+        await _chatParticipantHandler!.syncInstructionFileForContext(ctx);
+        await _chatParticipantHandler!.scaffoldPromptsForContext(ctx, false);
+        await _chatParticipantHandler!.syncAgentsMdSectionForContext(ctx);
+        await _chatParticipantHandler!.syncWorktreeAgentsMdForContext(ctx);
+        await cleanStaleWorktreeMetadataForContext(ctx);
+        await housekeepingForContext(ctx);
+        const housekeepingInterval = setInterval(() => housekeepingForContext(ctx), 10 * 60 * 1000);
         context.subscriptions.push({ dispose: () => clearInterval(housekeepingInterval) });
+        ctx.logService.info('extension', `Project initialised: ${ctx.folder.uri.fsPath}`);
     }
 
-    if (logger.isEnabled) {
-        logger.info('extension', `Extension activated (initialised: ${isInitialised})`);
+    // Listen for workspace folder add/remove
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeWorkspaceFolders(async (event) => {
+            for (const folder of event.added) {
+                await _registry!.ensureContext(folder);
+                // Auto-initialise if the new folder has board.yaml
+                const ctx = _registry!.getContextByFolder(folder);
+                if (ctx?.isInitialised) {
+                    await ctx.boardConfigStore.init();
+                    await ctx.taskStore.init();
+                    await _chatParticipantHandler!.syncInstructionFileForContext(ctx);
+                    await _chatParticipantHandler!.scaffoldPromptsForContext(ctx, false);
+                    await _chatParticipantHandler!.syncAgentsMdSectionForContext(ctx);
+                    await _chatParticipantHandler!.syncWorktreeAgentsMdForContext(ctx);
+                    await cleanStaleWorktreeMetadataForContext(ctx);
+                    await housekeepingForContext(ctx);
+                }
+                _boardViewProvider?.refresh();
+            }
+            for (const folder of event.removed) {
+                await _registry!.disposeContext(folder.uri.toString());
+                _boardViewProvider?.refresh();
+            }
+        }),
+    );
+
+    if (_registry.getContexts().length > 0) {
+        const activeCtx = _registry.getActiveContext();
+        if (activeCtx?.logService.isEnabled) {
+            activeCtx.logService.info('extension', 'Extension activated');
+        }
     }
 }
 
 export function deactivate(): void {
-    // nothing to clean up
+    _registry?.dispose();
+    _registry = undefined;
+    _chatParticipantHandler = undefined;
+    _boardViewProvider = undefined;
 }
 
-/**
- * Check all tasks for stale worktree metadata (worktree path no longer exists)
- * and clear the worktree field. Runs once on activation.
- */
-async function cleanStaleWorktreeMetadata(
-    taskStore: TaskStore,
-    worktreeService: WorktreeService,
-    logger: LogService,
-): Promise<void> {
-    const tasks = taskStore.getAll().filter(t => t.worktree);
+// ---------------------------------------------------------------------------
+// Proxy-style delegating stores that always resolve from the active context
+// ---------------------------------------------------------------------------
+
+function createDelegatingTaskStore(): TaskStore {
+    const handler: ProxyHandler<TaskStore> = {
+        get(_target, prop: keyof TaskStore, receiver) {
+            const active = activeTaskStore();
+            if (!active) {
+                throw new Error('No active project context available');
+            }
+            const value = Reflect.get(active, prop, receiver);
+            return typeof value === 'function' ? value.bind(active) : value;
+        },
+    };
+    return new Proxy({} as TaskStore, handler);
+}
+
+function createDelegatingBoardConfigStore(): BoardConfigStore {
+    const handler: ProxyHandler<BoardConfigStore> = {
+        get(_target, prop: keyof BoardConfigStore, receiver) {
+            const active = activeBoardConfigStore();
+            if (!active) {
+                throw new Error('No active project context available');
+            }
+            const value = Reflect.get(active, prop, receiver);
+            return typeof value === 'function' ? value.bind(active) : value;
+        },
+    };
+    return new Proxy({} as BoardConfigStore, handler);
+}
+
+// ---------------------------------------------------------------------------
+// Per-context helpers
+// ---------------------------------------------------------------------------
+
+async function housekeepingForContext(ctx: ProjectContext): Promise<void> {
+    const tasks = ctx.taskStore.getAll();
+    await ctx.boardConfigStore.reconcileMetadata(tasks);
+}
+
+async function cleanStaleWorktreeMetadataForContext(ctx: ProjectContext): Promise<void> {
+    const tasks = ctx.taskStore.getAll().filter(t => t.worktree);
     for (const task of tasks) {
-        const exists = await worktreeService.exists(task.worktree!.path);
+        const exists = await ctx.worktreeService.exists(task.worktree!.path);
         if (!exists) {
-            logger.info('extension', `Clearing stale worktree metadata for task ${task.id}`);
+            ctx.logService.info('extension', `Clearing stale worktree metadata for task ${task.id}`);
             task.worktree = undefined;
-            await taskStore.save(task);
+            await ctx.taskStore.save(task);
         }
     }
 }

@@ -15,6 +15,8 @@ interface BoardState {
     config: BoardConfig;
     isInitialised?: boolean;
     currentBranch?: string;
+    workspaceList?: Array<{ uri: string; name: string; initialised: boolean }>;
+    activeWorkspaceUri?: string;
 }
 
 // ── State ────────────────────────────────────────────────────────────────────
@@ -320,6 +322,9 @@ function buildBoardHtml(): string {
     ];
     return `
         <div class="toolbar">
+            <div class="workspace-selector-container">
+                ${workspaceSelectorHtml()}
+            </div>
             <button id="btn-new-task" class="btn-primary">+ New Task</button>
             <button id="btn-dep-graph" class="btn-secondary">Dependencies</button>
             <div class="search-area">
@@ -579,6 +584,13 @@ function setupEventListeners(): void {
         }
     });
     document.addEventListener('change', (e: Event) => {
+        if ((e.target as HTMLElement)?.id === 'workspace-selector') {
+            const select = e.target as HTMLSelectElement;
+            const uri = select.value;
+            if (uri) {
+                vscode.postMessage({ type: 'switchWorkspace', uri });
+            }
+        }
         if ((e.target as HTMLElement)?.classList.contains('skill-checkbox')) {
             const checkbox = e.target as HTMLInputElement;
             if (checkbox.checked) {
@@ -2258,6 +2270,22 @@ function renderDepGraph(): void {
             }
         });
     });
+}
+
+function workspaceSelectorHtml(): string {
+    const list = state.workspaceList;
+    if (!list || list.length <= 1) { return ''; }
+    const activeUri = state.activeWorkspaceUri;
+    const options = list.map(w => {
+        const badge = w.initialised ? '' : ' (Not initialised)';
+        const selected = w.uri === activeUri ? ' selected' : '';
+        return `<option value="${esc(w.uri)}"${selected}>${esc(w.name)}${badge}</option>`;
+    }).join('');
+    return `
+        <select id="workspace-selector" class="workspace-selector" title="Switch project">
+            ${options}
+        </select>
+    `;
 }
 
 function buildDepGraphModalHtml(): string {
