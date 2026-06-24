@@ -247,8 +247,7 @@ Lightweight `@kanban` chat participant that routes commands to task markdown fil
 | `/worktree` | `handleWorktree()` | Create, open, or remove a git worktree for the selected task |
 | `/archive` | `handleArchive()` | Archives a completed spec change folder to `changes/archive/` |
 | `/prompts` | `handlePrompts()` | Opens QuickPick; writes or refreshes bundled stage-driver prompts to `.agentkanban/prompts/` |
-| `/loop` | `handleLoop()` | Loop-until-dry over ready tasks: runs passes until none advance (25-pass cap). Profile-aware default lane and advance target. Human gate guard for `review` source in Standard. Supports `--label=`, `--priority=`, `--pack=` filters. |
-| `/sweep` | (alias) | Deprecated alias of `/loop`; prints a one-line notice then delegates. |
+| `/loop` | `handleLoop()` | Lane-flow prompt driver. Resolves the stage-driver prompt for the selected lane (`getLanePrompt`), gathers ready tasks (non-blocked, dep-satisfied, filtered by `--label`/`--priority`), interpolates the prompt via `resolveVars`, emits ready-task list into chat, renders a "Send prompt to chat" button (`response.button` -> `workbench.action.chat.open`), and copies to clipboard as fallback. Default lane: `backlog` (`getDefaultLoopLane`). No lane mutations; no shell commands. Gates enforced when the agent moves a task via the board UI. |
 | `/goal` | `handleGoal()` | Subcommands: `new <objective>` (scaffold epic + artifact + clipboard decompose prompt), bare (dashboard), `show <slug>` (detail view). |
 | `/doctor` | `handleDoctor()` | Runs workflow diagnostics: lane drift, stale blockers, dependency cycles, worktrees, spec drift |
 | `/pack` | `handlePack()` | Lists or activates a stack pack; activating regenerates prompts and syncs AGENTS.md |

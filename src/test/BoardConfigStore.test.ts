@@ -226,6 +226,7 @@ describe('BoardConfigStore', () => {
                 '    requireSpecForInProgress: false',
                 '    requireDescriptionForReview: false',
                 '    requireWorktreeForInProgress: false',
+                '    requireDoneChecklistForDone: false',
                 '  verification: {}',
             ].join('\n');
             vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(new TextEncoder().encode(configYaml));

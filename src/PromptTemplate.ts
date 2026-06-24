@@ -1,4 +1,5 @@
 import type { BoardConfig, StackPack } from './types';
+import { getFirstLane } from './types';
 
 /**
  * Interpolates variables into prompt template content.
@@ -49,21 +50,26 @@ function getAdvance(profile: 'standard' | 'lite'): string {
 }
 
 /**
- * Returns the default source lane for `/loop` based on profile.
- * Standard: `planning` (autonomous planning→review driver).
- * Lite: `in-progress` (no planning lane).
+ * Returns the default lane for `/loop` based on profile: the first lane (backlog).
  */
 export function getDefaultLoopLane(profile: 'standard' | 'lite'): string {
-    return profile === 'lite' ? 'in-progress' : 'planning';
+    return getFirstLane(profile);
 }
 
 /**
- * Returns the advance target lane for a task that passed verification in `/loop`.
- * Standard: always `review` (human gate before done).
- * Lite: `done` (no review lane).
+ * Maps a profile+lane to the bundled stage-driver prompt filename (without path).
+ * Returns null when no driver exists for that lane (e.g. `done`).
  */
-export function getLoopAdvanceTarget(profile: 'standard' | 'lite', _sourceLane: string): string {
-    return profile === 'lite' ? 'done' : 'review';
+export function getLanePrompt(profile: 'standard' | 'lite', lane: string): string | null {
+    if (profile === 'lite') {
+        if (lane === 'backlog' || lane === 'in-progress') { return 'work-on-task.md'; }
+        return null;
+    }
+    // Standard
+    if (lane === 'backlog') { return 'stage-backlog-to-planning.md'; }
+    if (lane === 'planning' || lane === 'in-progress') { return 'stage-planning-to-review.md'; }
+    if (lane === 'review') { return 'stage-review-to-done.md'; }
+    return null;
 }
 
 /**

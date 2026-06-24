@@ -28,11 +28,14 @@ function mockRequest(command: string | undefined, prompt: string) {
 function mockResponse() {
     const messages: string[] = [];
     const references: any[] = [];
+    const buttons: any[] = [];
     return {
         markdown: (text: string) => { messages.push(text); },
         reference: (uri: any) => { references.push(uri); },
+        button: (cmd: any) => { buttons.push(cmd); },
         messages,
         references,
+        buttons,
     } as any;
 }
 
@@ -1985,284 +1988,221 @@ describe('ChatParticipant', () => {
     });
 
     describe('/loop command', () => {
+        const STAGE_BACKLOG = '# Stage: Backlog to Planning\n\nProfile: {{profile}}\nLanes: {{lanes}}\n';
+        const STAGE_PLANNING = '# Stage: Planning to Review\n\nProfile: {{profile}}\n';
+        const STAGE_REVIEW = '# Stage: Review to Done\n\nProfile: {{profile}}\n';
+        const WORK_ON_TASK = '# Work on Task\n\nTask: {{taskTitle}}\nFile: {{taskFile}}\n';
+
         beforeEach(() => {
             execMock.mockReset();
-            execMock.mockResolvedValue({ stdout: '', stderr: '' });
+            vi.clearAllMocks();
         });
 
-        it('should perform loop of planning lane and run verification successfully', async () => {
-            const task: Task = {
-                id: 'task_sweep_1',
-                title: 'Sweep Task 1',
-                lane: 'planning',
-                created: '2026-01-01T00:00:00.000Z',
-                updated: '2026-01-01T00:00:00.000Z',
-                description: '',
-            };
-            (taskStore as any).tasks.set(task.id, task);
-            installMockFs({
-                '/test-workspace/.agentkanban/tasks/task_sweep_1.md': '---\ntitle: Sweep Task 1\nlane: planning\n---\n## Conversation\n\n### user\n\n',
-            });
-
-            const config = boardConfigStore.get();
-            config.policies = {
-                verification: {
-                    testCommand: 'npm run test',
-                    lintCommand: 'npm run lint',
-                },
-            };
-
-            const response = mockResponse();
-            await participant.handleRequest(mockRequest('loop', 'planning'), {} as any, response, mockToken);
-
-            expect(execMock).toHaveBeenCalledTimes(2);
-            expect(execMock).toHaveBeenNthCalledWith(1, 'npm run test', expect.anything());
-            expect(execMock).toHaveBeenNthCalledWith(2, 'npm run lint', expect.anything());
-
-            const updatedTask = taskStore.get(task.id);
-            expect(updatedTask?.lane).toBe('review');
-            expect(updatedTask?.labels ?? []).not.toContain('blocked');
-            expect(response.messages.some((m: string) => m.includes('passed'))).toBe(true);
+        afterEach(() => {
+            vi.restoreAllMocks();
         });
 
-        it('should move task back and label blocked when verification fails', async () => {
-            const task: Task = {
-                id: 'task_sweep_2',
-                title: 'Sweep Task 2',
-                lane: 'planning',
-                created: '2026-01-01T00:00:00.000Z',
-                updated: '2026-01-01T00:00:00.000Z',
-                description: '',
-            };
-            (taskStore as any).tasks.set(task.id, task);
-            installMockFs({
-                '/test-workspace/.agentkanban/tasks/task_sweep_2.md': '---\ntitle: Sweep Task 2\nlane: planning\n---\n## Conversation\n\n### user\n\n',
-            });
-
-            const config = boardConfigStore.get();
-            config.policies = {
-                verification: {
-                    testCommand: 'npm run test-fail',
-                },
-            };
-
-            execMock.mockRejectedValue(new Error('Test command failed'));
-
-            const response = mockResponse();
-            await participant.handleRequest(mockRequest('loop', 'planning'), {} as any, response, mockToken);
-
-            expect(execMock).toHaveBeenCalledTimes(1);
-
-            const updatedTask = taskStore.get(task.id);
-            expect(updatedTask?.lane).toBe('planning');
-            expect(updatedTask?.labels).toContain('blocked');
-            expect(response.messages.some((m: string) => m.includes('failed'))).toBe(true);
-        });
-
-        it('should filter tasks by priority during sweep', async () => {
-            const taskHigh: Task = {
-                id: 'task_priority_high',
-                title: 'High Priority Task',
-                lane: 'planning',
-                priority: 'high',
-                created: '2026-01-01T00:00:00.000Z',
-                updated: '2026-01-01T00:00:00.000Z',
-                description: '',
-            };
-            const taskLow: Task = {
-                id: 'task_priority_low',
-                title: 'Low Priority Task',
-                lane: 'planning',
-                priority: 'low',
-                created: '2026-01-01T00:00:00.000Z',
-                updated: '2026-01-01T00:00:00.000Z',
-                description: '',
-            };
-            (taskStore as any).tasks.set(taskHigh.id, taskHigh);
-            (taskStore as any).tasks.set(taskLow.id, taskLow);
-            installMockFs({
-                '/test-workspace/.agentkanban/tasks/task_priority_high.md': '---\ntitle: High Priority Task\nlane: planning\npriority: high\n---\n## Conversation\n\n### user\n\n',
-                '/test-workspace/.agentkanban/tasks/task_priority_low.md': '---\ntitle: Low Priority Task\nlane: planning\npriority: low\n---\n## Conversation\n\n### user\n\n',
-            });
-
-            const config = boardConfigStore.get();
-            config.policies = { verification: { testCommand: 'npm run test' } };
-
-            const response = mockResponse();
-            await participant.handleRequest(mockRequest('loop', 'planning --priority=high'), {} as any, response, mockToken);
-
-            expect(taskStore.get(taskHigh.id)?.lane).toBe('review');
-            expect(taskStore.get(taskLow.id)?.lane).toBe('planning');
-        });
-
-        it('should filter tasks by label during sweep', async () => {
-            const taskLabelled: Task = {
-                id: 'task_labelled',
-                title: 'Labelled Task',
-                lane: 'planning',
-                labels: ['feat'],
-                created: '2026-01-01T00:00:00.000Z',
-                updated: '2026-01-01T00:00:00.000Z',
-                description: '',
-            };
-            const taskUnlabelled: Task = {
-                id: 'task_unlabelled',
-                title: 'Unlabelled Task',
-                lane: 'planning',
-                created: '2026-01-01T00:00:00.000Z',
-                updated: '2026-01-01T00:00:00.000Z',
-                description: '',
-            };
-            (taskStore as any).tasks.set(taskLabelled.id, taskLabelled);
-            (taskStore as any).tasks.set(taskUnlabelled.id, taskUnlabelled);
-            installMockFs({
-                '/test-workspace/.agentkanban/tasks/task_labelled.md': '---\ntitle: Labelled Task\nlane: planning\nlabels: [feat]\n---\n## Conversation\n\n### user\n\n',
-                '/test-workspace/.agentkanban/tasks/task_unlabelled.md': '---\ntitle: Unlabelled Task\nlane: planning\n---\n## Conversation\n\n### user\n\n',
-            });
-
-            const config = boardConfigStore.get();
-            config.policies = { verification: { testCommand: 'npm run test' } };
-
-            const response = mockResponse();
-            await participant.handleRequest(mockRequest('loop', 'planning --label=feat'), {} as any, response, mockToken);
-
-            expect(taskStore.get(taskLabelled.id)?.lane).toBe('review');
-            expect(taskStore.get(taskUnlabelled.id)?.lane).toBe('planning');
-        });
-
-        it('should execute pack verifyCmds when active stack is matched', async () => {
-            const task: Task = {
-                id: 'task_pack_verify',
-                title: 'Pack Verify Task',
-                lane: 'planning',
-                created: '2026-01-01T00:00:00.000Z',
-                updated: '2026-01-01T00:00:00.000Z',
-                description: '',
-            };
-            (taskStore as any).tasks.set(task.id, task);
-            installMockFs({
-                '/test-workspace/.agentkanban/tasks/task_pack_verify.md': '---\ntitle: Pack Verify Task\nlane: planning\n---\n## Conversation\n\n### user\n\n',
-            });
-
-            const config = boardConfigStore.get();
-            config.packs = [{
-                name: 'custom-pack',
-                verifyCmds: ['special-verify-cmd'],
-            }];
-            config.activeStack = 'custom-pack';
-
-            const response = mockResponse();
-            await participant.handleRequest(mockRequest('loop', 'planning'), {} as any, response, mockToken);
-
-            expect(execMock).toHaveBeenCalledTimes(1);
-            expect(execMock).toHaveBeenNthCalledWith(1, 'special-verify-cmd', expect.anything());
-        });
-
-        it('should stop at human gate when source lane is review (Standard)', async () => {
+        it('Standard /loop (no arg) defaults to backlog and emits stage-backlog-to-planning', async () => {
             const config = boardConfigStore.get();
             config.profile = 'standard';
             config.lanes = ['backlog', 'planning', 'in-progress', 'review', 'done'];
 
+            const task: Task = {
+                id: 'task_loop_backlog', title: 'Backlog Task', lane: 'backlog',
+                created: '2026-01-01T00:00:00.000Z', updated: '2026-01-01T00:00:00.000Z', description: '',
+            };
+            (taskStore as any).tasks.set(task.id, task);
+            installMockFs({
+                '/test-extension/assets/prompts/stage-backlog-to-planning.md': STAGE_BACKLOG,
+            });
+
+            const clipboardSpy = vi.spyOn(env.clipboard, 'writeText').mockResolvedValue(undefined);
+            const response = mockResponse();
+            await participant.handleRequest(mockRequest('loop', ''), {} as any, response, mockToken);
+
+            expect(execMock).not.toHaveBeenCalled();
+            expect(clipboardSpy).toHaveBeenCalledOnce();
+            const pasted = clipboardSpy.mock.calls[0][0] as string;
+            expect(pasted).toContain('Backlog to Planning');
+            expect(pasted).not.toMatch(/\{\{[a-zA-Z0-9_]+\}\}/);
+            expect(response.references.length).toBeGreaterThan(0);
+            expect(taskStore.get(task.id)?.lane).toBe('backlog'); // no lane mutation
+            clipboardSpy.mockRestore();
+        });
+
+        it('/loop planning emits stage-planning-to-review', async () => {
+            const config = boardConfigStore.get();
+            config.profile = 'standard';
+            config.lanes = ['backlog', 'planning', 'in-progress', 'review', 'done'];
+
+            const task: Task = {
+                id: 'task_loop_planning', title: 'Planning Task', lane: 'planning',
+                created: '2026-01-01T00:00:00.000Z', updated: '2026-01-01T00:00:00.000Z', description: '',
+            };
+            (taskStore as any).tasks.set(task.id, task);
+            installMockFs({
+                '/test-extension/assets/prompts/stage-planning-to-review.md': STAGE_PLANNING,
+            });
+
+            const clipboardSpy = vi.spyOn(env.clipboard, 'writeText').mockResolvedValue(undefined);
+            const response = mockResponse();
+            await participant.handleRequest(mockRequest('loop', 'planning'), {} as any, response, mockToken);
+
+            expect(execMock).not.toHaveBeenCalled();
+            expect(clipboardSpy).toHaveBeenCalledOnce();
+            expect(clipboardSpy.mock.calls[0][0]).toContain('Planning to Review');
+            expect(taskStore.get(task.id)?.lane).toBe('planning');
+            clipboardSpy.mockRestore();
+        });
+
+        it('/loop review emits stage-review-to-done (no longer a refused gate)', async () => {
+            const config = boardConfigStore.get();
+            config.profile = 'standard';
+            config.lanes = ['backlog', 'planning', 'in-progress', 'review', 'done'];
+
+            const task: Task = {
+                id: 'task_loop_review', title: 'Review Task', lane: 'review',
+                created: '2026-01-01T00:00:00.000Z', updated: '2026-01-01T00:00:00.000Z', description: '',
+            };
+            (taskStore as any).tasks.set(task.id, task);
+            installMockFs({
+                '/test-extension/assets/prompts/stage-review-to-done.md': STAGE_REVIEW,
+            });
+
+            const clipboardSpy = vi.spyOn(env.clipboard, 'writeText').mockResolvedValue(undefined);
             const response = mockResponse();
             await participant.handleRequest(mockRequest('loop', 'review'), {} as any, response, mockToken);
 
-            expect(response.messages.some((m: string) => m.includes('human gate'))).toBe(true);
             expect(execMock).not.toHaveBeenCalled();
+            expect(clipboardSpy).toHaveBeenCalledOnce();
+            expect(clipboardSpy.mock.calls[0][0]).toContain('Review to Done');
+            clipboardSpy.mockRestore();
         });
 
-        it('should advance to done (not review) for Lite profile', async () => {
+        it('Lite /loop (no arg) defaults to backlog and emits work-on-task', async () => {
             const config = boardConfigStore.get();
             config.profile = 'lite';
             config.lanes = ['backlog', 'in-progress', 'done'];
-            config.policies = { verification: { testCommand: 'npm run test' } };
 
             const task: Task = {
-                id: 'task_lite_loop_1',
-                title: 'Lite Loop Task',
-                lane: 'in-progress',
-                created: '2026-01-01T00:00:00.000Z',
-                updated: '2026-01-01T00:00:00.000Z',
-                description: '',
+                id: 'task_loop_lite', title: 'Lite Task', lane: 'backlog',
+                created: '2026-01-01T00:00:00.000Z', updated: '2026-01-01T00:00:00.000Z', description: '',
             };
             (taskStore as any).tasks.set(task.id, task);
             installMockFs({
-                '/test-workspace/.agentkanban/tasks/task_lite_loop_1.md': '---\ntitle: Lite Loop Task\nlane: in-progress\n---\n## Conversation\n\n### user\n\n',
+                '/test-extension/assets/prompts/work-on-task.md': WORK_ON_TASK,
             });
 
+            const clipboardSpy = vi.spyOn(env.clipboard, 'writeText').mockResolvedValue(undefined);
             const response = mockResponse();
-            await participant.handleRequest(mockRequest('loop', 'in-progress'), {} as any, response, mockToken);
+            await participant.handleRequest(mockRequest('loop', ''), {} as any, response, mockToken);
 
-            const updatedTask = taskStore.get(task.id);
-            expect(updatedTask?.lane).toBe('done');
-            expect(response.messages.some((m: string) => m.includes('done'))).toBe(true);
+            expect(execMock).not.toHaveBeenCalled();
+            expect(clipboardSpy).toHaveBeenCalledOnce();
+            expect(clipboardSpy.mock.calls[0][0]).toContain('Lite Task');
+            clipboardSpy.mockRestore();
         });
 
-        it('should run multiple passes when task B depends on task A (multi-pass)', async () => {
+        it('reports no ready tasks when lane is empty', async () => {
             const config = boardConfigStore.get();
             config.profile = 'standard';
             config.lanes = ['backlog', 'planning', 'in-progress', 'review', 'done'];
-            config.policies = { verification: { testCommand: 'npm run test' } };
-
-            const taskA: Task = {
-                id: 'task_mp_a',
-                title: 'Multi-pass A',
-                lane: 'planning',
-                created: '2026-01-01T00:00:00.000Z',
-                updated: '2026-01-01T00:00:00.000Z',
-                description: '',
-            };
-            const taskB: Task = {
-                id: 'task_mp_b',
-                title: 'Multi-pass B',
-                lane: 'planning',
-                dependsOn: ['task_mp_a'],
-                labels: ['blocked-by:task_mp_a'],
-                created: '2026-01-01T00:00:00.000Z',
-                updated: '2026-01-01T00:00:00.000Z',
-                description: '',
-            };
-            (taskStore as any).tasks.set(taskA.id, taskA);
-            (taskStore as any).tasks.set(taskB.id, taskB);
-            installMockFs({
-                '/test-workspace/.agentkanban/tasks/task_mp_a.md': '---\ntitle: Multi-pass A\nlane: planning\n---\n## Conversation\n\n### user\n\n',
-                '/test-workspace/.agentkanban/tasks/task_mp_b.md': '---\ntitle: Multi-pass B\nlane: planning\ndependsOn: [task_mp_a]\nlabels: [blocked-by:task_mp_a]\n---\n## Conversation\n\n### user\n\n',
-            });
 
             const response = mockResponse();
-            await participant.handleRequest(mockRequest('loop', 'planning'), {} as any, response, mockToken);
+            await participant.handleRequest(mockRequest('loop', 'backlog'), {} as any, response, mockToken);
 
-            // A advances in pass 1; B still blocked by A. After A reaches review, A is no longer in planning.
-            // B's dep resolves (A left planning/done?). In practice A advances to review, not done, so B stays.
-            // This test asserts A advanced and the summary shows "Passes run" marker.
-            const updatedA = taskStore.get(taskA.id);
-            expect(updatedA?.lane).toBe('review');
-            expect(response.messages.some((m: string) => m.includes('Pass'))).toBe(true);
+            expect(response.messages.some((m: string) => m.includes('No ready tasks'))).toBe(true);
+            expect(execMock).not.toHaveBeenCalled();
         });
 
-        it('/sweep alias should still work and show deprecation notice', async () => {
+        it('reports no driver for done lane', async () => {
+            const config = boardConfigStore.get();
+            config.profile = 'standard';
+            config.lanes = ['backlog', 'planning', 'in-progress', 'review', 'done'];
+
             const task: Task = {
-                id: 'task_alias_1',
-                title: 'Alias Task',
-                lane: 'planning',
-                created: '2026-01-01T00:00:00.000Z',
-                updated: '2026-01-01T00:00:00.000Z',
-                description: '',
+                id: 'task_loop_done', title: 'Done Task', lane: 'done',
+                created: '2026-01-01T00:00:00.000Z', updated: '2026-01-01T00:00:00.000Z', description: '',
+            };
+            (taskStore as any).tasks.set(task.id, task);
+
+            const response = mockResponse();
+            await participant.handleRequest(mockRequest('loop', 'done'), {} as any, response, mockToken);
+
+            expect(response.messages.some((m: string) => m.includes('No stage-driver prompt'))).toBe(true);
+            expect(execMock).not.toHaveBeenCalled();
+        });
+
+        it('filters tasks by label', async () => {
+            const config = boardConfigStore.get();
+            config.profile = 'standard';
+            config.lanes = ['backlog', 'planning', 'in-progress', 'review', 'done'];
+
+            const taskFeat: Task = {
+                id: 'task_loop_feat', title: 'Feat Task', lane: 'backlog', labels: ['feat'],
+                created: '2026-01-01T00:00:00.000Z', updated: '2026-01-01T00:00:00.000Z', description: '',
+            };
+            const taskOther: Task = {
+                id: 'task_loop_other', title: 'Other Task', lane: 'backlog', labels: ['chore'],
+                created: '2026-01-01T00:00:00.000Z', updated: '2026-01-01T00:00:00.000Z', description: '',
+            };
+            (taskStore as any).tasks.set(taskFeat.id, taskFeat);
+            (taskStore as any).tasks.set(taskOther.id, taskOther);
+            installMockFs({
+                '/test-extension/assets/prompts/stage-backlog-to-planning.md': STAGE_BACKLOG,
+            });
+
+            const clipboardSpy = vi.spyOn(env.clipboard, 'writeText').mockResolvedValue(undefined);
+            const response = mockResponse();
+            await participant.handleRequest(mockRequest('loop', 'backlog --label=feat'), {} as any, response, mockToken);
+
+            expect(clipboardSpy).toHaveBeenCalledOnce();
+            const taskListOutput = response.messages.join('');
+            expect(taskListOutput).toContain('Feat Task');
+            expect(taskListOutput).not.toContain('Other Task');
+            clipboardSpy.mockRestore();
+        });
+
+        it('excludes blocked tasks from the ready list', async () => {
+            const config = boardConfigStore.get();
+            config.profile = 'standard';
+            config.lanes = ['backlog', 'planning', 'in-progress', 'review', 'done'];
+
+            const blocked: Task = {
+                id: 'task_loop_blocked', title: 'Blocked Task', lane: 'backlog', labels: ['blocked'],
+                created: '2026-01-01T00:00:00.000Z', updated: '2026-01-01T00:00:00.000Z', description: '',
+            };
+            (taskStore as any).tasks.set(blocked.id, blocked);
+
+            const response = mockResponse();
+            await participant.handleRequest(mockRequest('loop', 'backlog'), {} as any, response, mockToken);
+
+            expect(response.messages.some((m: string) => m.includes('No ready tasks'))).toBe(true);
+        });
+
+        it('workspace prompt takes priority over bundled', async () => {
+            const config = boardConfigStore.get();
+            config.profile = 'standard';
+            config.lanes = ['backlog', 'planning', 'in-progress', 'review', 'done'];
+
+            const task: Task = {
+                id: 'task_loop_ws', title: 'WS Task', lane: 'backlog',
+                created: '2026-01-01T00:00:00.000Z', updated: '2026-01-01T00:00:00.000Z', description: '',
             };
             (taskStore as any).tasks.set(task.id, task);
             installMockFs({
-                '/test-workspace/.agentkanban/tasks/task_alias_1.md': '---\ntitle: Alias Task\nlane: planning\n---\n## Conversation\n\n### user\n\n',
+                '/test-workspace/.agentkanban/prompts/stage-backlog-to-planning.md': '# Custom Workspace Prompt\n',
+                '/test-extension/assets/prompts/stage-backlog-to-planning.md': STAGE_BACKLOG,
             });
 
-            const config = boardConfigStore.get();
-            config.policies = { verification: { testCommand: 'npm run test' } };
-
+            const clipboardSpy = vi.spyOn(env.clipboard, 'writeText').mockResolvedValue(undefined);
             const response = mockResponse();
-            await participant.handleRequest(mockRequest('sweep', 'planning'), {} as any, response, mockToken);
+            await participant.handleRequest(mockRequest('loop', 'backlog'), {} as any, response, mockToken);
 
-            const updatedTask = taskStore.get(task.id);
-            expect(updatedTask?.lane).toBe('review');
-            expect(response.messages.some((m: string) => m.includes('/sweep') || m.includes('/loop'))).toBe(true);
+            expect(clipboardSpy.mock.calls[0][0]).toContain('Custom Workspace Prompt');
+            clipboardSpy.mockRestore();
         });
+
     });
 
     describe('/goal command', () => {

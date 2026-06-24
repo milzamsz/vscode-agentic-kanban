@@ -37,7 +37,7 @@ test (no hardcoding to the test case, no guessing user intent) - implement the g
 - No em dashes in product copy (UI or docs); the AGENTS.md sentinel marker string is the only exception (matched verbatim).
 
 ## Never
-- Claim done without evidence (green lint/test/build, checklist complete, review passed).
+- Claim done without evidence (green lint/test/build, Definition of Done checklist complete, review passed).
 - Jump straight to implementation work while a task is still in `planning`, or `-> done` without implementation review.
 - Edit content outside the `AGENTIC KANBAN` sentinels in AGENTS.md.
 - Commit/VCS unless explicitly asked. Speculate about files you have not opened.

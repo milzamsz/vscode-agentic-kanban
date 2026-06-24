@@ -384,6 +384,9 @@ function buildCardHtml(task: Task): string {
     const progressBadge = task.checklist
         ? `<span class="progress-badge" title="Checklist progress">${task.checklist.done}/${task.checklist.total}</span>`
         : '';
+    const doneChecklistBadge = task.doneChecklist && task.doneChecklist.total > 0
+        ? `<span class="progress-badge dod-badge" title="Definition of Done progress: ${task.doneChecklist.agentDone}/${task.doneChecklist.agentTotal} agent + ${task.doneChecklist.humanDone}/${task.doneChecklist.humanTotal} human">DoD ${task.doneChecklist.done}/${task.doneChecklist.total}</span>`
+        : '';
     const warnBits: string[] = [];
     if (task.specMissing) { warnBits.push('spec file missing'); }
     if (task.changeMissing) { warnBits.push('change folder missing'); }
@@ -397,6 +400,7 @@ function buildCardHtml(task: Task): string {
                 ${priorityBadge}
                 ${specBadge}
                 ${progressBadge}
+                ${doneChecklistBadge}
                 ${warnBadge}
                 <button class="icon-btn card-delete" data-delete-task-id="${esc(task.id)}" title="Delete task">&times;</button>
             </div>
@@ -1339,6 +1343,7 @@ function saveSettingsModal(): void {
     const transitionSpec = (document.getElementById('settings-transition-spec') as HTMLSelectElement)?.value || '1';
     const transitionDescription = (document.getElementById('settings-transition-description') as HTMLSelectElement)?.value || '1';
     const transitionWorktree = (document.getElementById('settings-transition-worktree') as HTMLSelectElement)?.value || '1';
+    const transitionDoneChecklist = (document.getElementById('settings-transition-done-checklist') as HTMLSelectElement)?.value || '1';
 
     const verificationTest = (document.getElementById('settings-verification-test') as HTMLInputElement)?.value || '';
     const verificationLint = (document.getElementById('settings-verification-lint') as HTMLInputElement)?.value || '';
@@ -1387,6 +1392,7 @@ function saveSettingsModal(): void {
                 requireSpecForInProgress: transitionSpec === '1',
                 requireDescriptionForReview: transitionDescription === '1',
                 requireWorktreeForInProgress: transitionWorktree === '1',
+                requireDoneChecklistForDone: transitionDoneChecklist === '1',
             },
             verification: {
                 testCommand: verificationTest,
@@ -2444,6 +2450,13 @@ function buildSettingsModalHtml(): string {
                                     <select class="form-control" id="settings-transition-worktree">
                                         <option value="1" ${transition.requireWorktreeForInProgress === true ? 'selected' : ''}>Yes</option>
                                         <option value="0" ${transition.requireWorktreeForInProgress !== true ? 'selected' : ''}>No</option>
+                                    </select>
+                                </div>
+                                <div class="transition-row">
+                                    <span class="transition-label">Done Checklist Required for Done</span>
+                                    <select class="form-control" id="settings-transition-done-checklist">
+                                        <option value="1" ${transition.requireDoneChecklistForDone !== false ? 'selected' : ''}>Yes</option>
+                                        <option value="0" ${transition.requireDoneChecklistForDone === false ? 'selected' : ''}>No</option>
                                     </select>
                                 </div>
                             </div>

@@ -20,6 +20,8 @@ backlog -> planning -> in-progress -> review -> done
 - `planning`: refine scope, write the implementation plan, identify risks, update the checklist. The plan is **approved** here. To transition a task from `planning` to `in-progress`, it must have a checklist with at least one item, and if it is spec-driven, it must also have a valid spec file and change folder.
 - `in-progress`: implement the approved plan. Entering `in-progress` is **not** a separate human gate - an agent may carry an approved task straight from `planning` through implementation to `review` in one pass (the autonomous `planning -> review` driver). When running this flow, the task must be moved to `in-progress` before starting work, so the board reflects the current progress state. Worktrees optional unless board policy requires them.
 - `review`: implementation review. Return to `in-progress` for revisions, or move to `done` when approved.
+  Before `done`, the task must also pass its **Definition of Done checklist** (a `## Definition of Done`
+  section in the task body with all items checked; items can carry `(agent)`/`(human)` tags).
 - The two human gates are **plan approval** (`planning`) and **`review -> done`**; everything between can run hands-off.
 - `blocked` is a label, not a lane. Real blockers -> `blocked` / `blocked-by:<slug>`, keep the task in its lane, never force past them.
 

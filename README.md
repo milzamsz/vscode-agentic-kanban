@@ -12,21 +12,25 @@ A VS Code Kanban board where you and a coding agent share the same task files. P
 
 ## Screenshots
 
-**The board — tasks as cards, lanes as columns:**
+**The Kanban board — tasks as cards, lanes as columns:**
 
-![Kanban board view](images/screenshots/board.png)
+![Kanban board](images/screenshots/kanban.png)
 
-**Standard profile — task in `planning` with spec artifacts:**
+**Board settings — configure profile, policies, and labels:**
 
-![Task in planning lane with spec artifacts](images/screenshots/task-planning-spec.png)
+![Board settings](images/screenshots/settings.png)
 
-**`@kanban` chat commands in VS Code Chat:**
+**Project skills — manage installed and active skills:**
 
-![Chat commands example](images/screenshots/chat-commands.png)
+![Skills management](images/screenshots/skills.png)
 
-**Loop summary after `/loop` runs multiple passes:**
+**Chat commands — `@kanban` commands in VS Code Chat:**
 
-![Loop summary output](images/screenshots/loop-summary.png)
+![Chat commands](images/screenshots/command.png)
+
+**Dependency graph — visualize task dependencies:**
+
+![Dependency graph](images/screenshots/dependency-graph.png)
 
 ---
 
@@ -55,9 +59,9 @@ flowchart LR
 ## How It Works
 
 1. **Open the board, pick a profile.** Click the Activity Bar icon, hit Initialise, choose Lite or Standard. One folder (`.agentkanban/`) holds everything — task files, specs, prompts, and memory.
-2. **Create tasks with `@kanban /new`.** Each task becomes a Markdown file with YAML frontmatter. Move cards on the board or type `@kanban /loop` to advance them automatically.
+2. **Create tasks with `@kanban /new`.** Each task becomes a Markdown file with YAML frontmatter. Move cards on the board or type `@kanban /loop` to get the stage-driver prompt for any lane.
 3. **Attach specs with `@kanban /spec`.** Scaffolds `proposal.md`, `design.md`, `tasks.md`, and a shared capability spec. The agent works from these artifacts — not from guesswork or stale chat context.
-4. **Let `/loop` drive the lanes.** Runs passes over the target lane until nothing more can advance (loop-until-dry). Dependency-aware: task B waits until task A reaches `done` before it's picked up.
+4. **Let `/loop` drive the lanes.** Emits the stage-driver prompt for a lane into chat. Paste it into your agent session; the agent does the work and advances tasks. Dependency-aware: blocked tasks are excluded from the ready list.
 5. **Two human gates, no more.** Plan approval (move from `planning` to `in-progress`) and completion (`review → done`). Everything in between the agent handles.
 
 The board is for humans. The `@kanban` commands and reusable skill are for agents. Both operate on the same files.
@@ -231,7 +235,7 @@ code --install-extension agentic-kanban-<version>.vsix
 backlog -> in-progress -> done
 ```
 
-Lite is intended for smaller changes and fast paths. Planning can remain lightweight, worktrees are optional by default, and there is no separate review lane. `/loop` defaults to `in-progress` and advances passing tasks directly to `done`.
+Lite is intended for smaller changes and fast paths. Planning can remain lightweight, worktrees are optional by default, and there is no separate review lane. `/loop` defaults to `backlog` and emits the `work-on-task` prompt for the selected lane.
 
 ### Standard
 
@@ -239,7 +243,7 @@ Lite is intended for smaller changes and fast paths. Planning can remain lightwe
 backlog -> planning -> in-progress -> review -> done
 ```
 
-Standard separates planning, implementation, and implementation review. Moving from `planning` to `in-progress` is the explicit plan approval step. Worktrees are optional by default in the Standard profile (configurable in `board.yaml` via `worktreePolicy.requiredForImplementation` or `policies.transition.requireWorktreeForInProgress`), and a task must pass through `review` before `done`. `/loop` defaults to `planning` and advances passing tasks to `review` (never `done`). Running `/loop review` is refused as a human gate guard.
+Standard separates planning, implementation, and implementation review. Moving from `planning` to `in-progress` is the explicit plan approval step. Worktrees are optional by default in the Standard profile (configurable in `board.yaml` via `worktreePolicy.requiredForImplementation` or `policies.transition.requireWorktreeForInProgress`), and a task must pass through `review` before `done`. `/loop` defaults to `backlog` and emits `stage-backlog-to-planning`; use `/loop planning`, `/loop in-progress`, or `/loop review` to get the driver prompt for later stages. Gates are enforced when the agent performs the actual board move.
 
 Blockers do not move a task into a special lane. Add `blocked` for an external blocker or `blocked-by:<slug>` for a task dependency while leaving the task in its active lane.
 
@@ -335,7 +339,7 @@ flowchart TD
 | `/worktree remove` | `@kanban /worktree remove` | Remove the selected task's worktree and branch |
 | `/archive` | `@kanban /archive [slug]` | Archive a completed spec change folder |
 | `/prompts` | `@kanban /prompts` | Write or refresh bundled stage-driver prompts |
-| `/loop` | `@kanban /loop [lane]` | Loop-until-dry: run passes over ready tasks until none advance. Profile-aware advance target (Standard: `review`; Lite: `done`). Refuses `review` source in Standard (human gate). Supports `--label=`, `--priority=`, `--pack=` filters. |
+| `/loop` | `@kanban /loop [lane]` | Lane-flow prompt driver: emits the stage-driver prompt for the selected lane into chat. Click the **"Send prompt to chat"** button to inject it directly into the chat input (clipboard copy as fallback). Default lane: `backlog`. Mapping: `backlog` -> `stage-backlog-to-planning`, `planning`/`in-progress` -> `stage-planning-to-review`, `review` -> `stage-review-to-done` (Standard); `backlog`/`in-progress` -> `work-on-task` (Lite). Workspace prompt overrides bundled. Appends ready-task list (non-blocked, dep-satisfied). Supports `--label=`, `--priority=` filters. No lanes moved by the command itself. |
 | `/goal new` | `@kanban /goal new <objective>` | Create a goal epic card + goal artifact; copy decompose prompt to clipboard |
 | `/goal` | `@kanban /goal` | Show goal dashboard (progress per goal) |
 | `/goal show` | `@kanban /goal show <slug>` | Show detail for a specific goal |
@@ -480,7 +484,7 @@ goal (epic, why + metrics)
 
 In Standard profile the decompose prompt recommends running `@kanban /spec <capability>` for complex child tasks, wiring each to a capability spec and change folder. In Lite profile children are lightweight (proposal + tasks only, no design or review gate).
 
-**Pairing with `/loop`:** after decomposition, run `@kanban /loop` to drive child tasks forward automatically. `/loop` is profile-aware and will not cross the two human gates (plan approval in `planning`; `review -> done`).
+**Pairing with `/loop`:** after decomposition, run `@kanban /loop backlog` to get the backlog-to-planning driver prompt for child tasks, then `/loop planning`, `/loop in-progress`, etc. as work advances through each lane.
 
 **Tracking progress:** `@kanban /goal` shows a dashboard (done/total per goal). `@kanban /goal show <slug>` shows next-ready and blocked children.
 

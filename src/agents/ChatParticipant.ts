@@ -1,8 +1,4 @@
 import * as vscode from 'vscode';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-
-const execAsync = promisify(exec);
 import { TaskStore } from '../TaskStore';
 import type { BoardConfigStore } from '../BoardConfigStore';
 import type { WorktreeService } from '../WorktreeService';
@@ -13,7 +9,6 @@ import {
     DEFAULT_REVIEW_POLICY,
     DONE_LANE,
     getFirstLane,
-    wipExceeded,
     type Priority,
     type ReviewPolicy,
     type TaskEvidence,
@@ -21,7 +16,7 @@ import {
 } from '../types';
 import { getDefaultProfile, isEnforceWorktrees } from '../settings';
 import { WorkflowDoctor } from '../WorkflowDoctor';
-import { interpolate, resolveVars, getDefaultLoopLane, getLoopAdvanceTarget } from '../PromptTemplate';
+import { interpolate, resolveVars, getDefaultLoopLane, getLanePrompt } from '../PromptTemplate';
 import { TaskEvidenceValidator } from '../TaskEvidenceValidator';
 
 /** Relative path within the workspace for the instruction file. */
@@ -41,9 +36,6 @@ const PROMPTS_REL_PATH = '.agentkanban/prompts';
 
 /** Relative root for goal artifacts. */
 const GOALS_REL_PATH = '.agentkanban/goals';
-
-/** Maximum passes per `/loop` invocation (safety cap). */
-const MAX_LOOP_PASSES = 25;
 
 /** Bundled prompt files written to `.agentkanban/prompts/` on init and via `/prompts`. */
 const STANDARD_PROMPT_FILES = [
@@ -298,10 +290,6 @@ export class ChatParticipant {
             case 'loop':
                 await this.handleLoop(prompt, response);
                 return;
-            case 'sweep':
-                response.markdown('> `/sweep` is now `/loop` (alias maintained for compatibility)\n\n');
-                await this.handleLoop(prompt, response);
-                return;
             case 'goal':
                 await this.handleGoal(prompt, response);
                 return;
@@ -330,7 +318,6 @@ export class ChatParticipant {
                 response.markdown('- `@kanban /prompts` - Open a QuickPick of prompts; select to copy to clipboard\n');
                 response.markdown('- `@kanban /prompts refresh` - Rewrite the bundled stage-driver prompts in .agentkanban/prompts/\n');
                 response.markdown('- `@kanban /loop [lane]` - Loop-until-dry: run passes over ready tasks until none advance (profile-aware advance target, human gates respected)\n');
-                response.markdown('- `@kanban /sweep [lane]` - Alias of /loop (deprecated)\n');
                 response.markdown('- `@kanban /goal new <objective>` - Define a new goal: creates an epic card + goal artifact + copies decompose prompt to clipboard\n');
                 response.markdown('- `@kanban /goal` - Show goal dashboard (progress per goal)\n');
                 response.markdown('- `@kanban /goal show <slug>` - Show detail for a specific goal\n');
@@ -1600,182 +1587,117 @@ export class ChatParticipant {
     ): Promise<void> {
         const config = this.boardConfigStore.get();
 
-        // Parse flags from the prompt arg
+        // Parse flags
         const args = prompt.split(/\s+/).filter(Boolean);
-        let targetLane = getDefaultLoopLane(config.profile);
+        let lane = getDefaultLoopLane(config.profile);
         let filterLabel: string | undefined;
         let filterPriority: string | undefined;
-        let filterPack: string | undefined;
 
         for (const arg of args) {
             if (arg.startsWith('--label=')) {
                 filterLabel = arg.slice('--label='.length);
             } else if (arg.startsWith('--priority=')) {
                 filterPriority = arg.slice('--priority='.length);
-            } else if (arg.startsWith('--pack=')) {
-                filterPack = arg.slice('--pack='.length);
-            } else if (arg.startsWith('--stack=')) {
-                filterPack = arg.slice('--stack='.length);
             } else if (!arg.startsWith('-')) {
-                targetLane = arg;
+                lane = arg;
             }
         }
 
-        if (!config.lanes.includes(targetLane)) {
-            response.markdown(`❌ Invalid lane **${targetLane}**. Valid lanes: ${config.lanes.map(l => `\`${l}\``).join(', ')}\n`);
+        if (!config.lanes.includes(lane)) {
+            response.markdown(`No lane **${lane}**. Valid: ${config.lanes.map(l => `\`${l}\``).join(', ')}\n`);
             return;
         }
 
-        // Human gate guard: Standard profile cannot auto-advance from `review`
-        if (config.profile === 'standard' && targetLane === 'review') {
-            response.markdown('⛔ `/loop review` is a human gate in Standard profile.\n\n');
-            response.markdown('`review → done` requires human approval. Run `@kanban /evidence <task>` to verify all checks pass, then move the task to `done` manually.\n');
+        const promptName = getLanePrompt(config.profile, lane);
+        if (!promptName) {
+            response.markdown(`No stage-driver prompt for \`${lane}\` in the **${config.profile}** profile. Nothing to emit.\n`);
             return;
         }
 
-        const advanceLane = getLoopAdvanceTarget(config.profile, targetLane);
-        const packName = filterPack || config.activeStack;
-        const selectedPack = packName ? config.packs?.find(p => p.name === packName) : undefined;
-
-        const activeFilters: string[] = [];
-        if (filterLabel) { activeFilters.push(`label: \`${filterLabel}\``); }
-        if (filterPriority) { activeFilters.push(`priority: \`${filterPriority}\``); }
-        if (packName) { activeFilters.push(`pack: \`${packName}\``); }
-        const filterSuffix = activeFilters.length > 0 ? ` (filtered by ${activeFilters.join(', ')})` : '';
-
-        response.markdown(`## Loop: \`${targetLane}\` → \`${advanceLane}\`\n\n`);
-        response.markdown(`Profile: **${config.profile}**${filterSuffix}\n\n`);
-
-        let passCount = 0;
-        let totalAdvanced = 0;
-        let totalParked = 0;
-        let capHit = false;
-
-        while (passCount < MAX_LOOP_PASSES) {
-            passCount++;
-
-            // Re-read tasks each pass (lanes changed in prior pass)
-            const allTasks = this.taskStore.getAll();
-            const tasksInLane = allTasks.filter(t => t.lane === targetLane);
-
-            const readyTasks = tasksInLane.filter(task => {
-                // Exclude blocked tasks (parked by a prior pass)
-                if (task.labels?.includes('blocked')) { return false; }
-                // Dependency guardrail
-                if (task.dependsOn && task.dependsOn.length > 0) {
-                    for (const depId of task.dependsOn) {
-                        const depTask = allTasks.find(t => t.id === depId || t.slug === depId);
-                        if (depTask && depTask.lane !== 'done' && depTask.lane !== 'archive') {
-                            return false;
-                        }
-                    }
-                }
-                if (filterLabel && (!task.labels || !task.labels.includes(filterLabel))) { return false; }
-                if (filterPriority && task.priority !== filterPriority) { return false; }
-                return true;
-            });
-
-            if (readyTasks.length === 0) {
-                break; // Nothing to advance — dry
-            }
-
-            response.markdown(`#### Pass ${passCount} — ${readyTasks.length} ready task(s)\n\n`);
-
-            let advancedThisPass = 0;
-
-            for (const task of readyTasks) {
-                response.markdown(`Processing **${task.title}**...\n`);
-
-                // Move to in-progress (skip if already there or lane absent in profile)
-                const inProgressLane = 'in-progress';
-                if (task.lane !== inProgressLane && config.lanes.includes(inProgressLane)) {
-                    const allCurrent = this.taskStore.getAll();
-                    const wipBreach = wipExceeded(config, allCurrent, inProgressLane, task.id);
-                    if (wipBreach) {
-                        response.markdown(`⚠ **${task.title}**: WIP limit on \`${inProgressLane}\` (${wipBreach.count}/${wipBreach.limit}). Skipping this pass.\n\n`);
-                        continue;
-                    }
-                    task.lane = inProgressLane;
-                    await this.taskStore.save(task);
-                }
-
-                // Build verification commands
-                const commandsToRun: { name: string; command: string }[] = [];
-                if (selectedPack?.verifyCmds && selectedPack.verifyCmds.length > 0) {
-                    for (let i = 0; i < selectedPack.verifyCmds.length; i++) {
-                        commandsToRun.push({ name: `verifyCmd[${i}]`, command: selectedPack.verifyCmds[i] });
-                    }
-                } else {
-                    const verification = config.policies?.verification;
-                    if (verification?.testCommand) { commandsToRun.push({ name: 'test', command: verification.testCommand }); }
-                    if (verification?.lintCommand) { commandsToRun.push({ name: 'lint', command: verification.lintCommand }); }
-                    if (verification?.buildCommand) { commandsToRun.push({ name: 'build', command: verification.buildCommand }); }
-                }
-
-                let passed = true;
-                let errorLogs = '';
-                const cwd = task.worktree?.path || this.taskStore.getWorkspacePath();
-
-                for (const cmd of commandsToRun) {
-                    try {
-                        this.logger.info('chatParticipant', `Loop running command: ${cmd.command} (cwd: ${cwd})`);
-                        await execAsync(cmd.command, { cwd });
-                    } catch (err: any) {
-                        passed = false;
-                        const stdout = err.stdout ? `\nStdout:\n${err.stdout}` : '';
-                        const stderr = err.stderr ? `\nStderr:\n${err.stderr}` : '';
-                        errorLogs += `Command failed: "${cmd.command}"\nError: ${err.message || err}${stdout}${stderr}\n`;
-                        break;
-                    }
-                }
-
-                if (passed) {
-                    task.lane = advanceLane;
-                    if (task.labels) {
-                        const hadBlocker = task.labels.some(l => l === 'blocked' || l.startsWith('blocked-by:'));
-                        task.labels = task.labels.filter(l => l !== 'blocked' && !l.startsWith('blocked-by:'));
-                        if (hadBlocker) { task.blockerResolved = true; }
-                    }
-                    const successComment = `[comment: loop pass ${passCount}: verification passed on ${new Date().toISOString()}]`;
-                    await this.appendCommentToTask(task, successComment);
-                    response.markdown(`✅ **${task.title}**: passed → moved to **${advanceLane.toUpperCase()}**\n\n`);
-                    advancedThisPass++;
-                    totalAdvanced++;
-                } else {
-                    task.lane = targetLane;
-                    if (!task.labels) { task.labels = []; }
-                    if (!task.labels.includes('blocked')) { task.labels.push('blocked'); }
-                    const failureComment = `[comment: loop pass ${passCount}: verification failed on ${new Date().toISOString()}\nLogs:\n${errorLogs}]`;
-                    await this.appendCommentToTask(task, failureComment);
-                    response.markdown(`❌ **${task.title}**: failed → back to **${targetLane.toUpperCase()}** (blocked)\n\n`);
-                    totalParked++;
+        // Gather ready tasks in the lane
+        const allTasks = this.taskStore.getAll();
+        const readyTasks = allTasks.filter(task => {
+            if (task.lane !== lane) { return false; }
+            if (task.labels?.includes('blocked')) { return false; }
+            if (task.dependsOn && task.dependsOn.length > 0) {
+                for (const depId of task.dependsOn) {
+                    const dep = allTasks.find(t => t.id === depId || t.slug === depId);
+                    if (dep && dep.lane !== 'done' && dep.lane !== 'archive') { return false; }
                 }
             }
+            if (filterLabel && (!task.labels || !task.labels.includes(filterLabel))) { return false; }
+            if (filterPriority && task.priority !== filterPriority) { return false; }
+            return true;
+        });
 
-            if (advancedThisPass === 0) {
-                break; // Dry — no progress this pass
-            }
+        if (readyTasks.length === 0) {
+            response.markdown(`No ready tasks in \`${lane}\`.\n`);
+            return;
         }
 
-        if (passCount >= MAX_LOOP_PASSES) {
-            capHit = true;
+        // Load the prompt (workspace copy first, bundled fallback)
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            response.markdown('No workspace folder is open.\n');
+            return;
         }
 
-        // Loop Summary
-        const allTasksFinal = this.taskStore.getAll();
-        const remaining = allTasksFinal.filter(t => t.lane === targetLane && !t.labels?.includes('blocked')).length;
+        let promptContent: string;
+        let promptUri: vscode.Uri;
 
-        response.markdown(`### Loop Summary\n\n`);
-        response.markdown(`- Profile: **${config.profile}**\n`);
-        response.markdown(`- Source lane: \`${targetLane}\` → Advance to: \`${advanceLane}\`\n`);
-        response.markdown(`- Passes run: **${passCount}**${capHit ? ' (**cap hit**)' : ''}\n`);
-        response.markdown(`- Total advanced: **${totalAdvanced}**\n`);
-        response.markdown(`- Parked/blocked: **${totalParked}**\n`);
-        response.markdown(`- Remaining (unblocked) in \`${targetLane}\`: **${remaining}**\n`);
+        const workspacePromptUri = vscode.Uri.joinPath(workspaceFolder.uri, ...PROMPTS_REL_PATH.split('/'), promptName);
+        const bundledPromptUri = vscode.Uri.joinPath(this.extensionUri, 'assets', 'prompts', promptName);
 
-        if (capHit) {
-            response.markdown(`\n> Loop hit the ${MAX_LOOP_PASSES}-pass safety cap. Re-run \`@kanban /loop\` to continue.\n`);
+        try {
+            promptUri = (await this.exists(workspacePromptUri)) ? workspacePromptUri : bundledPromptUri;
+            const bytes = await vscode.workspace.fs.readFile(promptUri);
+            promptContent = new TextDecoder().decode(bytes);
+        } catch (err: any) {
+            response.markdown(`Failed to read prompt \`${promptName}\`: ${err.message}\n`);
+            return;
         }
+
+        // Interpolate
+        const activePack = config.activeStack
+            ? config.packs?.find(p => p.name === config.activeStack)
+            : undefined;
+        const firstReady = readyTasks[0];
+        const taskRelPath = this.taskStore.getTaskUri(firstReady.id).fsPath.replace(
+            workspaceFolder.uri.fsPath + (process.platform === 'win32' ? '\\' : '/'), '',
+        );
+        const vars = {
+            ...resolveVars(config, activePack),
+            taskTitle: firstReady.title,
+            taskFile: taskRelPath,
+        };
+        const interpolated = interpolate(promptContent, vars);
+
+        // Build ready-task list for multi-task context
+        const taskList = readyTasks.map(t => {
+            const relPath = this.taskStore.getTaskUri(t.id).fsPath.replace(
+                workspaceFolder.uri.fsPath + (process.platform === 'win32' ? '\\' : '/'), '',
+            );
+            return `- **${t.title}** (\`${relPath}\`)`;
+        }).join('\n');
+
+        // Copy to clipboard
+        try {
+            await vscode.env.clipboard.writeText(interpolated);
+        } catch {
+            // Non-fatal — button still works
+        }
+
+        response.markdown(`## Loop: \`${lane}\` driver (${config.profile})\n\n`);
+        response.markdown(`### Ready tasks in \`${lane}\` (${readyTasks.length})\n\n${taskList}\n\n`);
+        response.reference(promptUri);
+
+        // Button sends the prompt directly into chat — one click, no copy-paste needed
+        response.button({
+            title: '▶ Send prompt to chat',
+            command: 'workbench.action.chat.open',
+            arguments: [{ query: interpolated }],
+        });
+        response.markdown('\n\nPrompt also copied to clipboard.\n');
     }
 
     private async handlePack(
@@ -1834,24 +1756,6 @@ export class ChatParticipant {
             response.markdown('- `@kanban /pack list` - List all configured stack packs\n');
             response.markdown('- `@kanban /pack use <name>` - Select a stack pack and bake it into prompts and AGENTS.md\n');
         }
-    }
-
-    private async appendCommentToTask(task: import('../types').Task, comment: string): Promise<void> {
-        const uri = this.taskStore.getTaskUri(task.id);
-        let body = '\n## Conversation\n\n### user\n\n';
-        try {
-            const existing = await vscode.workspace.fs.readFile(uri);
-            const existingText = new TextDecoder().decode(existing);
-            const parsed = TaskStore.splitFrontmatter(existingText);
-            if (parsed.body) {
-                body = parsed.body;
-            }
-        } catch {
-            // Keep default body
-        }
-        const separator = body.endsWith('\n') ? '' : '\n';
-        const updatedBody = `${body}${separator}\n${comment}\n`;
-        await this.taskStore.saveWithBody(task, updatedBody);
     }
 
     private getTaskSlug(task: { id: string; title: string; slug?: string }): string {

@@ -109,6 +109,30 @@ export class TransitionService {
                 }
             }
 
+            // Definition of Done checklist gate
+            const reqDoneChecklist = transPolicies?.requireDoneChecklistForDone ?? (config.profile === 'standard');
+            if (reqDoneChecklist) {
+                if (!task.doneChecklist || task.doneChecklist.total === 0) {
+                    addBlockingRule('A "## Definition of Done" section with checklist items is required before moving to DONE. Add one to the task body and check all items.');
+                } else if (task.doneChecklist.done < task.doneChecklist.total) {
+                    const remaining = task.doneChecklist.total - task.doneChecklist.done;
+                    const humanRemaining = task.doneChecklist.humanTotal - task.doneChecklist.humanDone;
+                    let msg = `${remaining} of ${task.doneChecklist.total} Definition of Done item(s) still unchecked.`;
+                    if (humanRemaining > 0) {
+                        msg += ` ${humanRemaining} human-owned item(s) require human sign-off.`;
+                    }
+                    // Human-owned items: if there are unchecked human items, block unless the
+                    // move actor is in the override actors list as 'human'.
+                    if (humanRemaining > 0) {
+                        const overrideActors = config.enforcement?.overrides?.actors ?? [];
+                        if (!overrideActors.includes('human')) {
+                            msg += ' Human sign-off required (current override actors do not include "human").';
+                        }
+                    }
+                    addBlockingRule(msg);
+                }
+            }
+
             // If verification commands are configured, warn if evidence wasn't recorded
             const verPolicies = config.policies?.verification;
             if (verPolicies && evResult.missing.length === 0) {

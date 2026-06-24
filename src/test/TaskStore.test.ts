@@ -384,11 +384,66 @@ describe('TaskStore', () => {
             TaskStore.syncLabelsAndDependsOn(task);
 
             expect(task.dependsOn).toEqual(['task-a']);
+            expect(task.labels).toContain('blocked-by:task-a');
+            expect(task.labels).toContain('foo');
 
+            // Both labels and dependsOn must be cleared to remove dependencies
             task.labels = ['foo'];
+            task.dependsOn = undefined;
             TaskStore.syncLabelsAndDependsOn(task);
 
             expect(task.dependsOn).toBeUndefined();
+            expect(task.labels).toEqual(['foo']);
+        });
+
+        it('should synchronise blocked-by labels from dependsOn bidirectionally', () => {
+            // dependsOn without blocked-by labels should add the labels
+            const task: Task = {
+                id: 'task_002',
+                title: 'Bidirectional sync test',
+                lane: 'todo',
+                created: '2026-03-08T10:00:00.000Z',
+                updated: '2026-03-08T10:00:00.000Z',
+                labels: ['foo'],
+                dependsOn: ['task-a', 'task-b']
+            };
+
+            TaskStore.syncLabelsAndDependsOn(task);
+
+            expect(task.dependsOn).toEqual(['task-a', 'task-b']);
+            expect(task.labels).toContain('blocked-by:task-a');
+            expect(task.labels).toContain('blocked-by:task-b');
+            expect(task.labels).toContain('foo');
+
+            // Both labels and dependsOn must be cleared to remove dependencies
+            task.labels = ['foo'];
+            task.dependsOn = undefined;
+            TaskStore.syncLabelsAndDependsOn(task);
+
+            expect(task.dependsOn).toBeUndefined();
+            expect(task.labels).not.toContain('blocked-by:task-a');
+            expect(task.labels).not.toContain('blocked-by:task-b');
+            expect(task.labels).toContain('foo');
+        });
+
+        it('should merge dependsOn and blocked-by labels into a union', () => {
+            const task: Task = {
+                id: 'task_003',
+                title: 'Merge test',
+                lane: 'todo',
+                created: '2026-03-08T10:00:00.000Z',
+                updated: '2026-03-08T10:00:00.000Z',
+                labels: ['blocked-by:task-a'],
+                dependsOn: ['task-b']
+            };
+
+            TaskStore.syncLabelsAndDependsOn(task);
+
+            // Both task-a and task-b should appear in both fields
+            expect(task.dependsOn).toContain('task-a');
+            expect(task.dependsOn).toContain('task-b');
+            expect(task.labels).toContain('blocked-by:task-a');
+            expect(task.labels).toContain('blocked-by:task-b');
         });
 
         it('should treat change and spec as first-class keys (not extras) and round-trip them', () => {
@@ -1301,5 +1356,69 @@ describe('wipExceeded', () => {
     it('returns null when the lane has no limit', () => {
         expect(wipExceeded(cfg, tasks, 'planning', 'a')).toBeNull();
         expect(wipExceeded({ wipLimits: undefined }, tasks, 'in-progress', 'b')).toBeNull();
+    });
+});
+
+describe('TaskStore.getDoneChecklistProgress', () => {
+    let store: TaskStore;
+
+    beforeEach(() => {
+        const uri = { scheme: 'file', fsPath: '/test', path: '/test', toString: () => '/test' } as any;
+        store = new TaskStore(uri);
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    const mockBody = (md: string) => {
+        vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(new TextEncoder().encode(md));
+    };
+
+    it('returns null when there is no Definition of Done section', async () => {
+        mockBody('---\ntitle: T\n---\n\n## Conversation\n\n- [ ] not a DoD item\n');
+        expect(await store.getDoneChecklistProgress('task_x')).toBeNull();
+    });
+
+    it('counts checked/unchecked items and splits agent vs human owners', async () => {
+        mockBody([
+            '## Definition of Done',
+            '- [x] (agent) All tests green',
+            '- [ ] (human) UX sign-off',
+            '- [x] Untagged defaults to agent',
+            '',
+        ].join('\n'));
+        expect(await store.getDoneChecklistProgress('task_x')).toEqual({
+            done: 2, total: 3, agentDone: 2, agentTotal: 2, humanDone: 0, humanTotal: 1,
+        });
+    });
+
+    it('does NOT count checklist items from a sibling section after DoD (regression)', async () => {
+        mockBody([
+            '## Definition of Done',
+            '- [x] (agent) done item',
+            '',
+            '## Notes',
+            '- [ ] planning leftover should not leak',
+            '- [ ] another non-DoD item',
+            '',
+        ].join('\n'));
+        expect(await store.getDoneChecklistProgress('task_x')).toEqual({
+            done: 1, total: 1, agentDone: 1, agentTotal: 1, humanDone: 0, humanTotal: 0,
+        });
+    });
+
+    it('keeps counting through h3 subheadings inside the DoD section', async () => {
+        mockBody([
+            '## Definition of Done',
+            '### Automated',
+            '- [x] (agent) tests',
+            '### Manual',
+            '- [ ] (human) approve',
+            '',
+        ].join('\n'));
+        expect(await store.getDoneChecklistProgress('task_x')).toEqual({
+            done: 1, total: 2, agentDone: 1, agentTotal: 1, humanDone: 0, humanTotal: 1,
+        });
     });
 });

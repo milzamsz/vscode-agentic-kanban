@@ -424,6 +424,15 @@
         font-variant-numeric: tabular-nums;
     }
 
+    .dod-badge {
+        @apply text-xs font-medium rounded px-1.5 py-0.5 inline-block ml-1;
+        line-height: 1.2;
+        background: var(--vscode-editorWidget-background, #2a2a2a);
+        color: var(--vscode-descriptionForeground, #b8b8b8);
+        font-variant-numeric: tabular-nums;
+        border: 1px solid var(--vscode-widget-border, #3a3a3a);
+    }
+
     .warn-badge {
         @apply text-xs font-semibold inline-block;
         line-height: 1.2;

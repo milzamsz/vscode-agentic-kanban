@@ -36,6 +36,9 @@ These rules augment the Agentic Kanban section below and the `.agentkanban/INSTR
 A task reaches `done` only when: lint + test + build are green, the capability spec's acceptance
 criteria are met **with evidence the behavior RUNS** (test output, a real run, a workflow/job id) -
 not a DB row or a status write - and behavior docs are updated. State what was run vs skipped.
+When `requireDoneChecklistForDone` is on (standard profile default), the task body must also
+contain a `## Definition of Done` section with all items checked; items tagged `(human)` require
+a human actor to clear.
 
 ### Kanban-first: no code without a task file
 Every implementation change must be tracked in a task file under `.agentkanban/tasks/` with the

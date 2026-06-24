@@ -11,6 +11,15 @@ const TASKS_DIR = '.agentkanban/tasks';
 const FRONTMATTER_FENCE = '---';
 
 /**
+ * Regex to match checklist items with optional (agent)/(human) owner tag.
+ * Examples:
+ *   - [x] (agent) All tests pass
+ *   - [ ] (human) UX sign-off
+ *   - [ ] Untagged item (defaults to agent)
+ */
+const DONE_CHECKLIST_REGEX = /^\s*[-*]\s+\[( |x|X)\]\s+(?:\((agent|human)\)\s+)?(.+)$/;
+
+/**
  * Frontmatter keys the Task schema handles explicitly. Anything else found on
  * disk is preserved verbatim in `Task.extras` so conventions layered on top of
  * the extension (e.g. `dependsOn`) are not dropped on the next save.
@@ -377,11 +386,62 @@ export class TaskStore {
     }
 
     /**
-     * Compute board-rendering flags for a task: checklist progress, and whether a
-     * declared `change` folder or `spec` file is missing on disk. Non-throwing.
+     * Count `- [x]` / `- [ ]` checklist items in the task's **Definition of Done** (`## Definition of Done`)
+     * section. Returns null when the section is missing or contains no items.
      */
-    async getDerived(task: Task): Promise<Pick<Task, 'checklist' | 'specMissing' | 'changeMissing'>> {
+    async getDoneChecklistProgress(taskId: string): Promise<{ done: number; total: number; agentDone: number; agentTotal: number; humanDone: number; humanTotal: number } | null> {
+        const uri = this.getTaskUri(taskId);
+        try {
+            const text = new TextDecoder().decode(await vscode.workspace.fs.readFile(uri));
+            let done = 0;
+            let total = 0;
+            let agentDone = 0;
+            let agentTotal = 0;
+            let humanDone = 0;
+            let humanTotal = 0;
+            const lines = text.split('\n');
+            let inDoneSection = false;
+            for (const line of lines) {
+                if (/^\s*##\s+Definition of Done/.test(line)) {
+                    inDoneSection = true;
+                    continue;
+                }
+                if (inDoneSection && /^\s*#{1,2}\s/.test(line)) {
+                    // A sibling/parent heading (h1 or h2) ends the DoD section.
+                    // Deeper headings (h3+) are allowed as subsections inside it.
+                    inDoneSection = false;
+                    continue;
+                }
+                if (!inDoneSection) { continue; }
+
+                const m = DONE_CHECKLIST_REGEX.exec(line);
+                if (!m) { continue; }
+                const isChecked = m[1] !== ' ';
+                const owner = m[2] || 'agent'; // agent or human (defaults to agent)
+                total++;
+                if (isChecked) { done++; }
+                if (owner === 'agent') {
+                    agentTotal++;
+                    if (isChecked) agentDone++;
+                } else {
+                    humanTotal++;
+                    if (isChecked) humanDone++;
+                }
+            }
+
+            return total > 0 ? { done, total, agentDone, agentTotal, humanDone, humanTotal } : null;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Compute board-rendering flags for a task: checklist progress, doneChecklist progress,
+     * and whether a declared `change` folder or `spec` file is missing on disk. Non-throwing.
+     */
+    async getDerived(task: Task): Promise<Pick<Task, 'checklist' | 'doneChecklist' | 'specMissing' | 'changeMissing'>> {
         const checklist = (await this.getChecklistProgress(task.id)) ?? undefined;
+        const doneChecklist = (await this.getDoneChecklistProgress(task.id)) ?? undefined;
         let changeMissing: boolean | undefined;
         if (task.change) {
             changeMissing = !(await this.fileExists(this.uriFromRel(task.change))) || undefined;
@@ -390,7 +450,7 @@ export class TaskStore {
         if (task.spec) {
             specMissing = !(await this.fileExists(this.uriFromRel(task.spec))) || undefined;
         }
-        return { checklist, specMissing, changeMissing };
+        return { checklist, doneChecklist, specMissing, changeMissing };
     }
 
     /** Check if a task is stored in the archive directory. */
@@ -412,15 +472,51 @@ export class TaskStore {
     private _archivedIds = new Set<string>();
 
     static syncLabelsAndDependsOn(task: Task): void {
+        // Collect slugs from blocked-by labels
         const blockedBySlugs = (task.labels ?? [])
             .filter(l => l.startsWith('blocked-by:'))
             .map(l => l.substring('blocked-by:'.length).trim())
             .filter(Boolean);
-        if (blockedBySlugs.length > 0) {
-            task.dependsOn = blockedBySlugs;
+
+        // Collect slugs from dependsOn
+        const dependsOnSlugs = (task.dependsOn ?? [])
+            .map(s => s.trim())
+            .filter(Boolean);
+
+        // Merge: union of both sources
+        const union = new Set<string>();
+        for (const s of blockedBySlugs) { union.add(s); }
+        for (const s of dependsOnSlugs) { union.add(s); }
+
+        if (union.size > 0) {
+            task.dependsOn = Array.from(union);
         } else {
             task.dependsOn = undefined;
         }
+
+        // Sync labels: ensure blocked-by labels exist for every dependsOn slug
+        // Keep existing labels that are not blocked-by, plus re-add blocked-by for union slugs
+        const newLabels: string[] = [];
+        const addedBlockedBy = new Set<string>();
+        for (const label of (task.labels ?? [])) {
+            if (label.startsWith('blocked-by:')) {
+                const slug = label.substring('blocked-by:'.length).trim();
+                if (union.has(slug) && !addedBlockedBy.has(slug)) {
+                    newLabels.push(label);
+                    addedBlockedBy.add(slug);
+                }
+            } else {
+                newLabels.push(label);
+            }
+        }
+        // Add blocked-by labels for any union slugs not yet represented
+        for (const slug of union) {
+            if (!addedBlockedBy.has(slug)) {
+                newLabels.push(`blocked-by:${slug}`);
+                addedBlockedBy.add(slug);
+            }
+        }
+        task.labels = newLabels.length > 0 ? newLabels : undefined;
     }
 
     async save(task: Task): Promise<void> {
