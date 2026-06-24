@@ -1264,3 +1264,31 @@
         margin-top: 4px;
     }
 
+    .modal-branch-container {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .modal-branch-badge {
+        font-family: var(--vscode-editor-font-family, monospace);
+        font-size: 12px;
+        color: var(--vscode-textLink-foreground);
+        padding: 4px 8px;
+        background-color: var(--vscode-textSeparator-foreground, rgba(128, 128, 128, 0.1));
+        border-radius: 4px;
+        word-break: break-all;
+    }
+
+    .modal-branch-empty {
+        font-style: italic;
+        color: var(--vscode-disabledForeground);
+        font-size: 12px;
+    }
+
+    .modal-branch-actions {
+        display: flex;
+        gap: 6px;
+    }
+
+

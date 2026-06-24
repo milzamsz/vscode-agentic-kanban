@@ -14,6 +14,7 @@ interface BoardState {
     tasks: Task[];
     config: BoardConfig;
     isInitialised?: boolean;
+    currentBranch?: string;
 }
 
 // ── State ────────────────────────────────────────────────────────────────────
@@ -87,6 +88,8 @@ const ICON_ARCHIVE = '<svg class="inline-icon" viewBox="0 0 16 16" fill="none" s
 const ICON_CALENDAR = '<svg class="inline-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="11" rx="1"/><path d="M5 1v3M11 1v3M2 7h12"/></svg>';
 const ICON_BRANCH = '<svg class="inline-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="4" r="2"/><circle cx="5" cy="12" r="2"/><circle cx="11" cy="6" r="2"/><path d="M5 6v4M9.2 5L7 7"/></svg>';
 const ICON_BRANCH_ADD = '<svg class="inline-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="4" cy="4" r="2"/><circle cx="4" cy="12" r="2"/><path d="M4 6v4"/><path d="M10 7v4M8 9h4"/></svg>';
+const ICON_COPY = '<svg class="inline-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1"/><path d="M3.5 10.5h-1a1 1 0 01-1-1v-6a1 1 0 011-1h6a1 1 0 011 1v1"/></svg>';
+const ICON_CHECK = '<svg class="inline-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 4.5l-7 7-3.5-3.5"/></svg>';
 
 function isOverdue(isoDate: string): boolean {
     const today = new Date();
@@ -427,7 +430,7 @@ function buildCardHtml(task: Task): string {
                 <div class="card-date">${formatIsoToDate(task.updated)}</div>
                 <div class="card-footer-actions">
                     ${task.worktree
-            ? `<button class="icon-btn card-worktree-open" data-worktree-open-task-id="${esc(task.id)}" title="Open worktree">${ICON_BRANCH}</button>`
+            ? `<button class="icon-btn card-worktree-open" data-worktree-open-task-id="${esc(task.id)}" title="Branch: ${esc(task.worktree.branch)} (Click to open worktree)">${ICON_BRANCH}</button>`
             : `<button class="icon-btn card-worktree-create" data-worktree-create-task-id="${esc(task.id)}" title="Create worktree">${ICON_BRANCH_ADD}</button>`
         }
                     <button class="icon-btn card-archive" data-archive-task-id="${esc(task.id)}" title="Archive task">${ICON_ARCHIVE}</button>
@@ -450,6 +453,11 @@ function buildModalHtml(): string {
                     <button class="icon-btn" id="modal-close" title="Close">&times;</button>
                 </div>
                 <div class="modal-body">
+                    <div class="form-row" id="modal-branch-info-row" hidden>
+                        <label class="form-label">Branch</label>
+                        <div class="modal-branch-container" id="modal-branch-container">
+                        </div>
+                    </div>
                     <div class="form-row" id="modal-description-row" hidden>
                         <label class="form-label" for="modal-description">Description</label>
                         <textarea class="form-control" id="modal-description" rows="3" placeholder="Describe the task…"></textarea>
@@ -689,6 +697,44 @@ function handleClick(e: MouseEvent): void {
         }
         return;
     }
+    // ── Branch and Worktree handlers ──
+    if ((t as HTMLElement).id === 'modal-btn-copy-branch' || (t as HTMLElement).closest('#modal-btn-copy-branch')) {
+        const copyBranchBtn = document.getElementById('modal-btn-copy-branch');
+        const branchText = document.getElementById('modal-branch-info')?.textContent;
+        if (copyBranchBtn && branchText) {
+            navigator.clipboard.writeText(branchText);
+            const originalTitle = copyBranchBtn.getAttribute('title');
+            copyBranchBtn.setAttribute('title', 'Copied!');
+            copyBranchBtn.innerHTML = ICON_CHECK;
+            setTimeout(() => {
+                copyBranchBtn.setAttribute('title', originalTitle || 'Copy branch name');
+                copyBranchBtn.innerHTML = ICON_COPY;
+            }, 1000);
+        }
+        return;
+    }
+    if ((t as HTMLElement).id === 'modal-btn-open-worktree' || (t as HTMLElement).closest('#modal-btn-open-worktree')) {
+        if (modalTaskId) {
+            vscode.postMessage({ type: 'openWorktree', taskId: modalTaskId });
+            closeModal();
+        }
+        return;
+    }
+    if ((t as HTMLElement).id === 'modal-btn-create-worktree' || (t as HTMLElement).closest('#modal-btn-create-worktree')) {
+        if (modalTaskId) {
+            vscode.postMessage({ type: 'createWorktree', taskId: modalTaskId });
+            closeModal();
+        }
+        return;
+    }
+    if ((t as HTMLElement).id === 'modal-btn-link-branch' || (t as HTMLElement).closest('#modal-btn-link-branch')) {
+        if (modalTaskId) {
+            vscode.postMessage({ type: 'linkBranch', taskId: modalTaskId });
+            closeModal();
+        }
+        return;
+    }
+
     // ── Search handlers ──
     if ((t as HTMLElement).id === 'search-clear-btn' || (t as HTMLElement).id === 'search-clear-btn2') {
         searchQuery = '';
@@ -1371,6 +1417,7 @@ function configureModalMode(): void {
         titleH3?.setAttribute('hidden', '');
         titleInput?.removeAttribute('hidden');
         descRow?.removeAttribute('hidden');
+        document.getElementById('modal-branch-info-row')?.setAttribute('hidden', '');
         if (footerLeft) {
             footerLeft.style.visibility = 'hidden';
         }
@@ -1394,6 +1441,28 @@ function populateModal(task: Task): void {
     const titleEl = document.getElementById('modal-task-title');
     if (titleEl) {
         titleEl.textContent = task.title;
+    }
+
+    const branchInfoRow = document.getElementById('modal-branch-info-row');
+    const branchContainer = document.getElementById('modal-branch-container');
+    if (branchInfoRow && branchContainer) {
+        if (task.worktree?.branch) {
+            branchContainer.innerHTML = `
+                <span class="modal-branch-badge" id="modal-branch-info">${esc(task.worktree.branch)}</span>
+                <button class="icon-btn" id="modal-btn-copy-branch" title="Copy branch name" type="button">${ICON_COPY}</button>
+                <button class="btn-secondary btn-sm" id="modal-btn-open-worktree" type="button">Open Worktree</button>
+            `;
+            branchInfoRow.removeAttribute('hidden');
+        } else {
+            branchContainer.innerHTML = `
+                <span class="modal-branch-empty">No active branch/worktree</span>
+                <div class="modal-branch-actions">
+                    <button class="btn-secondary btn-sm" id="modal-btn-create-worktree" type="button">Create Worktree</button>
+                    <button class="btn-secondary btn-sm" id="modal-btn-link-branch" type="button">Link Branch</button>
+                </div>
+            `;
+            branchInfoRow.removeAttribute('hidden');
+        }
     }
 
     const laneEl = document.getElementById('modal-lane') as HTMLSelectElement | null;
@@ -2381,22 +2450,6 @@ function buildSettingsModalHtml(): string {
                         </div>
 
                         <div class="section">
-                            <h4 class="section-label">Verification Commands</h4>
-                            <div class="form-row">
-                                <label class="form-label" for="settings-verification-test">Test</label>
-                                <input class="form-control" type="text" id="settings-verification-test" placeholder="npm test" value="${esc((verification as any).testCommand || '')}">
-                            </div>
-                            <div class="form-row">
-                                <label class="form-label" for="settings-verification-lint">Lint</label>
-                                <input class="form-control" type="text" id="settings-verification-lint" placeholder="npx tsc --noEmit" value="${esc((verification as any).lintCommand || '')}">
-                            </div>
-                            <div class="form-row">
-                                <label class="form-label" for="settings-verification-build">Build</label>
-                                <input class="form-control" type="text" id="settings-verification-build" placeholder="npm run build" value="${esc((verification as any).buildCommand || '')}">
-                            </div>
-                        </div>
-
-                        <div class="section">
                             <h4 class="section-label">Review Policy Matrix</h4>
                             <div class="settings-table-container">
                                 <table class="settings-table">
@@ -2411,6 +2464,22 @@ function buildSettingsModalHtml(): string {
                                         ${enforcementMatrix}
                                     </tbody>
                                 </table>
+                            </div>
+                        </div>
+
+                        <div class="section">
+                            <h4 class="section-label">Verification Commands</h4>
+                            <div class="form-row">
+                                <label class="form-label" for="settings-verification-test">Test</label>
+                                <input class="form-control" type="text" id="settings-verification-test" placeholder="npm test" value="${esc((verification as any).testCommand || '')}">
+                            </div>
+                            <div class="form-row">
+                                <label class="form-label" for="settings-verification-lint">Lint</label>
+                                <input class="form-control" type="text" id="settings-verification-lint" placeholder="npx tsc --noEmit" value="${esc((verification as any).lintCommand || '')}">
+                            </div>
+                            <div class="form-row">
+                                <label class="form-label" for="settings-verification-build">Build</label>
+                                <input class="form-control" type="text" id="settings-verification-build" placeholder="npm run build" value="${esc((verification as any).buildCommand || '')}">
                             </div>
                         </div>
                     </div>

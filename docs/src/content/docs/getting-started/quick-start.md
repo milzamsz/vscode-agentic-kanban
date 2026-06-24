@@ -3,7 +3,7 @@ title: Quick Start
 description: Walk through the standard developer-agent lifecycle end-to-end.
 ---
 
-Get up and running with the **Standard** spec-driven development loop in a few minutes.
+This guide walks through a complete feature task on the **Standard** profile — from creating a task to archiving it as done. Lite profile is the same but skips `planning` and `review`.
 
 ```mermaid
 flowchart TD
@@ -21,7 +21,7 @@ flowchart TD
     J -->|Yes| K[Move to done]
 ```
 
-> See the [Prompting templates](/getting-started/prompting/) for copy-pasteable prompts.
+> See the [Prompting templates](/getting-started/prompting/) for copy-pasteable prompts to paste into your agent session at each stage.
 
 ---
 
@@ -85,7 +85,7 @@ On the **Standard** profile, this scaffolds the following change directory struc
 1. Move the task card from `backlog` to `planning` on the board UI.
 2. Open and refine `proposal.md` and `design.md`.
 3. Add checklist items under `tasks.md`.
-4. Once the plan is complete, get it approved by moving it from `planning` to `in-progress`. (This constitutes the plan-approval human gate).
+4. When the plan is ready, **you** move it from `planning` to `in-progress` — this is the plan-approval human gate. The agent cannot cross this; it will wait for your move.
 
 ---
 
@@ -106,10 +106,15 @@ The extension creates a clean worktree folder outside your main repository and o
 
 ## 6. Review and Complete (`review -> done`)
 
-1. Move the task to `review`. If verification commands (`lintCommand`, `testCommand`, `buildCommand`) are defined in your `board.yaml`, the extension will automatically run them and ensure they pass.
-2. Review the code. If changes are requested, move it back to `in-progress`.
-3. If everything is verified, merge the worktree branch through your normal git flow.
-4. Move the task to `done` on the board.
+1. Move the task to `review` on the board. Run lint, tests, and build to confirm everything passes.
+2. Review the code. If changes are needed, move it back to `in-progress`.
+3. Once verified, **you** move it to `done` — this is the completion human gate. Record evidence if required:
+   ```text
+   @kanban /evidence add-oauth2-login lint pass
+   @kanban /evidence add-oauth2-login test pass
+   @kanban /evidence add-oauth2-login build pass
+   ```
+4. Merge the worktree branch through your normal Git flow.
 5. Archive the change folder to keep the repository clean:
    ```text
    @kanban /archive add-oauth2-login

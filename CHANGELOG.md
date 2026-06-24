@@ -2,25 +2,33 @@
 
 All notable changes to Agentic Kanban will be documented here.
 
-## [1.6.9] - 2026-06-24
+## [1.6.8] - 2026-06-24
 
 ### Added
+- **`/goal` command**: define a high-level goal as a hybrid epic card + structured goal artifact (`.agentkanban/goals/<slug>/goal.md`). Copies a profile-aware decompose prompt to clipboard so an agent can break the goal into `parent`-linked backlog tasks. Subcommands: `/goal new <objective>`, `/goal` (dashboard), `/goal show <slug>`.
+- `goal` frontmatter field on Task: path to the goal artifact for epic tasks.
+- `goal-decompose.md` bundled prompt scaffolded to `.agentkanban/prompts/` (Standard and Lite profiles); profile-shaped via `{{profile}}`, `{{lanes}}`, `{{advance}}`.
+- Goal artifact template at `assets/goal-templates/goal.md` with sections for objective, acceptance criteria, success metrics, constraints, out of scope, and decomposition.
 - **Evidence recording UI** in task modal: lint/test/build/behavior checks with Pass/Fail buttons; status persisted to task frontmatter via `TaskStore`
 - Evidence status indicators (✅/❌/—) shown inline in the modal for each check
 
-### Fixed
-- `TaskStore` now correctly serialises and deserialises `evidence`, `parent`, `superseeds`, `supersededBy`, `blockerResolved` fields (were silently dropped on save)
-- `/evidence` chat command: show evidence status or record pass/fail per check
-- `blockerResolved` flag set automatically when `blocked`/`blocked-by` labels are cleared during `/sweep`
-- `/pack`, `/work`, `/evidence` commands registered in VS Code command palette
-
-## [1.6.8] - 2026-06-24
+### Changed
+- **`/sweep` renamed to `/loop`** (loop-until-dry, profile-aware). `/loop` runs multiple passes over ready tasks until no task can advance in a pass (or the 25-pass safety cap is hit). `/sweep` kept as a deprecated alias with a one-line notice.
+- `/loop` is now profile-aware: Standard default lane `planning`, advance target `review`; Lite default lane `in-progress`, advance target `done`.
+- `/loop review` is refused in Standard profile (human gate guard) with a notice pointing to `/evidence` and a manual move.
+- Tasks carrying a `blocked` label are excluded from the ready set and not retried in subsequent passes.
+- Loop Summary replaces Sweep Summary: shows profile, source/target lanes, passes run, total advanced, parked/blocked, remaining, and cap-hit flag.
+- `package.json` `goal` chat participant command registered.
 
 ### Fixed
 - Restored **Global Stack Templates** feature: `~/.agentkanban/templates.yaml` stores reusable stack packs across projects
 - Settings > Skill Packs > Active Stack dropdown now lists local packs, global templates (prefixed `[Global]`), and a `+ Create New Template...` option
 - Selecting `+ Create New Template...` reveals an inline form (name, stack label, skills, coverage, verify commands); Save writes to `templates.yaml`, merges into board config, re-scaffolds prompts, and refreshes the dropdown
 - Selecting a global template as the active stack auto-merges it into `config.packs` so `resolveVars` finds it
+- `TaskStore` now correctly serialises and deserialises `evidence`, `parent`, `superseeds`, `supersededBy`, `blockerResolved` fields (were silently dropped on save)
+- `/evidence` chat command: show evidence status or record pass/fail per check
+- `blockerResolved` flag set automatically when `blocked`/`blocked-by` labels are cleared during `/sweep`
+- `/pack`, `/work`, `/evidence` commands registered in VS Code command palette
 
 ## [1.6.7] - 2026-06-24
 

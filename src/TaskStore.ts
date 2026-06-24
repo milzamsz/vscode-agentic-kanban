@@ -19,7 +19,7 @@ const KNOWN_FRONTMATTER_KEYS = new Set([
     'title', 'lane', 'created', 'updated', 'description', 'priority', 'assignee',
     'labels', 'dueDate', 'sortOrder', 'slug', 'reviewType', 'resumeLane', 'worktree',
     'change', 'spec', 'dependsOn', 'evidence',
-    'parent', 'superseeds', 'superseededBy', 'blockerResolved',
+    'parent', 'superseeds', 'superseededBy', 'blockerResolved', 'goal',
 ]);
 
 const BLOCKED_LABEL = 'blocked';
@@ -707,6 +707,9 @@ export class TaskStore {
         if (task.evidence) {
             frontmatter.evidence = task.evidence;
         }
+        if (task.goal) {
+            frontmatter.goal = task.goal;
+        }
         if (task.parent) {
             frontmatter.parent = task.parent;
         }
@@ -795,6 +798,7 @@ export class TaskStore {
                 slug: typeof data.slug === 'string' ? data.slug : undefined,
                 change: typeof data.change === 'string' ? data.change : undefined,
                 spec: typeof data.spec === 'string' ? data.spec : undefined,
+                goal: typeof data.goal === 'string' ? data.goal : undefined,
                 dependsOn: finalDependsOn.length > 0 ? finalDependsOn : undefined,
                 resumeLane: typeof data.resumeLane === 'string' ? data.resumeLane : undefined,
                 worktree: data.worktree && typeof data.worktree === 'object'

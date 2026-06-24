@@ -41,7 +41,7 @@ export default defineConfig({
             { label: 'Lanes & Tasks', link: '/guides/lanes-and-tasks' },
             { label: 'Chat Commands', link: '/guides/chat-commands' },
             { label: 'Spec-Driven Development', link: '/guides/spec-driven-development' },
-            { label: 'Dependencies & Sweeps', link: '/guides/dependencies-and-sweeps' },
+            { label: 'Dependencies & Loop', link: '/guides/dependencies-and-sweeps' },
             { label: 'Git Worktrees', link: '/guides/worktrees' },
             { label: 'Context Injection', link: '/guides/context-injection' },
           ],

@@ -49,15 +49,47 @@ Forces a re-scaffolding of agent prompts.
 - **Usage:** `@kanban /prompts`
 - **Behavior:** Overwrites all prompts under `.agentkanban/prompts/` with the latest template versions.
 
-### `/sweep`
-Runs verification checks and processes tasks in a lane.
-- **Usage:** `@kanban /sweep [lane] [options]`
+### `/goal`
+Manages high-level objectives that group related tasks.
+- **Usage:**
+  - `@kanban /goal new <objective>` - Creates a new goal and links it to the board.
+  - `@kanban /goal` - Lists all active goals with their progress summary.
+  - `@kanban /goal show <slug>` - Shows the detail view for a specific goal by slug.
+
+### `/loop`
+Runs the loop-until-dry model: repeatedly advances tasks through lanes until no further progress can be made.
+- **Usage:** `@kanban /loop [lane] [options]`
 - **Options:**
-  - `--label=<name>` - Sweep only tasks carrying the specified label.
-  - `--priority=<level>` - Sweep only tasks of a specific priority level.
-  - `--pack=<name>` or `--stack=<name>` - Sweep tasks matching a specific technology pack.
-- **Example:** `@kanban /sweep in-progress --priority=high`
-- **Behavior:** Scans the target lane, validates dependencies, runs test/lint/build commands, and advances passing tasks while marking failing ones as blocked.
+  - `--label=<name>` - Loop only tasks carrying the specified label.
+  - `--priority=<level>` - Loop only tasks of a specific priority level.
+  - `--pack=<name>` or `--stack=<name>` - Loop tasks matching a specific technology pack.
+- **Example:** `@kanban /loop in-progress --priority=high`
+- **Behavior:** Scans the target lane, validates dependencies, runs test/lint/build commands, and advances passing tasks while marking failing ones as blocked. Repeats until the lane is dry.
+- **Profile behaviour:** Standard profile default advances `planning` to `review` (refuses `review` as source lane); Lite profile default advances `in-progress` to `done`.
+
+### `/sweep`
+Alias of `/loop` (deprecated). Use `/loop` instead.
+
+### `/work`
+Resolves a task and copies the work prompt to clipboard.
+- **Usage:** `@kanban /work [task]`
+- **Example:** `@kanban /work oauth2`
+- **Behavior:** Fuzzy-matches the task, interpolates the work-on-task stage prompt with the task's context, and copies the result to clipboard. Paste into any agent session to start working immediately.
+
+### `/evidence`
+Views or records evidence for a task (required before `review → done`).
+- **Usage:**
+  - `@kanban /evidence [task]` — show current evidence status
+  - `@kanban /evidence <task> <check> <pass|fail> ["<notes>"]` — record a result
+- **Example:** `@kanban /evidence oauth2 lint pass`
+- **Behavior:** Tracks `lint`, `test`, `build`, and `behavior` evidence entries on the task. The production-readiness gate requires all checks to pass before moving to `done`.
+
+### `/pack`
+Manages stack packs (drop-in language/framework context blocks).
+- **Usage:**
+  - `@kanban /pack list` — list available packs
+  - `@kanban /pack use <name>` — activate a pack and regenerate prompts
+- **Example:** `@kanban /pack use typescript-web`
 
 ### `/doctor`
 Runs a diagnostic sweep on the board state.

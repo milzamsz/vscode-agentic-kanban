@@ -97,6 +97,11 @@ export interface Task {
      * conventions layered on top of the extension are not lost on re-write.
      */
     evidence?: TaskEvidence;
+    /**
+     * Path to the goal artifact for this task, e.g. `.agentkanban/goals/<slug>`.
+     * Set on epic (goal) tasks created by `/goal new`.
+     */
+    goal?: string;
     /** Parent-child task relationships */
     parent?: string;
     superseeds?: string[];

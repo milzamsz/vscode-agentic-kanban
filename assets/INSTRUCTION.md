@@ -14,6 +14,9 @@ IMPORTANT: Always respond in the task file, not the chat window. Stay in the ass
 .agentkanban/
   .gitignore          # Auto-generated - ignores logs/
   board.yaml          # Workflow profile, lanes, and policy config
+  goals/
+    <goal-slug>/
+      goal.md              # goal artifact (objective, acceptance criteria, metrics, decomposition)
   specs/
     <capability>/spec.md   # capability contract — one per capability, shared across tasks
   changes/
@@ -46,6 +49,15 @@ updated: <ISO 8601>
 description: <Brief description>
 labels: [blocked, blocked-by:<slug>]    # optional blocker labels
 dependsOn: [<slug>]                     # task dependencies (synced with blocked-by labels)
+evidence:                               # optional — recorded via @kanban /evidence
+  lint: {ran: true, passed: true}
+  test: {ran: true, passed: true}
+  build: {ran: true, passed: true}
+  behavior: {ran: true, passed: true}
+goal: .agentkanban/goals/<slug>         # optional — goal artifact dir (set on epic tasks by /goal new)
+parent: <goal-slug>                     # optional — parent/goal slug (set on child tasks by /goal)
+superseeds: [<slug>]                    # optional — slugs of tasks this supersedes
+blockerResolved: true                   # optional — set when a blocker is cleared
 ---
 
 ## Conversation
@@ -126,6 +138,7 @@ Guidance:
 - `backlog` is for rough work items that still need lightweight clarification.
 - `in-progress` is where implementation happens.
 - `done` is for completed work.
+- `/loop` defaults to `in-progress` and advances passing tasks directly to `done` (no review gate in Lite).
 
 ### Standard profile
 
@@ -139,7 +152,8 @@ Guidance:
 - `planning`: refine scope, write the implementation plan, identify risks, and update the checklist artifact as needed. This is where the plan is **approved**. To transition a task from `planning` to `in-progress`, it must have a checklist with at least one item, and if it is spec-driven, it must also have a valid spec file and change folder.
 - `in-progress`: implement the approved plan. Entering `in-progress` is **not** a separate human gate — an agent may carry an approved task from `planning` straight through implementation to `review` in one pass (the autonomous `planning -> review` flow). When running this flow, the task must be moved to `in-progress` before starting work, so the board reflects the current progress state. Worktrees are optional unless the board policy requires them.
 - `review`: implementation review. Return to `in-progress` for revisions, or move to `done` when approved.
-- The two human gates are **plan approval** (in `planning`) and **`review -> done`**. Everything between can run hands-off.
+- The two human gates are **plan approval** (in `planning`) and **`review -> done`**. Everything between can run hands-off. Before moving to `done`, all four evidence checks (lint, test, build, behavior) must be recorded as passing via `@kanban /evidence`.
+- `/loop` defaults to `planning` and advances passing tasks to `review`. Running `/loop review` is refused as a human gate guard.
 - Real blockers → keep the task in its lane. Use the task's `dependsOn` frontmatter array or `blocked-by:<slug>` labels to document task dependencies, and the `blocked` label for external blockers. The board webview and backend sync these fields bidirectionally. Record what clears the blocker and never force past a real blocker.
 - One active implementation task at a time (WIP) unless the board allows otherwise.
 
@@ -158,13 +172,47 @@ The user may instruct you with these action words:
 
 Treat `TODO` as the checklist artifact only. Do not treat `todo` as a workflow lane.
 
+## Chat Commands Reference
+
+| Command | Usage | Purpose |
+| --- | --- | --- |
+| `/new` | `@kanban /new <title>` | Create task in backlog |
+| `/task` | `@kanban /task <name>` | Select task, inject context |
+| `/refresh` | `@kanban /refresh` | Re-inject workflow context |
+| `/spec` | `@kanban /spec [capability]` | Scaffold spec-driven artifacts |
+| `/worktree` | `@kanban /worktree` | Create git worktree for task |
+| `/archive` | `@kanban /archive [slug]` | Archive completed change folder |
+| `/prompts` | `@kanban /prompts` | Write/refresh bundled stage prompts |
+| `/loop` | `@kanban /loop [lane]` | Loop-until-dry over ready tasks; profile-aware advance target |
+| `/sweep` | `@kanban /sweep [lane]` | Alias of `/loop` (deprecated) |
+| `/goal new` | `@kanban /goal new <objective>` | Define a goal: epic card + artifact + decompose prompt |
+| `/goal` | `@kanban /goal` | Goal progress dashboard |
+| `/goal show` | `@kanban /goal show <slug>` | Detail view for a specific goal |
+| `/doctor` | `@kanban /doctor` | Run workflow diagnostics |
+| `/pack` | `@kanban /pack list\|use <name>` | Manage stack packs |
+| `/work` | `@kanban /work [task]` | Copy task work prompt to clipboard |
+| `/evidence` | `@kanban /evidence [task] [check] [pass\|fail]` | View or record task evidence |
+
 ## Execution Rules
 
 - Do not implement changes unless the task is in `in-progress`. When running the autonomous `planning -> review` flow on an approved task, you must move the task to `in-progress` before starting work.
 - Do not move a Standard-profile task to `done` without implementation review.
+- Respect WIP limits from `board.yaml` (`wipLimits.in-progress: 1` default for Standard). A move into a full lane is blocked (strict mode) or warned (warn mode).
 - Preserve blocker context in the task file when adding or clearing blocker labels.
 - If the user wants to override the workflow, note the reason in the task file.
 - Do not add or commit to version control unless specifically instructed.
+
+## Goals
+
+`@kanban /goal new <objective>` creates a goal epic task (with `goal` and `epic` labels) plus a goal artifact at `.agentkanban/goals/<slug>/goal.md`. It copies a decompose prompt to clipboard so you can break the goal into child tasks.
+
+Child tasks carry `parent: <goalSlug>` in frontmatter. The epic carries `goal: .agentkanban/goals/<slug>`.
+
+Goal tier: **goal (epic) > capability spec > change > task**. In Standard profile, complex child tasks should use `/spec` to attach a capability spec. In Lite, children use lightweight proposal + tasks only.
+
+After decomposition run `@kanban /loop` to drive child tasks forward. `/loop` is profile-aware and respects the two human gates (plan approval in `planning`; `review -> done`).
+
+`@kanban /goal` shows a progress dashboard. `@kanban /goal show <slug>` shows next-ready and blocked children.
 
 ## Worktree Guidance
 

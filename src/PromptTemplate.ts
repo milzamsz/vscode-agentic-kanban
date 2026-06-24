@@ -49,6 +49,24 @@ function getAdvance(profile: 'standard' | 'lite'): string {
 }
 
 /**
+ * Returns the default source lane for `/loop` based on profile.
+ * Standard: `planning` (autonomous planning→review driver).
+ * Lite: `in-progress` (no planning lane).
+ */
+export function getDefaultLoopLane(profile: 'standard' | 'lite'): string {
+    return profile === 'lite' ? 'in-progress' : 'planning';
+}
+
+/**
+ * Returns the advance target lane for a task that passed verification in `/loop`.
+ * Standard: always `review` (human gate before done).
+ * Lite: `done` (no review lane).
+ */
+export function getLoopAdvanceTarget(profile: 'standard' | 'lite', _sourceLane: string): string {
+    return profile === 'lite' ? 'done' : 'review';
+}
+
+/**
  * Resolves configuration values and active pack stack settings into variables
  * for prompt interpolation.
  */

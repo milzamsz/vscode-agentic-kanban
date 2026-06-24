@@ -12,7 +12,7 @@ Agentic Kanban requires **VS Code 1.95 or newer** (with the chat participant eng
 Download the latest `agentic-kanban-<version>.vsix` package from [GitHub Releases](https://github.com/milzamsz/vscode-agentic-kanban/releases), then install it from your terminal:
 
 ```bash
-code --install-extension agentic-kanban-1.6.4.vsix
+code --install-extension agentic-kanban-<version>.vsix
 ```
 
 Alternatively, inside VS Code:
@@ -46,5 +46,5 @@ If you want to build the extension from source:
    ```
 5. Install the generated VSIX file:
    ```bash
-   code --install-extension agentic-kanban-1.6.4.vsix
+   code --install-extension agentic-kanban-<version>.vsix
    ```

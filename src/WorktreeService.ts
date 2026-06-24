@@ -325,6 +325,41 @@ export class WorktreeService {
         return path.resolve(this.workspacePath, resolved);
     }
 
+    /** Get list of local git branches. */
+    async getBranches(): Promise<string[]> {
+        try {
+            const { stdout } = await this.git(['branch', '--format=%(refname:short)']);
+            return stdout.trim().split('\n').map(b => b.trim()).filter(Boolean);
+        } catch (err: any) {
+            this.logger.error('worktreeService', `Failed to list branches: ${err.message}`);
+            return [];
+        }
+    }
+
+    /** Get current active branch. */
+    async getCurrentBranch(): Promise<string> {
+        try {
+            const { stdout: showCurrentOut } = await this.git(['branch', '--show-current']);
+            const showCurrent = showCurrentOut.trim();
+            if (showCurrent) {
+                return showCurrent;
+            }
+            const { stdout } = await this.git(['branch']);
+            const lines = stdout.split('\n');
+            for (const line of lines) {
+                if (line.trim().startsWith('*')) {
+                    const branch = line.replace('*', '').trim();
+                    if (!branch.startsWith('(')) {
+                        return branch;
+                    }
+                }
+            }
+            return '';
+        } catch {
+            return '';
+        }
+    }
+
     // ── Private Helpers ──────────────────────────────────────────────────────
 
     /** Run a git command in the workspace root. */

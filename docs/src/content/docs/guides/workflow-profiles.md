@@ -12,7 +12,7 @@ Agentic Kanban supports two primary workflow profiles: **Lite** and **Standard**
 | Feature | Lite | Standard |
 | --- | --- | --- |
 | **Lanes** | `backlog -> in-progress -> done` | `backlog -> planning -> in-progress -> review -> done` |
-| **Worktrees** | Optional | Required by default |
+| **Worktrees** | Optional | Optional (enable via `worktreePolicy.requiredForImplementation: true`) |
 | **WIP Limits** | Warn-only | Enforced (default `in-progress: 1`) |
 | **Review Lane** | None | Yes (human gate `review -> done`) |
 | **Typical Scope** | Small bug fixes, simple docs, or personal projects | Core features, complex changes, or multi-agent environments |
@@ -56,7 +56,7 @@ The **Standard** profile separates planning, implementation, and code verificati
 - **Guidelines:**
   - **Plan Approval Gate:** The transition from `planning` to `in-progress` represents a plan-approval gate. To pass, the task must have a checklist with at least one item, and spec-driven tasks must have valid spec files.
   - **Completion Gate:** Moving from `review` to `done` represents code approval. Standard policies require running configured tests and linting before entering the review lane.
-  - **Git Worktrees:** Required for implementation to isolate active changes.
+  - **Git Worktrees:** Optional by default; enable with `worktreePolicy.requiredForImplementation: true` in `board.yaml`.
   - **WIP Limits:** Set to strict enforcement (default `in-progress: 1`) to ensure focus.
 
 ---
