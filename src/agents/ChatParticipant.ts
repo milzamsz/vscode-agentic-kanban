@@ -13,6 +13,7 @@ import {
     DEFAULT_REVIEW_POLICY,
     DONE_LANE,
     getFirstLane,
+    wipExceeded,
     type Priority,
     type ReviewPolicy,
     type TaskEvidence,
@@ -20,7 +21,7 @@ import {
 } from '../types';
 import { getDefaultProfile, isEnforceWorktrees } from '../settings';
 import { WorkflowDoctor } from '../WorkflowDoctor';
-import { interpolate, resolveVars } from '../PromptTemplate';
+import { interpolate, resolveVars, getDefaultLoopLane, getLoopAdvanceTarget } from '../PromptTemplate';
 import { TaskEvidenceValidator } from '../TaskEvidenceValidator';
 
 /** Relative path within the workspace for the instruction file. */
@@ -38,6 +39,12 @@ const SPECS_REL_PATH = '.agentkanban/specs';
 /** Relative root for bundled stage-driver prompts. */
 const PROMPTS_REL_PATH = '.agentkanban/prompts';
 
+/** Relative root for goal artifacts. */
+const GOALS_REL_PATH = '.agentkanban/goals';
+
+/** Maximum passes per `/loop` invocation (safety cap). */
+const MAX_LOOP_PASSES = 25;
+
 /** Bundled prompt files written to `.agentkanban/prompts/` on init and via `/prompts`. */
 const STANDARD_PROMPT_FILES = [
     'README.md',
@@ -49,6 +56,7 @@ const STANDARD_PROMPT_FILES = [
     'stage-blocked-and-resume.md',
     'production-readiness-audit.md',
     'work-on-task.md',
+    'goal-decompose.md',
 ];
 
 /** Lite profile uses only basic prompts without planning/review stage prompts. */
@@ -57,6 +65,7 @@ const LITE_PROMPT_FILES = [
     'new-task-intake.md',
     'stage-backlog-to-planning.md',
     'work-on-task.md',
+    'goal-decompose.md',
 ];
 
 export const AGENTS_MD_BEGIN = '<!-- BEGIN AGENTIC KANBAN \u2014 DO NOT EDIT THIS SECTION -->';
@@ -286,8 +295,15 @@ export class ChatParticipant {
             case 'prompts':
                 await this.handlePrompts(prompt, response);
                 return;
+            case 'loop':
+                await this.handleLoop(prompt, response);
+                return;
             case 'sweep':
-                await this.handleSweep(prompt, response);
+                response.markdown('> `/sweep` is now `/loop` (alias maintained for compatibility)\n\n');
+                await this.handleLoop(prompt, response);
+                return;
+            case 'goal':
+                await this.handleGoal(prompt, response);
                 return;
             case 'doctor':
                 await this.handleDoctor(response);
@@ -302,18 +318,22 @@ export class ChatParticipant {
                 await this.handleEvidence(prompt, response);
                 return;
             default: {
-                response.markdown('Available commands: `/new`, `/task`, `/refresh`, `/spec`, `/worktree`, `/archive`, `/prompts`, `/sweep`, `/doctor`, `/pack`, `/work`, `/evidence`\n\n');
-                response.markdown('- `@kanban /spec [capability]` - Scaffold spec-driven change artifacts for the selected task\n');
+                response.markdown('Available commands: `/new`, `/task`, `/refresh`, `/spec`, `/worktree`, `/archive`, `/prompts`, `/loop`, `/goal`, `/doctor`, `/pack`, `/work`, `/evidence`\n\n');
                 response.markdown('- `@kanban /new <task title>` - Create a new task\n');
                 response.markdown('- `@kanban /task <task name>` - Select a task to work on\n');
                 response.markdown('- `@kanban /refresh` - Re-inject agent context for the selected task\n');
+                response.markdown('- `@kanban /spec [capability]` - Scaffold spec-driven change artifacts for the selected task\n');
                 response.markdown('- `@kanban /worktree` - Create a git worktree for the selected task\n');
+                response.markdown('- `@kanban /worktree open` - Open the task worktree for the selected task in VS Code\n');
+                response.markdown('- `@kanban /worktree remove` - Remove the task worktree\n');
                 response.markdown('- `@kanban /archive [slug]` - Move a completed change folder to changes/archive/\n');
                 response.markdown('- `@kanban /prompts` - Open a QuickPick of prompts; select to copy to clipboard\n');
                 response.markdown('- `@kanban /prompts refresh` - Rewrite the bundled stage-driver prompts in .agentkanban/prompts/\n');
-                response.markdown('- `@kanban /worktree open` - Open the task worktree for the selected task in VS Code\n');
-                response.markdown('- `@kanban /worktree remove` - Remove the task worktree\n');
-                response.markdown('- `@kanban /sweep [lane]` - Run an autonomous sweep of ready tasks (default: planning)\n');
+                response.markdown('- `@kanban /loop [lane]` - Loop-until-dry: run passes over ready tasks until none advance (profile-aware advance target, human gates respected)\n');
+                response.markdown('- `@kanban /sweep [lane]` - Alias of /loop (deprecated)\n');
+                response.markdown('- `@kanban /goal new <objective>` - Define a new goal: creates an epic card + goal artifact + copies decompose prompt to clipboard\n');
+                response.markdown('- `@kanban /goal` - Show goal dashboard (progress per goal)\n');
+                response.markdown('- `@kanban /goal show <slug>` - Show detail for a specific goal\n');
                 response.markdown('- `@kanban /doctor` - Run workflow diagnostics for lane drift, blockers, dependencies, and stale worktrees\n');
                 response.markdown('- `@kanban /pack list` - List all configured stack packs\n');
                 response.markdown('- `@kanban /pack use <name>` - Select an active stack pack\n');
@@ -1574,15 +1594,15 @@ export class ChatParticipant {
         return typeof value === 'string' && value.trim() ? value : undefined;
     }
 
-    private async handleSweep(
+    private async handleLoop(
         prompt: string,
         response: vscode.ChatResponseStream,
     ): Promise<void> {
         const config = this.boardConfigStore.get();
-        
+
         // Parse flags from the prompt arg
         const args = prompt.split(/\s+/).filter(Boolean);
-        let targetLane = 'planning';
+        let targetLane = getDefaultLoopLane(config.profile);
         let filterLabel: string | undefined;
         let filterPriority: string | undefined;
         let filterPack: string | undefined;
@@ -1597,150 +1617,165 @@ export class ChatParticipant {
             } else if (arg.startsWith('--stack=')) {
                 filterPack = arg.slice('--stack='.length);
             } else if (!arg.startsWith('-')) {
-                // Keep first bare token as lane
                 targetLane = arg;
             }
         }
 
         if (!config.lanes.includes(targetLane)) {
-            response.markdown(`❌ Invalid lane **${targetLane}**. Valid lanes are: ${config.lanes.map(l => `\`${l}\``).join(', ')}\n`);
+            response.markdown(`❌ Invalid lane **${targetLane}**. Valid lanes: ${config.lanes.map(l => `\`${l}\``).join(', ')}\n`);
             return;
         }
 
-        const allTasks = this.taskStore.getAll();
-        const tasksInLane = allTasks.filter(t => t.lane === targetLane);
-
-        if (tasksInLane.length === 0) {
-            response.markdown(`No tasks found in lane **${targetLane}**.\n`);
+        // Human gate guard: Standard profile cannot auto-advance from `review`
+        if (config.profile === 'standard' && targetLane === 'review') {
+            response.markdown('⛔ `/loop review` is a human gate in Standard profile.\n\n');
+            response.markdown('`review → done` requires human approval. Run `@kanban /evidence <task>` to verify all checks pass, then move the task to `done` manually.\n');
             return;
         }
 
-        const readyTasks = tasksInLane.filter(task => {
-            if (task.dependsOn && task.dependsOn.length > 0) {
-                for (const depId of task.dependsOn) {
-                    const depTask = allTasks.find(t => t.id === depId || t.slug === depId);
-                    if (depTask && depTask.lane !== 'done' && depTask.lane !== 'archive') {
-                        return false;
-                    }
-                }
-            }
-            if (filterLabel && (!task.labels || !task.labels.includes(filterLabel))) {
-                return false;
-            }
-            if (filterPriority && task.priority !== filterPriority) {
-                return false;
-            }
-            return true;
-        });
-
-        if (readyTasks.length === 0) {
-            response.markdown(`No ready tasks (with all dependencies resolved) found in lane **${targetLane}**.\n`);
-            return;
-        }
-
+        const advanceLane = getLoopAdvanceTarget(config.profile, targetLane);
         const packName = filterPack || config.activeStack;
         const selectedPack = packName ? config.packs?.find(p => p.name === packName) : undefined;
-        if (selectedPack) {
-            this.logger.info('chatParticipant', `Sweep driven by pack: ${selectedPack.name}`);
-        } else {
-            this.logger.info('chatParticipant', `Sweep driven by default board policies`);
-        }
 
-        let headerMsg = `🧹 **Starting sweep of ${readyTasks.length} task(s) in lane "${targetLane}"**`;
         const activeFilters: string[] = [];
         if (filterLabel) { activeFilters.push(`label: \`${filterLabel}\``); }
         if (filterPriority) { activeFilters.push(`priority: \`${filterPriority}\``); }
         if (packName) { activeFilters.push(`pack: \`${packName}\``); }
-        if (activeFilters.length > 0) {
-            headerMsg += ` filtered by ${activeFilters.join(', ')}`;
-        }
-        headerMsg += `...\n\n`;
-        response.markdown(headerMsg);
+        const filterSuffix = activeFilters.length > 0 ? ` (filtered by ${activeFilters.join(', ')})` : '';
 
-        const results: Array<{ title: string; success: boolean; error?: string }> = [];
+        response.markdown(`## Loop: \`${targetLane}\` → \`${advanceLane}\`\n\n`);
+        response.markdown(`Profile: **${config.profile}**${filterSuffix}\n\n`);
 
-        for (const task of readyTasks) {
-            response.markdown(`Processing task **${task.title}**...\n`);
+        let passCount = 0;
+        let totalAdvanced = 0;
+        let totalParked = 0;
+        let capHit = false;
 
-            // 1. Move to in-progress
-            task.lane = 'in-progress';
-            await this.taskStore.save(task);
+        while (passCount < MAX_LOOP_PASSES) {
+            passCount++;
 
-            // 2. Run verification
-            const commandsToRun: { name: string; command: string }[] = [];
-            if (selectedPack?.verifyCmds && selectedPack.verifyCmds.length > 0) {
-                for (let i = 0; i < selectedPack.verifyCmds.length; i++) {
-                    commandsToRun.push({ name: `verifyCmd[${i}]`, command: selectedPack.verifyCmds[i] });
+            // Re-read tasks each pass (lanes changed in prior pass)
+            const allTasks = this.taskStore.getAll();
+            const tasksInLane = allTasks.filter(t => t.lane === targetLane);
+
+            const readyTasks = tasksInLane.filter(task => {
+                // Exclude blocked tasks (parked by a prior pass)
+                if (task.labels?.includes('blocked')) { return false; }
+                // Dependency guardrail
+                if (task.dependsOn && task.dependsOn.length > 0) {
+                    for (const depId of task.dependsOn) {
+                        const depTask = allTasks.find(t => t.id === depId || t.slug === depId);
+                        if (depTask && depTask.lane !== 'done' && depTask.lane !== 'archive') {
+                            return false;
+                        }
+                    }
                 }
-            } else {
-                const verification = config.policies?.verification;
-                if (verification?.testCommand) {
-                    commandsToRun.push({ name: 'test', command: verification.testCommand });
-                }
-                if (verification?.lintCommand) {
-                    commandsToRun.push({ name: 'lint', command: verification.lintCommand });
-                }
-                if (verification?.buildCommand) {
-                    commandsToRun.push({ name: 'build', command: verification.buildCommand });
-                }
+                if (filterLabel && (!task.labels || !task.labels.includes(filterLabel))) { return false; }
+                if (filterPriority && task.priority !== filterPriority) { return false; }
+                return true;
+            });
+
+            if (readyTasks.length === 0) {
+                break; // Nothing to advance — dry
             }
 
-            let passed = true;
-            let errorLogs = '';
-            const cwd = task.worktree?.path || this.taskStore.getWorkspacePath();
+            response.markdown(`#### Pass ${passCount} — ${readyTasks.length} ready task(s)\n\n`);
 
-            if (commandsToRun.length > 0) {
+            let advancedThisPass = 0;
+
+            for (const task of readyTasks) {
+                response.markdown(`Processing **${task.title}**...\n`);
+
+                // Move to in-progress (skip if already there or lane absent in profile)
+                const inProgressLane = 'in-progress';
+                if (task.lane !== inProgressLane && config.lanes.includes(inProgressLane)) {
+                    const allCurrent = this.taskStore.getAll();
+                    const wipBreach = wipExceeded(config, allCurrent, inProgressLane, task.id);
+                    if (wipBreach) {
+                        response.markdown(`⚠ **${task.title}**: WIP limit on \`${inProgressLane}\` (${wipBreach.count}/${wipBreach.limit}). Skipping this pass.\n\n`);
+                        continue;
+                    }
+                    task.lane = inProgressLane;
+                    await this.taskStore.save(task);
+                }
+
+                // Build verification commands
+                const commandsToRun: { name: string; command: string }[] = [];
+                if (selectedPack?.verifyCmds && selectedPack.verifyCmds.length > 0) {
+                    for (let i = 0; i < selectedPack.verifyCmds.length; i++) {
+                        commandsToRun.push({ name: `verifyCmd[${i}]`, command: selectedPack.verifyCmds[i] });
+                    }
+                } else {
+                    const verification = config.policies?.verification;
+                    if (verification?.testCommand) { commandsToRun.push({ name: 'test', command: verification.testCommand }); }
+                    if (verification?.lintCommand) { commandsToRun.push({ name: 'lint', command: verification.lintCommand }); }
+                    if (verification?.buildCommand) { commandsToRun.push({ name: 'build', command: verification.buildCommand }); }
+                }
+
+                let passed = true;
+                let errorLogs = '';
+                const cwd = task.worktree?.path || this.taskStore.getWorkspacePath();
+
                 for (const cmd of commandsToRun) {
                     try {
-                        this.logger.info('chatParticipant', `Sweep running command: ${cmd.command} (cwd: ${cwd})`);
+                        this.logger.info('chatParticipant', `Loop running command: ${cmd.command} (cwd: ${cwd})`);
                         await execAsync(cmd.command, { cwd });
                     } catch (err: any) {
                         passed = false;
                         const stdout = err.stdout ? `\nStdout:\n${err.stdout}` : '';
                         const stderr = err.stderr ? `\nStderr:\n${err.stderr}` : '';
-                        errorLogs += `❌ Command failed: "${cmd.command}"\nError: ${err.message || err}${stdout}${stderr}\n`;
+                        errorLogs += `Command failed: "${cmd.command}"\nError: ${err.message || err}${stdout}${stderr}\n`;
                         break;
                     }
                 }
+
+                if (passed) {
+                    task.lane = advanceLane;
+                    if (task.labels) {
+                        const hadBlocker = task.labels.some(l => l === 'blocked' || l.startsWith('blocked-by:'));
+                        task.labels = task.labels.filter(l => l !== 'blocked' && !l.startsWith('blocked-by:'));
+                        if (hadBlocker) { task.blockerResolved = true; }
+                    }
+                    const successComment = `[comment: loop pass ${passCount}: verification passed on ${new Date().toISOString()}]`;
+                    await this.appendCommentToTask(task, successComment);
+                    response.markdown(`✅ **${task.title}**: passed → moved to **${advanceLane.toUpperCase()}**\n\n`);
+                    advancedThisPass++;
+                    totalAdvanced++;
+                } else {
+                    task.lane = targetLane;
+                    if (!task.labels) { task.labels = []; }
+                    if (!task.labels.includes('blocked')) { task.labels.push('blocked'); }
+                    const failureComment = `[comment: loop pass ${passCount}: verification failed on ${new Date().toISOString()}\nLogs:\n${errorLogs}]`;
+                    await this.appendCommentToTask(task, failureComment);
+                    response.markdown(`❌ **${task.title}**: failed → back to **${targetLane.toUpperCase()}** (blocked)\n\n`);
+                    totalParked++;
+                }
             }
 
-            if (passed) {
-                // Move to review
-                task.lane = 'review';
-                if (task.labels) {
-                    const hadBlocker = task.labels.some(l => l === 'blocked' || l.startsWith('blocked-by:'));
-                    task.labels = task.labels.filter(l => l !== 'blocked' && !l.startsWith('blocked-by:'));
-                    if (hadBlocker) {
-                        task.blockerResolved = true;
-                    }
-                }
-                const successComment = `[comment: sweep success: verification passed on ${new Date().toISOString()}]`;
-                await this.appendCommentToTask(task, successComment);
-                response.markdown(`✅ **${task.title}**: Verification passed. Moved to **REVIEW**.\n\n`);
-                results.push({ title: task.title, success: true });
-            } else {
-                // Move back to targetLane and mark blocked
-                task.lane = targetLane;
-                if (!task.labels) {
-                    task.labels = [];
-                }
-                if (!task.labels.includes('blocked')) {
-                    task.labels.push('blocked');
-                }
-                const failureComment = `[comment: sweep failure: verification failed on ${new Date().toISOString()}\nLogs:\n${errorLogs}]`;
-                await this.appendCommentToTask(task, failureComment);
-                response.markdown(`❌ **${task.title}**: Verification failed. Moved back to **${targetLane.toUpperCase()}** (labeled blocked).\n\n`);
-                results.push({ title: task.title, success: false, error: errorLogs });
+            if (advancedThisPass === 0) {
+                break; // Dry — no progress this pass
             }
         }
 
-        // Summary
-        response.markdown(`### Sweep Summary\n\n`);
-        const passedCount = results.filter(r => r.success).length;
-        const failedCount = results.filter(r => !r.success).length;
-        response.markdown(`- **Total processed:** ${results.length}\n`);
-        response.markdown(`- **Passed:** ${passedCount}\n`);
-        response.markdown(`- **Failed:** ${failedCount}\n`);
+        if (passCount >= MAX_LOOP_PASSES) {
+            capHit = true;
+        }
+
+        // Loop Summary
+        const allTasksFinal = this.taskStore.getAll();
+        const remaining = allTasksFinal.filter(t => t.lane === targetLane && !t.labels?.includes('blocked')).length;
+
+        response.markdown(`### Loop Summary\n\n`);
+        response.markdown(`- Profile: **${config.profile}**\n`);
+        response.markdown(`- Source lane: \`${targetLane}\` → Advance to: \`${advanceLane}\`\n`);
+        response.markdown(`- Passes run: **${passCount}**${capHit ? ' (**cap hit**)' : ''}\n`);
+        response.markdown(`- Total advanced: **${totalAdvanced}**\n`);
+        response.markdown(`- Parked/blocked: **${totalParked}**\n`);
+        response.markdown(`- Remaining (unblocked) in \`${targetLane}\`: **${remaining}**\n`);
+
+        if (capHit) {
+            response.markdown(`\n> Loop hit the ${MAX_LOOP_PASSES}-pass safety cap. Re-run \`@kanban /loop\` to continue.\n`);
+        }
     }
 
     private async handlePack(
@@ -1859,6 +1894,205 @@ export class ChatParticipant {
             .replace(/\{\{CAPABILITY\}\}/g, capability);
         await vscode.workspace.fs.writeFile(targetUri, new TextEncoder().encode(content));
         created.push(targetUri);
+    }
+
+    private getGoalChildren(goalSlug: string): ReturnType<TaskStore['getAll']> {
+        return this.taskStore.getAll().filter(t => t.parent === goalSlug);
+    }
+
+    private goalProgress(goalSlug: string): { done: number; total: number; byLane: Record<string, number> } {
+        const children = this.getGoalChildren(goalSlug);
+        const byLane: Record<string, number> = {};
+        for (const t of children) {
+            byLane[t.lane] = (byLane[t.lane] ?? 0) + 1;
+        }
+        return { done: byLane['done'] ?? 0, total: children.length, byLane };
+    }
+
+    private async handleGoal(
+        prompt: string,
+        response: vscode.ChatResponseStream,
+    ): Promise<void> {
+        const config = this.boardConfigStore.get();
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            response.markdown('No workspace folder is open.');
+            return;
+        }
+
+        const parts = prompt.trim().split(/\s+/);
+        const subcommand = parts[0]?.toLowerCase();
+
+        // /goal new <objective>
+        if (subcommand === 'new') {
+            const objective = parts.slice(1).join(' ').trim();
+            if (!objective) {
+                response.markdown('Usage: `@kanban /goal new <objective>`\n\nProvide a one-line objective for the goal.');
+                return;
+            }
+
+            // Auto-initialise if not yet set up (mirrors /new behaviour)
+            if (!this.getIsInitialised()) {
+                await vscode.commands.executeCommand('agentKanban.initialise', getDefaultProfile());
+            }
+            await this.syncInstructionFile();
+
+            const goalSlug = TaskStore.slugify(objective);
+            const goalDirRel = `${GOALS_REL_PATH}/${goalSlug}`;
+            const goalFileRel = `${goalDirRel}/goal.md`;
+            const goalDirUri = this.uriFromRelativePath(workspaceFolder.uri, goalDirRel);
+            const goalFileUri = this.uriFromRelativePath(workspaceFolder.uri, goalFileRel);
+
+            // Scaffold goal artifact
+            await vscode.workspace.fs.createDirectory(goalDirUri);
+            if (!(await this.exists(goalFileUri))) {
+                const templateUri = vscode.Uri.joinPath(this.extensionUri, 'assets', 'goal-templates', 'goal.md');
+                const raw = new TextDecoder().decode(await vscode.workspace.fs.readFile(templateUri));
+                const content = raw
+                    .replace(/\{\{GOAL_TITLE\}\}/g, objective)
+                    .replace(/\{\{GOAL_DESCRIPTION\}\}/g, objective)
+                    .replace(/\{\{GOAL_SLUG\}\}/g, goalSlug);
+                await vscode.workspace.fs.writeFile(goalFileUri, new TextEncoder().encode(content));
+            }
+
+            // Create epic task card
+            const firstLane = config.lanes[0] ?? 'backlog';
+            const epicTask = this.taskStore.createTask(objective, firstLane);
+            epicTask.description = `Goal epic. See artifact: ${goalFileRel}`;
+            epicTask.labels = ['goal', 'epic'];
+            epicTask.goal = goalDirRel;
+            await this.taskStore.save(epicTask);
+
+            // Load goal-decompose prompt (workspace-first / bundled fallback)
+            const workspacePromptUri = vscode.Uri.joinPath(workspaceFolder.uri, ...PROMPTS_REL_PATH.split('/'), 'goal-decompose.md');
+            const bundledPromptUri = vscode.Uri.joinPath(this.extensionUri, 'assets', 'prompts', 'goal-decompose.md');
+            let promptContent: string;
+            let promptUri: vscode.Uri;
+            try {
+                promptUri = (await this.exists(workspacePromptUri)) ? workspacePromptUri : bundledPromptUri;
+                const bytes = await vscode.workspace.fs.readFile(promptUri);
+                promptContent = new TextDecoder().decode(bytes);
+            } catch (err: any) {
+                response.markdown(`Failed to read goal-decompose prompt: ${err.message}`);
+                return;
+            }
+
+            const activePack = config.activeStack ? config.packs?.find(p => p.name === config.activeStack) : undefined;
+            const vars = {
+                ...resolveVars(config, activePack),
+                goalTitle: objective,
+                goalSlug,
+                goalDescription: objective,
+            };
+            const out = interpolate(promptContent, vars);
+
+            try {
+                await vscode.env.clipboard.writeText(out);
+            } catch (err: any) {
+                response.markdown(`Failed to copy decompose prompt to clipboard: ${err.message}`);
+                return;
+            }
+
+            // Open goal artifact
+            try {
+                await vscode.window.showTextDocument(goalFileUri);
+            } catch {
+                // non-fatal
+            }
+
+            response.markdown(`## Goal created: **${objective}**\n\n`);
+            response.markdown(`- Epic task: \`${this.getTaskSlug(epicTask)}\` (lane: \`${firstLane}\`)\n`);
+            response.markdown(`- Goal artifact: \`${goalFileRel}\`\n`);
+            response.markdown(`\nDecompose prompt copied to clipboard. Paste it into a new chat to break this goal into child tasks.\n`);
+            response.reference(goalFileUri);
+            response.reference(promptUri);
+            return;
+        }
+
+        // /goal show <slug>
+        if (subcommand === 'show') {
+            const slug = parts[1]?.toLowerCase();
+            if (!slug) {
+                response.markdown('Usage: `@kanban /goal show <slug>`');
+                return;
+            }
+            const epics = this.taskStore.getAll().filter(t =>
+                t.labels?.includes('goal') || (t.goal && t.goal.length > 0),
+            );
+            const epic = epics.find(t => this.getTaskSlug(t) === slug || t.goal?.split('/').at(-1) === slug);
+            if (!epic) {
+                response.markdown(`No goal found with slug \`${slug}\`.`);
+                return;
+            }
+            const epicSlug = this.getTaskSlug(epic);
+            const { done, total, byLane } = this.goalProgress(epicSlug);
+            const children = this.getGoalChildren(epicSlug);
+            const allTasks = this.taskStore.getAll();
+
+            response.markdown(`## Goal: **${epic.title}**\n\n`);
+            response.markdown(`Progress: **${done}/${total}** done\n\n`);
+
+            if (epic.goal) {
+                const goalFileUri = this.uriFromRelativePath(workspaceFolder.uri, `${epic.goal}/goal.md`);
+                response.reference(goalFileUri);
+            }
+
+            if (Object.keys(byLane).length > 0) {
+                response.markdown('**Tasks by lane:**\n\n');
+                for (const [lane, count] of Object.entries(byLane)) {
+                    response.markdown(`- \`${lane}\`: ${count}\n`);
+                }
+                response.markdown('\n');
+            }
+
+            const nextReady = children.filter(t => {
+                if (t.lane === 'done') { return false; }
+                if (t.labels?.includes('blocked')) { return false; }
+                if (t.dependsOn?.length) {
+                    for (const dep of t.dependsOn) {
+                        const depTask = allTasks.find(d => d.id === dep || d.slug === dep);
+                        if (depTask && depTask.lane !== 'done') { return false; }
+                    }
+                }
+                return true;
+            });
+            if (nextReady.length > 0) {
+                response.markdown('**Next ready tasks:**\n\n');
+                for (const t of nextReady) {
+                    response.markdown(`- \`${this.getTaskSlug(t)}\` (${t.lane}): ${t.title}\n`);
+                }
+            }
+
+            const blocked = children.filter(t => t.labels?.includes('blocked'));
+            if (blocked.length > 0) {
+                response.markdown('\n**Blocked:**\n\n');
+                for (const t of blocked) {
+                    response.markdown(`- \`${this.getTaskSlug(t)}\`: ${t.title}\n`);
+                }
+            }
+            return;
+        }
+
+        // /goal (bare) — dashboard
+        const epics = this.taskStore.getAll().filter(t =>
+            t.labels?.includes('goal') || (t.goal && t.goal.length > 0),
+        );
+
+        if (epics.length === 0) {
+            response.markdown('No goals defined. Use `@kanban /goal new <objective>` to create one.\n');
+            return;
+        }
+
+        response.markdown('## Goal Dashboard\n\n');
+        response.markdown('| Goal | Lane | Progress | Blocked |\n');
+        response.markdown('|---|---|---|---|\n');
+        for (const epic of epics) {
+            const epicSlug = this.getTaskSlug(epic);
+            const { done, total } = this.goalProgress(epicSlug);
+            const children = this.getGoalChildren(epicSlug);
+            const blockedCount = children.filter(t => t.labels?.includes('blocked')).length;
+            response.markdown(`| **${epic.title}** | \`${epic.lane}\` | ${done}/${total} | ${blockedCount} |\n`);
+        }
     }
 
     private async handleDoctor(response: vscode.ChatResponseStream): Promise<void> {

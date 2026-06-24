@@ -60,6 +60,26 @@ interface Task {
     slug?: string;
     resumeLane?: string;  // legacy-only migration input
     extras?: Record<string, unknown>;
+    // lifecycle fields — preserved via extras round-trip
+    evidence?: {
+        lint?: EvidenceEntry;
+        test?: EvidenceEntry;
+        build?: EvidenceEntry;
+        behavior?: EvidenceEntry;
+    };
+    goal?: string;            // path to goal artifact (.agentkanban/goals/<slug>), set on epic tasks
+    parent?: string;          // parent/epic task slug, set on child tasks created by /goal
+    superseeds?: string[];    // slugs of tasks this supersedes
+    blockerResolved?: boolean;
+}
+
+interface EvidenceEntry {
+    ran: boolean;
+    passed: boolean;
+    output?: string;
+    command?: string;
+    description?: string;
+    timestamp?: string;
 }
 ```
 
@@ -148,7 +168,7 @@ Let's plan the OAuth2 implementation...
 Here's my analysis...
 ```
 
-Frontmatter fields: `title` (required), `lane`, `created`, `updated`, `description` (omitted if empty). Optional metadata: `priority`, `assignee`, `labels`, `dueDate`, `sortOrder`, `worktree` (auto-managed by the extension — `branch`, `path`, `created`), `slug`. Legacy `reviewType` and `resumeLane` are accepted as migration input but are not written by current builds.
+Frontmatter fields: `title` (required), `lane`, `created`, `updated`, `description` (omitted if empty). Optional metadata: `priority`, `assignee`, `labels`, `dueDate`, `sortOrder`, `worktree` (auto-managed — `branch`, `path`, `created`), `slug`, `dependsOn` (task dependency slugs), `change` (spec change folder path), `spec` (capability spec path), `evidence` (lint/test/build/behavior entries), `goal` (path to goal artifact directory, e.g. `.agentkanban/goals/<slug>`), `parent` (epic/goal slug for child tasks), `superseeds` (superseded task slugs), `blockerResolved`. Legacy `reviewType` and `resumeLane` are accepted as migration input but are not written by current builds.
 
 **Note**: The `lane` field determines which board lane the task appears in. Archived tasks live in `tasks/archive/` and retain their original lane.
 
@@ -225,6 +245,15 @@ Lightweight `@kanban` chat participant that routes commands to task markdown fil
 | `/refresh` | `handleRefresh()` | Re-injects full workflow context for the selected task |
 | `/spec` | `handleSpec()` | Scaffolds spec-driven change artifacts for the selected task |
 | `/worktree` | `handleWorktree()` | Create, open, or remove a git worktree for the selected task |
+| `/archive` | `handleArchive()` | Archives a completed spec change folder to `changes/archive/` |
+| `/prompts` | `handlePrompts()` | Opens QuickPick; writes or refreshes bundled stage-driver prompts to `.agentkanban/prompts/` |
+| `/loop` | `handleLoop()` | Loop-until-dry over ready tasks: runs passes until none advance (25-pass cap). Profile-aware default lane and advance target. Human gate guard for `review` source in Standard. Supports `--label=`, `--priority=`, `--pack=` filters. |
+| `/sweep` | (alias) | Deprecated alias of `/loop`; prints a one-line notice then delegates. |
+| `/goal` | `handleGoal()` | Subcommands: `new <objective>` (scaffold epic + artifact + clipboard decompose prompt), bare (dashboard), `show <slug>` (detail view). |
+| `/doctor` | `handleDoctor()` | Runs workflow diagnostics: lane drift, stale blockers, dependency cycles, worktrees, spec drift |
+| `/pack` | `handlePack()` | Lists or activates a stack pack; activating regenerates prompts and syncs AGENTS.md |
+| `/work` | `handleWork()` | Opens QuickPick for task selection, loads `work-on-task.md` prompt with interpolated vars, copies to clipboard |
+| `/evidence` | `handleEvidence()` | Views or records task evidence (lint / test / build / behavior) validated by `TaskEvidenceValidator` |
 | (none) | default | Shows available commands |
 
 #### Task Resolution
@@ -403,7 +432,6 @@ Registered on the chat participant in `extension.ts` via `participant.followupPr
 7. Register `ChatParticipant` as `@kanban` with followup provider
 8. Register commands: `openTask`, `resetMemory`, `initialise`, `applySettingsToBoardConfig`
 9. Create file watchers: `.agentkanban/tasks/**/*.md` (debounced 200ms) and `.agentkanban/board.yaml`
-10. Register `SlashCommandProvider` for `/` completions in task markdown files
 10. Register `SlashCommandProvider` for `/` completions in task markdown files
 11. If already initialised: load config/tasks, sync INSTRUCTION.md, sync AGENTS.md, sync worktree AGENTS.md (if in worktree workspace), clean stale worktree metadata, run housekeeping
 12. Start 10-minute housekeeping interval for ongoing reconciliation

@@ -2,17 +2,33 @@
 
 <img src="images/icon.png" alt="Agentic Kanban icon" width="256" />
 
-Spec-driven, agent-assisted software delivery in VS Code, with every plan, checklist, conversation, blocker, and specification kept as durable, version-control-friendly Markdown.
+A VS Code Kanban board where you and a coding agent share the same task files. Pick **Lite** (`backlog → in-progress → done`) for quick changes, or **Standard** (`backlog → planning → in-progress → review → done`) for full spec-driven delivery. Every task, plan, checklist, and conversation lives as a Markdown file in `.agentkanban/` — readable in your editor and trackable in Git.
 
 📖 **[Read the Documentation](https://agentic-kanban-docs.pages.dev/)**
 
-![Version 1.6.9](https://img.shields.io/badge/version-1.6.9-2563eb)
+![Version 1.7.0](https://img.shields.io/badge/version-1.7.0-2563eb)
 [![Elastic License 2.0](https://img.shields.io/badge/license-Elastic%202.0%20source--available-f59e0b)](LICENSE)
 [![GitHub Release](https://img.shields.io/github/v/release/milzamsz/vscode-agentic-kanban?label=GitHub%20Release)](https://github.com/milzamsz/vscode-agentic-kanban/releases)
 
-Agentic Kanban pairs a visual board with the `@kanban` chat participant, Git worktrees, and a reusable agent skill so humans and coding agents share one workflow. Tasks move through fixed delivery lanes, `/spec` attaches spec-driven artifacts to a task, and the skill drives dependency-aware lane sweeps that stay coherent across long agent sessions.
+## Screenshots
 
-> **Key concept:** fixed lanes plus Markdown task records create a human-in-the-loop, spec-driven workflow that an agent can drive end to end.
+**The board — tasks as cards, lanes as columns:**
+
+![Kanban board view](images/screenshots/board.png)
+
+**Standard profile — task in `planning` with spec artifacts:**
+
+![Task in planning lane with spec artifacts](images/screenshots/task-planning-spec.png)
+
+**`@kanban` chat commands in VS Code Chat:**
+
+![Chat commands example](images/screenshots/chat-commands.png)
+
+**Loop summary after `/loop` runs multiple passes:**
+
+![Loop summary output](images/screenshots/loop-summary.png)
+
+---
 
 ```mermaid
 flowchart LR
@@ -38,24 +54,13 @@ flowchart LR
 
 ## How It Works
 
-Agentic Kanban is built for agentic, spec-driven development (SDD):
+1. **Open the board, pick a profile.** Click the Activity Bar icon, hit Initialise, choose Lite or Standard. One folder (`.agentkanban/`) holds everything — task files, specs, prompts, and memory.
+2. **Create tasks with `@kanban /new`.** Each task becomes a Markdown file with YAML frontmatter. Move cards on the board or type `@kanban /loop` to advance them automatically.
+3. **Attach specs with `@kanban /spec`.** Scaffolds `proposal.md`, `design.md`, `tasks.md`, and a shared capability spec. The agent works from these artifacts — not from guesswork or stale chat context.
+4. **Let `/loop` drive the lanes.** Runs passes over the target lane until nothing more can advance (loop-until-dry). Dependency-aware: task B waits until task A reaches `done` before it's picked up.
+5. **Two human gates, no more.** Plan approval (move from `planning` to `in-progress`) and completion (`review → done`). Everything in between the agent handles.
 
-1. **One durable workflow.** Board state lives entirely in Markdown under `.agentkanban/`. Humans edit cards on the board; agents read and write the same task files. Nothing is hidden in an opaque database.
-2. **Fixed lanes per profile.** A task always sits in a known lane (`backlog`, `planning`, `in-progress`, `review`, `done`). Lane transitions are explicit, so the workflow stays coherent even across long agent sessions.
-3. **Spec artifacts per task.** `/spec` attaches a proposal, design, checklist, and delta specification to the selected task. `tasks.md` becomes the authoritative checklist the agent works against.
-4. **Dependency-aware lane sweeps.** The reusable agent skill processes every ready task in a lane in one pass: a task is ready only when all its `dependsOn` tasks are in `done`. Independent ready tasks run in parallel; dependent chains stay ordered.
-5. **Layered context injection.** A managed `AGENTS.md` section, chat references, and `/refresh` keep the active task, checklist, and spec artifacts in front of the agent on every turn.
-
-The board is for humans. The skill plus `@kanban` chat commands are for agents. Both operate on the same files.
-
-## Dependency Management
-
-Repository dependencies are managed by Dependabot on a weekly schedule:
-
-- **npm** (`package.json`/`package-lock.json`) — grouped minor/patch updates
-- **GitHub Actions** (`.github/workflows/`) — grouped updates
-
-Dependabot runs every Monday, targets `main`, and creates pull requests with manual review. Labels: `dependencies`, `npm`, `github-actions`.
+The board is for humans. The `@kanban` commands and reusable skill are for agents. Both operate on the same files.
 
 ## Quick Start
 
@@ -226,7 +231,7 @@ code --install-extension agentic-kanban-<version>.vsix
 backlog -> in-progress -> done
 ```
 
-Lite is intended for smaller changes and fast paths. Planning can remain lightweight, worktrees are optional by default, and there is no separate review lane.
+Lite is intended for smaller changes and fast paths. Planning can remain lightweight, worktrees are optional by default, and there is no separate review lane. `/loop` defaults to `in-progress` and advances passing tasks directly to `done`.
 
 ### Standard
 
@@ -234,7 +239,7 @@ Lite is intended for smaller changes and fast paths. Planning can remain lightwe
 backlog -> planning -> in-progress -> review -> done
 ```
 
-Standard separates planning, implementation, and implementation review. Moving from `planning` to `in-progress` is the explicit plan approval step. Worktrees are optional by default in the Standard profile (configurable in `board.yaml` via `worktreePolicy.requiredForImplementation` or `policies.transition.requireWorktreeForInProgress`), and a task must pass through `review` before `done`.
+Standard separates planning, implementation, and implementation review. Moving from `planning` to `in-progress` is the explicit plan approval step. Worktrees are optional by default in the Standard profile (configurable in `board.yaml` via `worktreePolicy.requiredForImplementation` or `policies.transition.requireWorktreeForInProgress`), and a task must pass through `review` before `done`. `/loop` defaults to `planning` and advances passing tasks to `review` (never `done`). Running `/loop review` is refused as a human gate guard.
 
 Blockers do not move a task into a special lane. Add `blocked` for an external blocker or `blocked-by:<slug>` for a task dependency while leaving the task in its active lane.
 
@@ -328,6 +333,18 @@ flowchart TD
 | `/worktree` | `@kanban /worktree` | Create a worktree for the selected task |
 | `/worktree open` | `@kanban /worktree open` | Open the selected task's existing worktree |
 | `/worktree remove` | `@kanban /worktree remove` | Remove the selected task's worktree and branch |
+| `/archive` | `@kanban /archive [slug]` | Archive a completed spec change folder |
+| `/prompts` | `@kanban /prompts` | Write or refresh bundled stage-driver prompts |
+| `/loop` | `@kanban /loop [lane]` | Loop-until-dry: run passes over ready tasks until none advance. Profile-aware advance target (Standard: `review`; Lite: `done`). Refuses `review` source in Standard (human gate). Supports `--label=`, `--priority=`, `--pack=` filters. |
+| `/goal new` | `@kanban /goal new <objective>` | Create a goal epic card + goal artifact; copy decompose prompt to clipboard |
+| `/goal` | `@kanban /goal` | Show goal dashboard (progress per goal) |
+| `/goal show` | `@kanban /goal show <slug>` | Show detail for a specific goal |
+| `/doctor` | `@kanban /doctor` | Run workflow diagnostics (lane drift, stale blockers, dependency cycles, spec drift) |
+| `/pack` | `@kanban /pack list` | List configured stack packs |
+| `/pack use` | `@kanban /pack use <name>` | Activate a stack pack and regenerate prompts |
+| `/work` | `@kanban /work [task]` | Resolve a task and copy the work prompt to the clipboard |
+| `/evidence` | `@kanban /evidence [task]` | Show evidence status for a task |
+| `/evidence record` | `@kanban /evidence <task> <check> <pass\|fail> ["<notes>"]` | Record a lint, test, build, or behavior evidence result |
 
 Task matching is fuzzy and case-insensitive. Tasks in `done` are excluded from active task selection.
 
@@ -385,7 +402,7 @@ Plan the OAuth2 implementation.
 I will start by mapping the current authentication boundaries.
 ```
 
-Known metadata includes `title`, `lane`, `created`, `updated`, `description`, `priority`, `assignee`, `labels`, `dueDate`, `sortOrder`, `slug`, and `worktree`. Unknown keys such as `dependsOn` and `change` are preserved across extension saves.
+Known metadata includes `title`, `lane`, `created`, `updated`, `description`, `priority`, `assignee`, `labels`, `dueDate`, `sortOrder`, `slug`, `worktree`, `dependsOn`, `change`, `spec`, `parent`, `superseeds`, `blockerResolved`, and `evidence`. Unknown keys are preserved across extension saves via the `extras` round-trip.
 
 Archived tasks move to `.agentkanban/tasks/archive/` and retain their lane metadata.
 
@@ -407,6 +424,9 @@ While editing a task file, type `/` for `User Turn`, `Agent Turn`, and `Comment`
   board.yaml
   memory.md
   INSTRUCTION.md
+  goals/
+    <goal-slug>/
+      goal.md          (objective, acceptance criteria, metrics, decomposition)
   specs/
     <capability>/spec.md
   changes/
@@ -440,6 +460,31 @@ labels:
 `dependsOn` is authoritative. The matching `blocked-by:<slug>` label is the visible board mirror and receives blocker styling. Use the plain `blocked` label for external blockers that are not represented by another task.
 
 The reusable workflow skill applies a dependency guardrail: a task is ready only when every referenced dependency is in `done`. Independent ready tasks can be processed in parallel, while dependent chains remain ordered.
+
+## Goals
+
+A goal is a high-level objective that spans multiple tasks. Use `/goal new <objective>` to:
+
+1. Create an epic task card in `backlog` with `goal` and `epic` labels.
+2. Scaffold `.agentkanban/goals/<slug>/goal.md` (objective, acceptance criteria, success metrics, constraints, decomposition).
+3. Copy a profile-aware decompose prompt to clipboard so an agent can break the goal into `parent`-linked child tasks.
+
+**Goal tier above SDD:**
+
+```
+goal (epic, why + metrics)
+  capability spec (behavior contract, shared across changes)
+    change (proposal / design / tasks per task)
+      task
+```
+
+In Standard profile the decompose prompt recommends running `@kanban /spec <capability>` for complex child tasks, wiring each to a capability spec and change folder. In Lite profile children are lightweight (proposal + tasks only, no design or review gate).
+
+**Pairing with `/loop`:** after decomposition, run `@kanban /loop` to drive child tasks forward automatically. `/loop` is profile-aware and will not cross the two human gates (plan approval in `planning`; `review -> done`).
+
+**Tracking progress:** `@kanban /goal` shows a dashboard (done/total per goal). `@kanban /goal show <slug>` shows next-ready and blocked children.
+
+Child tasks carry `parent: <goalSlug>` in frontmatter. The epic task carries `goal: .agentkanban/goals/<slug>`.
 
 ## Agent Context Injection
 
@@ -613,6 +658,15 @@ npm test
 npm run build
 npx @vscode/vsce package --out /tmp/agentic-kanban-local.vsix
 ```
+
+## Dependency Management
+
+Repository dependencies are managed by Dependabot on a weekly schedule:
+
+- **npm** (`package.json`/`package-lock.json`) — grouped minor/patch updates
+- **GitHub Actions** (`.github/workflows/`) — grouped updates
+
+Dependabot runs every Monday, targets `main`, and creates pull requests with manual review. Labels: `dependencies`, `npm`, `github-actions`.
 
 ## Contributing
 

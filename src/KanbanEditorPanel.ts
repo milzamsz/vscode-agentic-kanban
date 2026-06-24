@@ -238,9 +238,10 @@ export class KanbanEditorPanel {
                 laneInvalid: !laneSet.has(t.lane) || undefined,
             };
         }));
+        const currentBranch = this._worktreeService ? await this._worktreeService.getCurrentBranch() : '';
         await this._panel.webview.postMessage({
             type: 'stateUpdate',
-            state: { tasks: enriched, config, isInitialised: this._isInitialised },
+            state: { tasks: enriched, config, isInitialised: this._isInitialised, currentBranch },
         });
     }
 
@@ -569,6 +570,105 @@ export class KanbanEditorPanel {
                     vscode.window.showWarningMessage('Worktree directory no longer exists.');
                     task.worktree = undefined;
                     await this._taskStore.save(task);
+                }
+                break;
+            }
+
+            case 'linkBranch': {
+                if (!this._worktreeService) { break; }
+                const task = this._taskStore.get(message.taskId);
+                if (!task) { break; }
+                try {
+                    const branches = await this._worktreeService.getBranches();
+                    if (branches.length === 0) {
+                        vscode.window.showWarningMessage('No local git branches found.');
+                        break;
+                    }
+                    const currentBranch = await this._worktreeService.getCurrentBranch();
+                    const items = branches.map(b => {
+                        if (b === currentBranch) {
+                            return {
+                                label: b,
+                                description: '$(star) current branch',
+                            };
+                        }
+                        return { label: b };
+                    });
+
+                    // Sort current branch to the top
+                    items.sort((a, b) => {
+                        if (a.label === currentBranch) return -1;
+                        if (b.label === currentBranch) return 1;
+                        return 0;
+                    });
+
+                    const quickPick = vscode.window.createQuickPick();
+                    quickPick.items = items;
+                    quickPick.placeholder = `Select an existing git branch to link to "${task.title}"`;
+                    if (currentBranch) {
+                        quickPick.value = currentBranch;
+                        const matched = items.find(i => i.label === currentBranch);
+                        if (matched) {
+                            quickPick.activeItems = [matched];
+                        }
+                    }
+
+                    quickPick.onDidAccept(async () => {
+                        const selectedItems = quickPick.selectedItems;
+                        const finalSelected = [...selectedItems];
+                        if (finalSelected.length === 0 && quickPick.activeItems.length > 0) {
+                            finalSelected.push(quickPick.activeItems[0]);
+                        }
+                        if (finalSelected.length === 0) {
+                            quickPick.hide();
+                            return;
+                        }
+                        const selectedBranch = finalSelected[0].label;
+                        quickPick.hide();
+
+                        try {
+                            let worktreePath = '';
+                            if (selectedBranch === currentBranch) {
+                                // If linking the current active branch of the workspace, use main workspace path by default without prompting
+                                worktreePath = this._taskStore.getWorkspacePath();
+                            } else {
+                                const mainWorkspaceOption = 'Use Main/Current Workspace';
+                                const customPathOption = 'Specify Worktree Path...';
+                                const choice = await vscode.window.showQuickPick([mainWorkspaceOption, customPathOption], {
+                                    placeHolder: `Where is the worktree for branch "${selectedBranch}"?`,
+                                });
+                                if (!choice) { return; }
+
+                                if (choice === mainWorkspaceOption) {
+                                    worktreePath = this._taskStore.getWorkspacePath();
+                                } else {
+                                    const uri = await vscode.window.showOpenDialog({
+                                        canSelectFiles: false,
+                                        canSelectFolders: true,
+                                        canSelectMany: false,
+                                        openLabel: 'Select Worktree Folder',
+                                    });
+                                    if (!uri || uri.length === 0) { return; }
+                                    worktreePath = uri[0].fsPath;
+                                }
+                            }
+
+                            task.worktree = {
+                                branch: selectedBranch,
+                                path: worktreePath,
+                                created: new Date().toISOString(),
+                            };
+                            await this._taskStore.save(task);
+                            vscode.window.showInformationMessage(`Linked task "${task.title}" to branch "${selectedBranch}".`);
+                        } catch (err: any) {
+                            vscode.window.showErrorMessage(`Failed to link branch: ${err.message}`);
+                        }
+                    });
+
+                    quickPick.onDidHide(() => quickPick.dispose());
+                    quickPick.show();
+                } catch (err: any) {
+                    vscode.window.showErrorMessage(`Failed to link branch: ${err.message}`);
                 }
                 break;
             }

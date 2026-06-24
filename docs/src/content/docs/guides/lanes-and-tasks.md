@@ -79,4 +79,4 @@ Blockers do not move a task out of its active lane. Instead, they are represente
 The board webview and task store synchronize the `dependsOn` frontmatter array and `blocked-by:<slug>` labels bidirectionally. Adding a dependency in the modal adds the label; removing the label removes the dependency.
 
 ### Guardrails
-The agent skill includes a dependency ready-gate: a task is not ready to sweep/implement until all tasks in its `dependsOn` list are in the `done` lane.
+The agent skill includes a dependency ready-gate: a task is not ready to loop/implement until all tasks in its `dependsOn` list are in the `done` lane.
