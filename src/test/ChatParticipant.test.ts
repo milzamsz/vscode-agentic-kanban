@@ -2289,6 +2289,109 @@ describe('ChatParticipant', () => {
         });
     });
 
+    describe('multi-root context-specific helpers', () => {
+        it('scaffoldPromptsForContext uses the provided context config instead of the active config', async () => {
+            installMockFs({
+                '/test-extension/assets/prompts/README.md': 'Profile {{profile}}',
+                '/test-extension/assets/prompts/new-task-intake.md': 'Intake',
+                '/test-extension/assets/prompts/stage-backlog-to-planning.md': 'Backlog',
+                '/test-extension/assets/prompts/work-on-task.md': 'Work',
+                '/test-extension/assets/prompts/goal-decompose.md': 'Goal',
+            });
+
+            const otherBoardConfigStore = new BoardConfigStore(Uri.file('/other-workspace') as any);
+            const otherConfig = otherBoardConfigStore.get();
+            otherConfig.profile = 'lite';
+
+            await participant.scaffoldPromptsForContext({
+                folder: { uri: Uri.file('/other-workspace'), name: 'other', index: 1 } as any,
+                boardConfigStore: otherBoardConfigStore,
+            });
+
+            const written = (workspace.fs.writeFile as any).mock.calls
+                .map((call: any[]) => ({ path: call[0].fsPath || call[0].path, text: new TextDecoder().decode(call[1]) }));
+            const readmeWrite = written.find((entry: any) => entry.path.includes('/other-workspace/.agentkanban/prompts/README.md'));
+            expect(readmeWrite?.text).toContain('Profile lite');
+        });
+
+        it('syncAgentsMdSectionForContext uses the provided task store, not the active store', async () => {
+            installMockFs({
+                '/other-workspace/AGENTS.md': '',
+            });
+
+            const otherTaskStore = new TaskStore(Uri.file('/other-workspace') as any);
+            const otherBoardConfigStore = new BoardConfigStore(Uri.file('/other-workspace') as any);
+            const linkedTask: Task = {
+                id: 'task_other_1',
+                title: 'Other Workspace Task',
+                lane: 'in-progress',
+                created: '2026-01-01T00:00:00.000Z',
+                updated: '2026-01-01T00:00:00.000Z',
+                description: '',
+                worktree: { branch: 'agentkanban/other', path: '/other-workspace', created: '' },
+            };
+            (otherTaskStore as any).tasks.set(linkedTask.id, linkedTask);
+
+            await participant.syncAgentsMdSectionForContext({
+                folder: { uri: Uri.file('/other-workspace'), name: 'other', index: 1 } as any,
+                taskStore: otherTaskStore,
+                boardConfigStore: otherBoardConfigStore,
+            });
+
+            const content = new TextDecoder().decode((workspace.fs.writeFile as any).mock.calls.at(-1)[1]);
+            expect(content).toContain('Other Workspace Task');
+        });
+
+        it('worktree commands resolve the service from the active registry context', async () => {
+            const task: Task = {
+                id: 'task_registry_wt',
+                title: 'Registry Worktree Task',
+                lane: 'in-progress',
+                created: '2026-01-01T00:00:00.000Z',
+                updated: '2026-01-01T00:00:00.000Z',
+                description: '',
+            };
+            (taskStore as any).tasks.set(task.id, task);
+
+            const mockWorktreeService = {
+                isGitRepo: vi.fn().mockResolvedValue(true),
+                exists: vi.fn().mockResolvedValue(false),
+                create: vi.fn().mockResolvedValue({
+                    branch: 'agentkanban/registry-worktree-task',
+                    path: '/test-workspace-worktrees/registry-worktree-task',
+                    created: '2026-01-01T00:00:00.000Z',
+                }),
+                openInVSCode: vi.fn().mockResolvedValue(undefined),
+            };
+            const mockRegistry = {
+                getActiveContext: () => ({
+                    folder: { uri: Uri.file('/test-workspace'), name: 'test', index: 0 },
+                    worktreeService: mockWorktreeService,
+                }),
+            } as any;
+
+            const registryParticipant = new ChatParticipant(
+                taskStore,
+                boardConfigStore,
+                extensionUri,
+                () => true,
+                undefined,
+                undefined,
+                mockRegistry,
+            );
+            registryParticipant.lastSelectedTaskId = task.id;
+
+            vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(new TextEncoder().encode('---\n---\n'));
+            vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined);
+
+            const response = mockResponse();
+            await registryParticipant.handleRequest(mockRequest('worktree', ''), {} as any, response, mockToken);
+
+            expect(mockWorktreeService.isGitRepo).toHaveBeenCalled();
+            expect(mockWorktreeService.create).toHaveBeenCalled();
+        });
+    });
+
     describe('/pack command', () => {
         it('should list configured packs', async () => {
             const config = boardConfigStore.get();

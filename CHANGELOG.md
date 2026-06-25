@@ -2,6 +2,23 @@
 
 All notable changes to Agentic Kanban will be documented here.
 
+## [1.7.0] - 2026-06-25
+
+### Added
+- **Screenshots**: Added five product screenshots (kanban board, settings, skills, chat commands, dependency graph) to the README to give users a visual walkthrough of the extension.
+
+### Fixed
+- **Screenshot broken links**: Screenshot image assets were not tracked in Git and displayed as broken placeholders on GitHub. Images are now committed as part of the release.
+
+## [1.6.10] - 2026-06-25
+
+### Added
+- **Multi-Root Workspace Support**: VS Code workspaces with multiple folders are now supported as independent project contexts.
+- **WorkspaceRegistry**: A central project context registry manages lifecycle, active project selection, and persistent workspace settings.
+- **Project Selector dropdown**: Switch active projects directly on the Kanban board. Uninitialised projects are labeled and can be initialised independently.
+- **Dynamic File Watchers**: Scoped file watchers are created and disposed cleanly as folders are added to or removed from the VS Code workspace.
+- **Context-aware Chat commands**: `@kanban` commands and prompting templates auto-route to the active project context.
+
 ## [1.6.9] - 2026-06-24
 
 ### Added

@@ -68,6 +68,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await _registry.ensureContext(folder);
     }
 
+    const wiredContextUris = new Set<string>();
+    const wireContextRefresh = (project: ProjectContext) => {
+        const key = project.folder.uri.toString();
+        if (wiredContextUris.has(key)) {
+            return;
+        }
+        wiredContextUris.add(key);
+        project.subscriptions.push(
+            project.taskStore.onDidChange(() => {
+                _boardViewProvider?.refresh();
+                void KanbanEditorPanel.currentPanel?.refresh();
+            }),
+        );
+        project.subscriptions.push(
+            project.boardConfigStore.onDidChange(() => {
+                _boardViewProvider?.refresh();
+                void KanbanEditorPanel.currentPanel?.refresh();
+            }),
+        );
+    };
+    for (const project of _registry.getContexts()) {
+        wireContextRefresh(project);
+    }
+
     // Create one shared ChatParticipant (global surface, delegates through registry)
     _chatParticipantHandler = new ChatParticipant(
         // Pass a proxy-style resolver so ChatParticipant always works on active context
@@ -93,6 +117,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             'agentKanban.boardView',
             _boardViewProvider,
         ),
+    );
+
+    context.subscriptions.push(
+        vscode.languages.registerCompletionItemProvider(
+            { language: 'markdown', pattern: '**/.agentkanban/tasks/**/*.md' },
+            new SlashCommandProvider(),
+            '/',
+        ),
+    );
+
+    context.subscriptions.push(
+        _registry.onDidChangeActiveProject(() => {
+            _boardViewProvider?.refresh();
+            const active = getActiveContext();
+            KanbanEditorPanel.currentPanel?.setInitialised(active?.isInitialised ?? false);
+            void KanbanEditorPanel.currentPanel?.refresh();
+        }),
+    );
+    context.subscriptions.push(
+        _registry.onDidChangeContexts(() => {
+            _boardViewProvider?.refresh();
+            void KanbanEditorPanel.currentPanel?.refresh();
+        }),
     );
 
     // Register the webview panel serialiser so the board panel survives reloads
@@ -319,6 +366,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.workspace.onDidChangeWorkspaceFolders(async (event) => {
             for (const folder of event.added) {
                 await _registry!.ensureContext(folder);
+                const newCtx = _registry!.getContextByFolder(folder);
+                if (newCtx) {
+                    wireContextRefresh(newCtx);
+                }
                 // Auto-initialise if the new folder has board.yaml
                 const ctx = _registry!.getContextByFolder(folder);
                 if (ctx?.isInitialised) {

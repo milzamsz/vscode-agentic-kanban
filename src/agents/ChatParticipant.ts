@@ -3,7 +3,7 @@ import { TaskStore } from '../TaskStore';
 import type { BoardConfigStore } from '../BoardConfigStore';
 import type { WorktreeService } from '../WorktreeService';
 import type { LogService } from '../LogService';
-import type { WorkspaceRegistry } from '../WorkspaceRegistry';
+import type { WorkspaceRegistry, ProjectContext } from '../WorkspaceRegistry';
 import { NO_OP_LOGGER } from '../LogService';
 import {
     DEFAULT_ENFORCEMENT,
@@ -269,6 +269,32 @@ export class ChatParticipant {
         return vscode.workspace.workspaceFolders?.[0]?.uri;
     }
 
+    private _resolveActiveContext(): ProjectContext | undefined {
+        return this._registry?.getActiveContext();
+    }
+
+    private _resolveActiveWorktreeService(): WorktreeService | undefined {
+        return this._resolveActiveContext()?.worktreeService ?? this.worktreeService;
+    }
+
+    private _relativeToFolder(folderUri: vscode.Uri | undefined, targetUri: vscode.Uri): string {
+        if (!folderUri) {
+            return vscode.workspace.asRelativePath(targetUri);
+        }
+        const folderPath = folderUri.fsPath.replace(/\\/g, '/').replace(/\/+$/, '');
+        const targetPath = targetUri.fsPath.replace(/\\/g, '/');
+        const base = process.platform === 'win32' ? folderPath.toLowerCase() : folderPath;
+        const full = process.platform === 'win32' ? targetPath.toLowerCase() : targetPath;
+        if (full === base) {
+            return '';
+        }
+        const prefix = `${base}/`;
+        if (full.startsWith(prefix)) {
+            return targetPath.slice(folderPath.length + 1).replace(/\\/g, '/');
+        }
+        return vscode.workspace.asRelativePath(targetUri);
+    }
+
     /** Resolve the active project's AGENTS.md path. */
     private _resolveActiveAgentsMdUri(): vscode.Uri | undefined {
         const folder = this._resolveActiveFolderUri();
@@ -438,6 +464,15 @@ export class ChatParticipant {
     }
 
     async scaffoldPromptsForUri(folderUri: vscode.Uri, overwrite = false): Promise<{ created: string[]; updated: string[]; skipped: string[] }> {
+        const config = this.boardConfigStore.get();
+        return this._scaffoldPromptsForConfig(folderUri, config, overwrite);
+    }
+
+    private async _scaffoldPromptsForConfig(
+        folderUri: vscode.Uri,
+        config: ReturnType<BoardConfigStore['get']>,
+        overwrite: boolean,
+    ): Promise<{ created: string[]; updated: string[]; skipped: string[] }> {
         const result = { created: [] as string[], updated: [] as string[], skipped: [] as string[] };
         const destDir = vscode.Uri.joinPath(folderUri, ...PROMPTS_REL_PATH.split('/'));
         try {
@@ -446,8 +481,6 @@ export class ChatParticipant {
             // may already exist
         }
 
-        // Select prompt files based on active profile
-        const config = this.boardConfigStore.get();
         const targetFiles = config.profile === 'lite' ? LITE_PROMPT_FILES : STANDARD_PROMPT_FILES;
         const activePack = config.activeStack
             ? config.packs?.find(p => p.name === config.activeStack)
@@ -476,8 +509,8 @@ export class ChatParticipant {
         return result;
     }
 
-    async scaffoldPromptsForContext(ctx: { folder: vscode.WorkspaceFolder }, overwrite = false): Promise<{ created: string[]; updated: string[]; skipped: string[] }> {
-        return this.scaffoldPromptsForUri(ctx.folder.uri, overwrite);
+    async scaffoldPromptsForContext(ctx: Pick<ProjectContext, 'folder' | 'boardConfigStore'>, overwrite = false): Promise<{ created: string[]; updated: string[]; skipped: string[] }> {
+        return this._scaffoldPromptsForConfig(ctx.folder.uri, ctx.boardConfigStore.get(), overwrite);
     }
 
     /**
@@ -496,6 +529,15 @@ export class ChatParticipant {
     }
 
     async syncAgentsMdSectionForUri(folderUri: vscode.Uri, worktreeTask?: AgentsTaskContext): Promise<vscode.Uri | undefined> {
+        return this._syncAgentsMdSectionForResources(folderUri, this.taskStore, this.boardConfigStore, worktreeTask);
+    }
+
+    private async _syncAgentsMdSectionForResources(
+        folderUri: vscode.Uri,
+        taskStore: TaskStore,
+        boardConfigStore: BoardConfigStore,
+        worktreeTask?: AgentsTaskContext,
+    ): Promise<vscode.Uri | undefined> {
         const agentsUri = vscode.Uri.joinPath(folderUri, AGENTS_MD_REL_PATH);
         try {
             let existing = '';
@@ -508,12 +550,14 @@ export class ChatParticipant {
 
             let taskContext = worktreeTask;
             if (!taskContext) {
-                const linkedTask = this.findLinkedWorktreeTask();
+                const linkedTask = taskStore.getAll().find(t =>
+                    t.worktree && this.normalisePath(t.worktree.path) === this.normalisePath(folderUri.fsPath),
+                );
                 if (linkedTask) {
-                    const taskUri = this.taskStore.getTaskUri(linkedTask.id);
-                    const taskRelPath = vscode.workspace.asRelativePath(taskUri);
-                    const todoUri = this.taskStore.getTodoUri(linkedTask.id);
-                    const todoRelPath = vscode.workspace.asRelativePath(todoUri);
+                    const taskUri = taskStore.getTaskUri(linkedTask.id);
+                    const taskRelPath = this._relativeToFolder(folderUri, taskUri);
+                    const todoUri = taskStore.getTodoUri(linkedTask.id);
+                    const todoRelPath = this._relativeToFolder(folderUri, todoUri);
                     taskContext = {
                         title: linkedTask.title,
                         taskRelPath,
@@ -526,7 +570,7 @@ export class ChatParticipant {
                 }
             }
 
-            const config = this.boardConfigStore.get();
+            const config = boardConfigStore.get();
             const activePack = config.activeStack
                 ? config.packs?.find(p => p.name === config.activeStack)
                 : undefined;
@@ -584,8 +628,11 @@ export class ChatParticipant {
         }
     }
 
-    async syncAgentsMdSectionForContext(ctx: { folder: vscode.WorkspaceFolder }, worktreeTask?: AgentsTaskContext): Promise<vscode.Uri | undefined> {
-        return this.syncAgentsMdSectionForUri(ctx.folder.uri, worktreeTask);
+    async syncAgentsMdSectionForContext(
+        ctx: Pick<ProjectContext, 'folder' | 'taskStore' | 'boardConfigStore'>,
+        worktreeTask?: AgentsTaskContext,
+    ): Promise<vscode.Uri | undefined> {
+        return this._syncAgentsMdSectionForResources(ctx.folder.uri, ctx.taskStore, ctx.boardConfigStore, worktreeTask);
     }
 
     /**
@@ -605,9 +652,9 @@ export class ChatParticipant {
         );
         if (linkedTask) {
             const taskUri = this.taskStore.getTaskUri(linkedTask.id);
-            const taskRelPath = vscode.workspace.asRelativePath(taskUri);
+            const taskRelPath = this._relativeToFolder(folderUri, taskUri);
             const todoUri = this.taskStore.getTodoUri(linkedTask.id);
-            const todoRelPath = vscode.workspace.asRelativePath(todoUri);
+            const todoRelPath = this._relativeToFolder(folderUri, todoUri);
             await this.syncAgentsMdSectionForUri(folderUri, {
                 title: linkedTask.title,
                 taskRelPath,
@@ -621,8 +668,24 @@ export class ChatParticipant {
         }
     }
 
-    async syncWorktreeAgentsMdForContext(ctx: { folder: vscode.WorkspaceFolder }): Promise<void> {
-        return this.syncWorktreeAgentsMdForUri(ctx.folder.uri);
+    async syncWorktreeAgentsMdForContext(ctx: Pick<ProjectContext, 'folder' | 'taskStore' | 'boardConfigStore'>): Promise<void> {
+        const linkedTask = ctx.taskStore.getAll().find(t =>
+            t.worktree && this.normalisePath(t.worktree.path) === this.normalisePath(ctx.folder.uri.fsPath),
+        );
+        if (!linkedTask) {
+            return;
+        }
+        const taskUri = ctx.taskStore.getTaskUri(linkedTask.id);
+        const todoUri = ctx.taskStore.getTodoUri(linkedTask.id);
+        await this.syncAgentsMdSectionForContext(ctx, {
+            title: linkedTask.title,
+            taskRelPath: this._relativeToFolder(ctx.folder.uri, taskUri),
+            todoRelPath: this._relativeToFolder(ctx.folder.uri, todoUri),
+            changeRelPath: this.getChangeRelPath(linkedTask),
+            specRelPath: this.getSpecRelPath(linkedTask),
+            priority: linkedTask.priority,
+            worktreePath: linkedTask.worktree?.path,
+        });
     }
 
     /** Normalise a file path for comparison (lowercase on Windows, resolve). */
@@ -662,9 +725,9 @@ export class ChatParticipant {
                     { prompt: '', command: 'refresh', label: `Refresh: ${task.title}` },
                 ];
                 // Add worktree followup if no worktree exists and service is available
-                if (!task.worktree && this.worktreeService) {
+                if (!task.worktree && this._resolveActiveWorktreeService()) {
                     followups.push({ prompt: '', command: 'worktree', label: `Create Worktree: ${task.title}` });
-                } else if (task.worktree && this.worktreeService) {
+                } else if (task.worktree && this._resolveActiveWorktreeService()) {
                     followups.push({ prompt: 'open', command: 'worktree', label: `Open Worktree: ${task.title}` });
                 }
                 return followups;
@@ -712,7 +775,7 @@ export class ChatParticipant {
         this.logger.info('chatParticipant', `Created task: ${task.id}`);
 
         response.markdown(`Created task **${title}**\n\n`);
-        response.markdown(`File: \`${vscode.workspace.asRelativePath(taskUri)}\`\n\n`);
+        response.markdown(`File: \`${this._relativeToFolder(this._resolveActiveFolderUri(), taskUri)}\`\n\n`);
         response.markdown('Use `@kanban /task ' + title + '` to start working on it.');
     }
 
@@ -766,9 +829,9 @@ export class ChatParticipant {
             try {
                 const customUri = customPath.match(/^[a-zA-Z]:[\\/]/) || customPath.startsWith('/')
                     ? vscode.Uri.file(customPath)
-                    : vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, customPath);
+                    : vscode.Uri.joinPath(folderUri!, customPath);
                 await vscode.workspace.fs.stat(customUri);
-                const customRelPath = vscode.workspace.asRelativePath(customUri);
+                const customRelPath = this._relativeToFolder(folderUri, customUri);
                 response.markdown(`Read \`${customRelPath}\` for additional instructions.\n\n`);
             } catch {
                 this.logger.warn('chatParticipant', `Custom instruction file not found: ${customPath}`);
@@ -800,10 +863,11 @@ export class ChatParticipant {
         this.lastSelectedTaskId = task.id;
         this.logger.info('chatParticipant', `Selected task: ${task.id} (${task.title})`);
 
+        const folderUri = this._resolveActiveFolderUri();
         const instrUri = this.getIsInitialised() ? await this.syncInstructionFile() : undefined;
         const taskUri = this.taskStore.getTaskUri(task.id);
-        const taskRelPath = vscode.workspace.asRelativePath(taskUri);
-        const todoRelPath = vscode.workspace.asRelativePath(this.taskStore.getTodoUri(task.id));
+        const taskRelPath = this._relativeToFolder(folderUri, taskUri);
+        const todoRelPath = this._relativeToFolder(folderUri, this.taskStore.getTodoUri(task.id));
 
         if (this.getIsInitialised()) {
             await this.syncAgentsMdSection({
@@ -819,7 +883,7 @@ export class ChatParticipant {
 
         if (instrUri) {
             response.reference(instrUri);
-            const instrRelPath = vscode.workspace.asRelativePath(instrUri);
+            const instrRelPath = this._relativeToFolder(folderUri, instrUri);
             response.markdown(`Read \`${instrRelPath}\` for workflow instructions.\n\n`);
         }
         response.reference(taskUri);
@@ -1108,8 +1172,8 @@ export class ChatParticipant {
             await this.taskStore.save(task);
 
             const taskUri = this.taskStore.getTaskUri(task.id);
-            const taskRelPath = vscode.workspace.asRelativePath(taskUri);
-            const todoRelPath = vscode.workspace.asRelativePath(this.taskStore.getTodoUri(task.id));
+            const taskRelPath = this._relativeToFolder(folderUriSpec, taskUri);
+            const todoRelPath = this._relativeToFolder(folderUriSpec, this.taskStore.getTodoUri(task.id));
             await this.syncAgentsMdSection({
                 title: task.title,
                 taskRelPath,
@@ -1135,14 +1199,14 @@ export class ChatParticipant {
             if (created.length > 0) {
                 response.markdown('Created:\n');
                 for (const uri of created) {
-                    response.markdown(`- \`${vscode.workspace.asRelativePath(uri)}\`\n`);
+                    response.markdown(`- \`${this._relativeToFolder(folderUriSpec, uri)}\`\n`);
                 }
                 response.markdown('\n');
             }
             if (reused.length > 0) {
                 response.markdown('Preserved existing files:\n');
                 for (const uri of reused) {
-                    response.markdown(`- \`${vscode.workspace.asRelativePath(uri)}\`\n`);
+                    response.markdown(`- \`${this._relativeToFolder(folderUriSpec, uri)}\`\n`);
                 }
                 response.markdown('\n');
             }
@@ -1314,6 +1378,7 @@ export class ChatParticipant {
         prompt: string,
         response: vscode.ChatResponseStream,
     ): Promise<void> {
+        const folderUri = this._resolveActiveFolderUri();
         // Auto-detect linked task in worktree workspace
         if (!this.lastSelectedTaskId) {
             const linkedTask = this.findLinkedWorktreeTask();
@@ -1355,8 +1420,8 @@ export class ChatParticipant {
         const instrUri = this.getIsInitialised() ? await this.syncInstructionFile() : undefined;
         if (this.getIsInitialised()) {
             const refreshTaskUri = this.taskStore.getTaskUri(task.id);
-            const refreshTaskRelPath = vscode.workspace.asRelativePath(refreshTaskUri);
-            const refreshTodoRelPath = vscode.workspace.asRelativePath(this.taskStore.getTodoUri(task.id));
+            const refreshTaskRelPath = this._relativeToFolder(folderUri, refreshTaskUri);
+            const refreshTodoRelPath = this._relativeToFolder(folderUri, this.taskStore.getTodoUri(task.id));
             await this.syncAgentsMdSection({
                 title: task.title,
                 taskRelPath: refreshTaskRelPath,
@@ -1369,7 +1434,7 @@ export class ChatParticipant {
         }
 
         const taskUri = this.taskStore.getTaskUri(task.id);
-        const taskRelPath = vscode.workspace.asRelativePath(taskUri);
+        const taskRelPath = this._relativeToFolder(folderUri, taskUri);
 
         // Attach files as references so they persist in conversation context
         if (instrUri) { response.reference(instrUri); }
@@ -1385,7 +1450,7 @@ export class ChatParticipant {
 
         // Output context for Copilot
         if (instrUri) {
-            const instrRelPath = vscode.workspace.asRelativePath(instrUri);
+            const instrRelPath = this._relativeToFolder(folderUri, instrUri);
             response.markdown(`Read \`${instrRelPath}\` for workflow instructions.\n\n`);
         }
 
@@ -1408,12 +1473,13 @@ export class ChatParticipant {
      * Subcommands: (none) → create, "open" → open, "remove" → remove.
      */
     private async handleWorktree(prompt: string, response: vscode.ChatResponseStream): Promise<void> {
-        if (!this.worktreeService) {
+        const worktreeService = this._resolveActiveWorktreeService();
+        if (!worktreeService) {
             response.markdown('Git worktree support is not available (workspace may not be a git repository).');
             return;
         }
 
-        const isGit = await this.worktreeService.isGitRepo();
+        const isGit = await worktreeService.isGitRepo();
         if (!isGit) {
             response.markdown('This workspace is not a git repository. Worktree support requires git.');
             return;
@@ -1454,8 +1520,13 @@ export class ChatParticipant {
         task: ReturnType<TaskStore['get']> & {},
         response: vscode.ChatResponseStream,
     ): Promise<void> {
+        const worktreeService = this._resolveActiveWorktreeService();
+        if (!worktreeService) {
+            response.markdown('Git worktree support is not available (workspace may not be a git repository).');
+            return;
+        }
         if (task.worktree) {
-            const exists = await this.worktreeService!.exists(task.worktree.path);
+            const exists = await worktreeService.exists(task.worktree.path);
             if (exists) {
                 response.markdown(`Task **${task.title}** already has a worktree at \`${task.worktree.path}\`.\n\n`);
                 response.markdown('Use `@kanban /worktree open` to open it, or `@kanban /worktree remove` to remove it.\n\n');
@@ -1472,7 +1543,7 @@ export class ChatParticipant {
             response.markdown(`Creating worktree for **${task.title}**...\n\n`);
 
             const taskUri = this.taskStore.getTaskUri(task.id);
-            const taskRelPath = vscode.workspace.asRelativePath(taskUri);
+            const taskRelPath = this._relativeToFolder(this._resolveActiveFolderUri(), taskUri);
             const config = this.boardConfigStore.get();
             const activePack = config.activeStack
                 ? config.packs?.find(p => p.name === config.activeStack)
@@ -1480,7 +1551,7 @@ export class ChatParticipant {
             const projectSkills = config.skills ?? [];
             const packSkills = activePack?.skills ?? [];
             const resolvedSkills = Array.from(new Set([...projectSkills, ...packSkills]));
-            const worktreeInfo = await this.worktreeService!.create(task.id, task.title, taskRelPath, resolvedSkills);
+            const worktreeInfo = await worktreeService.create(task.id, task.title, taskRelPath, resolvedSkills);
 
             // Update task frontmatter with worktree info
             task.worktree = worktreeInfo;
@@ -1501,7 +1572,7 @@ export class ChatParticipant {
             response.markdown(`- **Path:** \`${worktreeInfo.path}\`\n\n`);
             response.markdown('Opening worktree in VS Code...\n');
 
-            await this.worktreeService!.openInVSCode(worktreeInfo.path);
+            await worktreeService.openInVSCode(worktreeInfo.path);
         } catch (err: any) {
             response.markdown(`❌ Failed to create worktree: ${err.message}`);
             this.logger.warn('chatParticipant', `Worktree creation failed: ${err.message}`);
@@ -1512,12 +1583,17 @@ export class ChatParticipant {
         task: ReturnType<TaskStore['get']> & {},
         response: vscode.ChatResponseStream,
     ): Promise<void> {
+        const worktreeService = this._resolveActiveWorktreeService();
+        if (!worktreeService) {
+            response.markdown('Git worktree support is not available (workspace may not be a git repository).');
+            return;
+        }
         if (!task.worktree) {
             response.markdown(`Task **${task.title}** has no worktree. Use \`@kanban /worktree\` to create one.`);
             return;
         }
 
-        const exists = await this.worktreeService!.exists(task.worktree.path);
+        const exists = await worktreeService.exists(task.worktree.path);
         if (!exists) {
             response.markdown(`Worktree directory no longer exists at \`${task.worktree.path}\`.\n\n`);
             response.markdown('Use `@kanban /worktree` to create a new one.');
@@ -1531,20 +1607,25 @@ export class ChatParticipant {
         if (this.isInTaskWorktree(task)) {
             response.markdown(WORKTREE_WORKSPACE_HINT);
         }
-        await this.worktreeService!.openInVSCode(task.worktree.path);
+        await worktreeService.openInVSCode(task.worktree.path);
     }
 
     private async handleWorktreeRemove(
         task: ReturnType<TaskStore['get']> & {},
         response: vscode.ChatResponseStream,
     ): Promise<void> {
+        const worktreeService = this._resolveActiveWorktreeService();
+        if (!worktreeService) {
+            response.markdown('Git worktree support is not available (workspace may not be a git repository).');
+            return;
+        }
         if (!task.worktree) {
             response.markdown(`Task **${task.title}** has no worktree to remove.`);
             return;
         }
 
         try {
-            await this.worktreeService!.remove(task.worktree);
+            await worktreeService.remove(task.worktree);
             const branch = task.worktree.branch;
             task.worktree = undefined;
             await this.taskStore.save(task);

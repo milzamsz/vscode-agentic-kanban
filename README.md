@@ -95,6 +95,18 @@ For the agent-driven version of this loop, install the [reusable skill](#driving
 
 > `TODO` is a checklist artifact (`- [ ]` items in `tasks.md` or a `todo_*.md` file). It is **not** a lane.
 
+## Multi-root Workspaces
+
+Agentic Kanban works in VS Code multi-root workspaces on a per-project basis.
+
+- Each workspace folder keeps its own `.agentkanban/` directory and `board.yaml`.
+- Uninitialised folders remain untouched until you initialise that specific project.
+- The board shows a project selector when multiple folders are open, including a `Not initialised` label when needed.
+- `@kanban` commands, task files, prompts, AGENTS sync, and worktree actions all route through the active project.
+- Each project can keep its own workflow profile, so one folder can be `standard` while another stays `lite`.
+
+Single-folder behavior stays unchanged.
+
 ## Worked Example
 
 A single feature taken end to end on the **Standard** profile. Each step is an explicit lane transition; the agent records its work in the task file.

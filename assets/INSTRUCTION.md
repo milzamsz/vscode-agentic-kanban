@@ -139,6 +139,15 @@ For those tasks:
 
 Maintain `TECHNICAL.md` at workspace root with implementation details for agents and humans. Update the relevant section when behavior or workflow rules change.
 
+## Multi-Root Workspaces
+
+When multiple workspace folders are open in VS Code:
+
+- treat each folder as an independent project with its own `.agentkanban/` state
+- operate on the active project selected in the board UI
+- do not create `.agentkanban/` in an uninitialised folder unless that specific folder is initialised
+- keep each project's chosen profile and board policy isolated to that folder
+
 ## Workflow Profiles
 
 ### Lite profile
