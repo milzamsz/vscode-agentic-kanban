@@ -57,3 +57,9 @@ IN the task file; explicit lane transitions only; record evidence; never claim p
 
 These files are bundled by the extension and (re)written by `@kanban /prompts`. Edit freely - your
 copies are preserved on init; `/prompts` overwrites to the latest bundled versions.
+
+`@kanban /loop [lane]` emits the stage-driver prompt for the selected lane into chat. A **"Send prompt to chat"**
+button in the response injects it directly into the chat input (one click, press Enter to run). Clipboard copy
+included as fallback. Default lane is `backlog`. Lane-to-prompt mapping (Standard): `backlog` -> `stage-backlog-to-planning`,
+`planning`/`in-progress` -> `stage-planning-to-review`, `review` -> `stage-review-to-done`; (Lite): `backlog`/
+`in-progress` -> `work-on-task`. Use `@kanban /prompts` to pick a prompt manually.

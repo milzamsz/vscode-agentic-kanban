@@ -67,6 +67,7 @@ describe('TransitionService', () => {
                     build: { ran: true, passed: true, output: 'OK' },
                     behavior: { ran: true, passed: true, output: 'Verified' },
                 },
+                doneChecklist: { done: 3, total: 3, agentDone: 3, agentTotal: 3, humanDone: 0, humanTotal: 0 },
             }),
             toLane: 'done',
         }, standardConfig);
@@ -275,5 +276,148 @@ describe('TransitionService', () => {
 
         expect(result.ok).toBe(true);
         expect(result.errors).toEqual([]);
+    });
+
+    it('requires a Definition of Done checklist section before moving to done in standard profile', () => {
+        const result = service.validate({
+            task: makeTask({
+                lane: 'review',
+                worktree: { branch: 'agentic/task', path: '/tmp/task', created: '2026-06-15T01:00:00.000Z' },
+                evidence: {
+                    lint: { ran: true, passed: true, output: 'OK' },
+                    test: { ran: true, passed: true, output: 'OK' },
+                    build: { ran: true, passed: true, output: 'OK' },
+                    behavior: { ran: true, passed: true, output: 'Verified' },
+                },
+                doneChecklist: undefined,
+            }),
+            toLane: 'done',
+        }, standardConfig);
+
+        expect(result.ok).toBe(false);
+        expect(result.errors.some(msg => msg.includes('Definition of Done'))).toBe(true);
+    });
+
+    it('passes when Definition of Done checklist section is present and complete', () => {
+        const result = service.validate({
+            task: makeTask({
+                lane: 'review',
+                worktree: { branch: 'agentic/task', path: '/tmp/task', created: '2026-06-15T01:00:00.000Z' },
+                evidence: {
+                    lint: { ran: true, passed: true, output: 'OK' },
+                    test: { ran: true, passed: true, output: 'OK' },
+                    build: { ran: true, passed: true, output: 'OK' },
+                    behavior: { ran: true, passed: true, output: 'Verified' },
+                },
+                doneChecklist: { done: 3, total: 3, agentDone: 3, agentTotal: 3, humanDone: 0, humanTotal: 0 },
+            }),
+            toLane: 'done',
+        }, standardConfig);
+
+        expect(result.ok).toBe(true);
+        expect(result.errors).toEqual([]);
+    });
+
+    it('fails when Definition of Done checklist has unchecked items', () => {
+        const result = service.validate({
+            task: makeTask({
+                lane: 'review',
+                worktree: { branch: 'agentic/task', path: '/tmp/task', created: '2026-06-15T01:00:00.000Z' },
+                evidence: {
+                    lint: { ran: true, passed: true, output: 'OK' },
+                    test: { ran: true, passed: true, output: 'OK' },
+                    build: { ran: true, passed: true, output: 'OK' },
+                    behavior: { ran: true, passed: true, output: 'Verified' },
+                },
+                doneChecklist: { done: 2, total: 3, agentDone: 1, agentTotal: 2, humanDone: 1, humanTotal: 1 },
+            }),
+            toLane: 'done',
+        }, standardConfig);
+
+        expect(result.ok).toBe(false);
+        expect(result.errors.some(msg => msg.includes('Definition of Done'))).toBe(true);
+    });
+
+    it('allows Definition of Done checklist to be optional when policy is off', () => {
+        const noChecklistConfig: BoardConfig = {
+            profile: 'standard',
+            profileVersion: 3,
+            lanes: PROFILE_LANES.standard,
+            enforcement: DEFAULT_ENFORCEMENT.standard,
+            policies: {
+                transition: {
+                    requireDoneChecklistForDone: false,
+                    requireChecklistForInProgress: true,
+                    requireSpecForInProgress: true,
+                    requireDescriptionForReview: true,
+                },
+            },
+        };
+
+        const result = service.validate({
+            task: makeTask({
+                lane: 'review',
+                worktree: { branch: 'agentic/task', path: '/tmp/task', created: '2026-06-15T01:00:00.000Z' },
+                evidence: {
+                    lint: { ran: true, passed: true, output: 'OK' },
+                    test: { ran: true, passed: true, output: 'OK' },
+                    build: { ran: true, passed: true, output: 'OK' },
+                    behavior: { ran: true, passed: true, output: 'Verified' },
+                },
+                doneChecklist: undefined,
+            }),
+            toLane: 'done',
+        }, noChecklistConfig);
+
+        expect(result.ok).toBe(true);
+        expect(result.errors).toEqual([]);
+    });
+
+    it('blocks when Definition of Done checklist has pending human-owned items', () => {
+        const result = service.validate({
+            task: makeTask({
+                lane: 'review',
+                worktree: { branch: 'agentic/task', path: '/tmp/task', created: '2026-06-15T01:00:00.000Z' },
+                evidence: {
+                    lint: { ran: true, passed: true, output: 'OK' },
+                    test: { ran: true, passed: true, output: 'OK' },
+                    build: { ran: true, passed: true, output: 'OK' },
+                    behavior: { ran: true, passed: true, output: 'Verified' },
+                },
+                doneChecklist: { done: 2, total: 3, agentDone: 2, agentTotal: 2, humanDone: 0, humanTotal: 1 },
+            }),
+            toLane: 'done',
+        }, standardConfig);
+
+        expect(result.ok).toBe(false);
+        expect(result.errors.some(msg => msg.includes('human-owned item'))).toBe(true);
+    });
+
+    it('downgrades Definition of Done check failures to warnings in warn mode', () => {
+        const result = service.validate({
+            task: makeTask({
+                lane: 'review',
+                worktree: { branch: 'agentic/task', path: '/tmp/task', created: '2026-06-15T01:00:00.000Z' },
+                evidence: {
+                    lint: { ran: true, passed: true, output: 'OK' },
+                    test: { ran: true, passed: true, output: 'OK' },
+                    build: { ran: true, passed: true, output: 'OK' },
+                    behavior: { ran: true, passed: true, output: 'Verified' },
+                },
+                doneChecklist: undefined,
+            }),
+            toLane: 'done',
+        }, {
+            ...standardConfig,
+            enforcement: {
+                ...DEFAULT_ENFORCEMENT.standard,
+                mode: 'warn',
+            },
+        });
+
+        expect(result.ok).toBe(true);
+        expect(result.errors).toEqual([]);
+        expect(result.warnings.some(msg => msg.includes('Definition of Done'))).toBe(true);
+        expect(result.blockedReasons).toEqual([]);
     });
 });

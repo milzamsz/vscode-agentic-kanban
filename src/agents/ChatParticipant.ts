@@ -1,19 +1,15 @@
 import * as vscode from 'vscode';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-
-const execAsync = promisify(exec);
 import { TaskStore } from '../TaskStore';
 import type { BoardConfigStore } from '../BoardConfigStore';
 import type { WorktreeService } from '../WorktreeService';
 import type { LogService } from '../LogService';
+import type { WorkspaceRegistry, ProjectContext } from '../WorkspaceRegistry';
 import { NO_OP_LOGGER } from '../LogService';
 import {
     DEFAULT_ENFORCEMENT,
     DEFAULT_REVIEW_POLICY,
     DONE_LANE,
     getFirstLane,
-    wipExceeded,
     type Priority,
     type ReviewPolicy,
     type TaskEvidence,
@@ -21,7 +17,7 @@ import {
 } from '../types';
 import { getDefaultProfile, isEnforceWorktrees } from '../settings';
 import { WorkflowDoctor } from '../WorkflowDoctor';
-import { interpolate, resolveVars, getDefaultLoopLane, getLoopAdvanceTarget } from '../PromptTemplate';
+import { interpolate, resolveVars, getDefaultLoopLane, getLanePrompt } from '../PromptTemplate';
 import { TaskEvidenceValidator } from '../TaskEvidenceValidator';
 
 /** Relative path within the workspace for the instruction file. */
@@ -41,9 +37,6 @@ const PROMPTS_REL_PATH = '.agentkanban/prompts';
 
 /** Relative root for goal artifacts. */
 const GOALS_REL_PATH = '.agentkanban/goals';
-
-/** Maximum passes per `/loop` invocation (safety cap). */
-const MAX_LOOP_PASSES = 25;
 
 /** Bundled prompt files written to `.agentkanban/prompts/` on init and via `/prompts`. */
 const STANDARD_PROMPT_FILES = [
@@ -256,11 +249,64 @@ export class ChatParticipant {
         getIsInitialised: (() => boolean) | undefined = undefined,
         logger?: LogService,
         worktreeService?: WorktreeService,
+        private readonly _registry?: WorkspaceRegistry,
     ) {
         this.extensionUri = extensionUri;
         this.getIsInitialised = getIsInitialised ?? (() => true);
         this.logger = logger ?? NO_OP_LOGGER;
         this.worktreeService = worktreeService;
+    }
+
+    /**
+     * Resolve the active project folder URI — from the registry (multi-root)
+     * or fall back to the first workspace folder (legacy single-root).
+     */
+    private _resolveActiveFolderUri(): vscode.Uri | undefined {
+        if (this._registry) {
+            const ctx = this._registry.getActiveContext();
+            if (ctx) { return ctx.folder.uri; }
+        }
+        return vscode.workspace.workspaceFolders?.[0]?.uri;
+    }
+
+    private _resolveActiveContext(): ProjectContext | undefined {
+        return this._registry?.getActiveContext();
+    }
+
+    private _resolveActiveWorktreeService(): WorktreeService | undefined {
+        return this._resolveActiveContext()?.worktreeService ?? this.worktreeService;
+    }
+
+    private _relativeToFolder(folderUri: vscode.Uri | undefined, targetUri: vscode.Uri): string {
+        if (!folderUri) {
+            return vscode.workspace.asRelativePath(targetUri);
+        }
+        const folderPath = folderUri.fsPath.replace(/\\/g, '/').replace(/\/+$/, '');
+        const targetPath = targetUri.fsPath.replace(/\\/g, '/');
+        const base = process.platform === 'win32' ? folderPath.toLowerCase() : folderPath;
+        const full = process.platform === 'win32' ? targetPath.toLowerCase() : targetPath;
+        if (full === base) {
+            return '';
+        }
+        const prefix = `${base}/`;
+        if (full.startsWith(prefix)) {
+            return targetPath.slice(folderPath.length + 1).replace(/\\/g, '/');
+        }
+        return vscode.workspace.asRelativePath(targetUri);
+    }
+
+    /** Resolve the active project's AGENTS.md path. */
+    private _resolveActiveAgentsMdUri(): vscode.Uri | undefined {
+        const folder = this._resolveActiveFolderUri();
+        if (!folder) { return undefined; }
+        return vscode.Uri.joinPath(folder, AGENTS_MD_REL_PATH);
+    }
+
+    /** Resolve the active project's INSTRUCTION.md path. */
+    private _resolveActiveInstructionUri(): vscode.Uri | undefined {
+        const folder = this._resolveActiveFolderUri();
+        if (!folder) { return undefined; }
+        return vscode.Uri.joinPath(folder, INSTRUCTION_REL_PATH);
     }
 
     async handleRequest(
@@ -298,10 +344,6 @@ export class ChatParticipant {
             case 'loop':
                 await this.handleLoop(prompt, response);
                 return;
-            case 'sweep':
-                response.markdown('> `/sweep` is now `/loop` (alias maintained for compatibility)\n\n');
-                await this.handleLoop(prompt, response);
-                return;
             case 'goal':
                 await this.handleGoal(prompt, response);
                 return;
@@ -330,7 +372,6 @@ export class ChatParticipant {
                 response.markdown('- `@kanban /prompts` - Open a QuickPick of prompts; select to copy to clipboard\n');
                 response.markdown('- `@kanban /prompts refresh` - Rewrite the bundled stage-driver prompts in .agentkanban/prompts/\n');
                 response.markdown('- `@kanban /loop [lane]` - Loop-until-dry: run passes over ready tasks until none advance (profile-aware advance target, human gates respected)\n');
-                response.markdown('- `@kanban /sweep [lane]` - Alias of /loop (deprecated)\n');
                 response.markdown('- `@kanban /goal new <objective>` - Define a new goal: creates an epic card + goal artifact + copies decompose prompt to clipboard\n');
                 response.markdown('- `@kanban /goal` - Show goal dashboard (progress per goal)\n');
                 response.markdown('- `@kanban /goal show <slug>` - Show detail for a specific goal\n');
@@ -357,10 +398,13 @@ export class ChatParticipant {
      * Always overwrites — this file is managed by the extension, not user-editable.
      */
     async syncInstructionFile(): Promise<vscode.Uri | undefined> {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) { return undefined; }
+        const folderUri = this._resolveActiveFolderUri();
+        if (!folderUri) { return undefined; }
+        return this.syncInstructionFileForUri(folderUri);
+    }
 
-        const instrUri = vscode.Uri.joinPath(workspaceFolder.uri, INSTRUCTION_REL_PATH);
+    async syncInstructionFileForUri(folderUri: vscode.Uri): Promise<vscode.Uri | undefined> {
+        const instrUri = vscode.Uri.joinPath(folderUri, INSTRUCTION_REL_PATH);
         try {
             const templateUri = vscode.Uri.joinPath(this.extensionUri, 'assets', 'INSTRUCTION.md');
             const templateContent = await vscode.workspace.fs.readFile(templateUri);
@@ -373,14 +417,21 @@ export class ChatParticipant {
         }
     }
 
+    async syncInstructionFileForContext(ctx: { folder: vscode.WorkspaceFolder }): Promise<vscode.Uri | undefined> {
+        return this.syncInstructionFileForUri(ctx.folder.uri);
+    }
+
     /**
      * Copy `assets/packs.yaml` to `.agentkanban/packs.yaml` if absent (or overwrite if requested).
      */
     async syncPacksYaml(overwrite = false): Promise<vscode.Uri | undefined> {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) { return undefined; }
+        const folderUri = this._resolveActiveFolderUri();
+        if (!folderUri) { return undefined; }
+        return this.syncPacksYamlForUri(folderUri, overwrite);
+    }
 
-        const destUri = vscode.Uri.joinPath(workspaceFolder.uri, '.agentkanban', 'packs.yaml');
+    async syncPacksYamlForUri(folderUri: vscode.Uri, overwrite = false): Promise<vscode.Uri | undefined> {
+        const destUri = vscode.Uri.joinPath(folderUri, '.agentkanban', 'packs.yaml');
         try {
             const exists = await this.exists(destUri);
             if (exists && !overwrite) {
@@ -397,25 +448,39 @@ export class ChatParticipant {
         }
     }
 
+    async syncPacksYamlForContext(ctx: { folder: vscode.WorkspaceFolder }, overwrite = false): Promise<vscode.Uri | undefined> {
+        return this.syncPacksYamlForUri(ctx.folder.uri, overwrite);
+    }
+
     /**
      * Write the bundled stage-driver prompts to `.agentkanban/prompts/`.
      * On init (`overwrite=false`) only missing files are written, so user edits
      * survive. `@kanban /prompts` calls with `overwrite=true` to refresh them all.
      */
     async scaffoldPrompts(overwrite = false): Promise<{ created: string[]; updated: string[]; skipped: string[] }> {
-        const result = { created: [] as string[], updated: [] as string[], skipped: [] as string[] };
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) { return result; }
+        const folderUri = this._resolveActiveFolderUri();
+        if (!folderUri) { return { created: [], updated: [], skipped: [] }; }
+        return this.scaffoldPromptsForUri(folderUri, overwrite);
+    }
 
-        const destDir = vscode.Uri.joinPath(workspaceFolder.uri, ...PROMPTS_REL_PATH.split('/'));
+    async scaffoldPromptsForUri(folderUri: vscode.Uri, overwrite = false): Promise<{ created: string[]; updated: string[]; skipped: string[] }> {
+        const config = this.boardConfigStore.get();
+        return this._scaffoldPromptsForConfig(folderUri, config, overwrite);
+    }
+
+    private async _scaffoldPromptsForConfig(
+        folderUri: vscode.Uri,
+        config: ReturnType<BoardConfigStore['get']>,
+        overwrite: boolean,
+    ): Promise<{ created: string[]; updated: string[]; skipped: string[] }> {
+        const result = { created: [] as string[], updated: [] as string[], skipped: [] as string[] };
+        const destDir = vscode.Uri.joinPath(folderUri, ...PROMPTS_REL_PATH.split('/'));
         try {
             await vscode.workspace.fs.createDirectory(destDir);
         } catch {
             // may already exist
         }
 
-        // Select prompt files based on active profile
-        const config = this.boardConfigStore.get();
         const targetFiles = config.profile === 'lite' ? LITE_PROMPT_FILES : STANDARD_PROMPT_FILES;
         const activePack = config.activeStack
             ? config.packs?.find(p => p.name === config.activeStack)
@@ -444,6 +509,10 @@ export class ChatParticipant {
         return result;
     }
 
+    async scaffoldPromptsForContext(ctx: Pick<ProjectContext, 'folder' | 'boardConfigStore'>, overwrite = false): Promise<{ created: string[]; updated: string[]; skipped: string[] }> {
+        return this._scaffoldPromptsForConfig(ctx.folder.uri, ctx.boardConfigStore.get(), overwrite);
+    }
+
     /**
      * Manage a sentinel-delimited section in the workspace's AGENTS.md.
      * Preserves any user content outside the sentinels. Creates the file if
@@ -454,10 +523,22 @@ export class ChatParticipant {
      * the AGENTS.md is protected by --skip-worktree.
      */
     async syncAgentsMdSection(worktreeTask?: AgentsTaskContext): Promise<vscode.Uri | undefined> {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) { return undefined; }
+        const folderUri = this._resolveActiveFolderUri();
+        if (!folderUri) { return undefined; }
+        return this.syncAgentsMdSectionForUri(folderUri, worktreeTask);
+    }
 
-        const agentsUri = vscode.Uri.joinPath(workspaceFolder.uri, AGENTS_MD_REL_PATH);
+    async syncAgentsMdSectionForUri(folderUri: vscode.Uri, worktreeTask?: AgentsTaskContext): Promise<vscode.Uri | undefined> {
+        return this._syncAgentsMdSectionForResources(folderUri, this.taskStore, this.boardConfigStore, worktreeTask);
+    }
+
+    private async _syncAgentsMdSectionForResources(
+        folderUri: vscode.Uri,
+        taskStore: TaskStore,
+        boardConfigStore: BoardConfigStore,
+        worktreeTask?: AgentsTaskContext,
+    ): Promise<vscode.Uri | undefined> {
+        const agentsUri = vscode.Uri.joinPath(folderUri, AGENTS_MD_REL_PATH);
         try {
             let existing = '';
             try {
@@ -469,12 +550,14 @@ export class ChatParticipant {
 
             let taskContext = worktreeTask;
             if (!taskContext) {
-                const linkedTask = this.findLinkedWorktreeTask();
+                const linkedTask = taskStore.getAll().find(t =>
+                    t.worktree && this.normalisePath(t.worktree.path) === this.normalisePath(folderUri.fsPath),
+                );
                 if (linkedTask) {
-                    const taskUri = this.taskStore.getTaskUri(linkedTask.id);
-                    const taskRelPath = vscode.workspace.asRelativePath(taskUri);
-                    const todoUri = this.taskStore.getTodoUri(linkedTask.id);
-                    const todoRelPath = vscode.workspace.asRelativePath(todoUri);
+                    const taskUri = taskStore.getTaskUri(linkedTask.id);
+                    const taskRelPath = this._relativeToFolder(folderUri, taskUri);
+                    const todoUri = taskStore.getTodoUri(linkedTask.id);
+                    const todoRelPath = this._relativeToFolder(folderUri, todoUri);
                     taskContext = {
                         title: linkedTask.title,
                         taskRelPath,
@@ -487,7 +570,7 @@ export class ChatParticipant {
                 }
             }
 
-            const config = this.boardConfigStore.get();
+            const config = boardConfigStore.get();
             const activePack = config.activeStack
                 ? config.packs?.find(p => p.name === config.activeStack)
                 : undefined;
@@ -508,7 +591,7 @@ export class ChatParticipant {
                     config.profile,
                     resolvedSkills,
                     taskContext.worktreePath,
-                    workspaceFolder?.uri.fsPath,
+                    folderUri.fsPath,
                 )
                 : buildAgentsMdSection(
                     config.enforcement?.mode ?? DEFAULT_ENFORCEMENT[config.profile].mode,
@@ -545,18 +628,34 @@ export class ChatParticipant {
         }
     }
 
+    async syncAgentsMdSectionForContext(
+        ctx: Pick<ProjectContext, 'folder' | 'taskStore' | 'boardConfigStore'>,
+        worktreeTask?: AgentsTaskContext,
+    ): Promise<vscode.Uri | undefined> {
+        return this._syncAgentsMdSectionForResources(ctx.folder.uri, ctx.taskStore, ctx.boardConfigStore, worktreeTask);
+    }
+
     /**
      * Detect if the current workspace has a worktree-linked task and sync
      * the enhanced AGENTS.md sentinel accordingly. Called on extension activation.
      */
     async syncWorktreeAgentsMd(): Promise<void> {
-        const linkedTask = this.findLinkedWorktreeTask();
+        const folderUri = this._resolveActiveFolderUri();
+        if (!folderUri) { return; }
+        return this.syncWorktreeAgentsMdForUri(folderUri);
+    }
+
+    async syncWorktreeAgentsMdForUri(folderUri: vscode.Uri): Promise<void> {
+        const tasks = this.taskStore.getAll();
+        const linkedTask = tasks.find(t =>
+            t.worktree && this.normalisePath(t.worktree.path) === this.normalisePath(folderUri.fsPath)
+        );
         if (linkedTask) {
             const taskUri = this.taskStore.getTaskUri(linkedTask.id);
-            const taskRelPath = vscode.workspace.asRelativePath(taskUri);
+            const taskRelPath = this._relativeToFolder(folderUri, taskUri);
             const todoUri = this.taskStore.getTodoUri(linkedTask.id);
-            const todoRelPath = vscode.workspace.asRelativePath(todoUri);
-            await this.syncAgentsMdSection({
+            const todoRelPath = this._relativeToFolder(folderUri, todoUri);
+            await this.syncAgentsMdSectionForUri(folderUri, {
                 title: linkedTask.title,
                 taskRelPath,
                 todoRelPath,
@@ -569,6 +668,26 @@ export class ChatParticipant {
         }
     }
 
+    async syncWorktreeAgentsMdForContext(ctx: Pick<ProjectContext, 'folder' | 'taskStore' | 'boardConfigStore'>): Promise<void> {
+        const linkedTask = ctx.taskStore.getAll().find(t =>
+            t.worktree && this.normalisePath(t.worktree.path) === this.normalisePath(ctx.folder.uri.fsPath),
+        );
+        if (!linkedTask) {
+            return;
+        }
+        const taskUri = ctx.taskStore.getTaskUri(linkedTask.id);
+        const todoUri = ctx.taskStore.getTodoUri(linkedTask.id);
+        await this.syncAgentsMdSectionForContext(ctx, {
+            title: linkedTask.title,
+            taskRelPath: this._relativeToFolder(ctx.folder.uri, taskUri),
+            todoRelPath: this._relativeToFolder(ctx.folder.uri, todoUri),
+            changeRelPath: this.getChangeRelPath(linkedTask),
+            specRelPath: this.getSpecRelPath(linkedTask),
+            priority: linkedTask.priority,
+            worktreePath: linkedTask.worktree?.path,
+        });
+    }
+
     /** Normalise a file path for comparison (lowercase on Windows, resolve). */
     private normalisePath(p: string): string {
         const normalised = p.replace(/\\/g, '/').replace(/\/+$/, '');
@@ -578,16 +697,16 @@ export class ChatParticipant {
     /** Check if the current workspace IS the worktree for the given task. */
     private isInTaskWorktree(task: { worktree?: { path: string } }): boolean {
         if (!task.worktree) { return false; }
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) { return false; }
-        return this.normalisePath(workspaceFolder.uri.fsPath) === this.normalisePath(task.worktree.path);
+        const folderUri = this._resolveActiveFolderUri();
+        if (!folderUri) { return false; }
+        return this.normalisePath(folderUri.fsPath) === this.normalisePath(task.worktree.path);
     }
 
     /** Find a task whose worktree.path matches the current workspace. */
     findLinkedWorktreeTask(): ReturnType<TaskStore['get']> {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) { return undefined; }
-        const currentPath = workspaceFolder.uri.fsPath;
+        const folderUri = this._resolveActiveFolderUri();
+        if (!folderUri) { return undefined; }
+        const currentPath = folderUri.fsPath;
         return this.taskStore.getAll().find(t =>
             t.worktree && this.normalisePath(t.worktree.path) === this.normalisePath(currentPath),
         );
@@ -606,9 +725,9 @@ export class ChatParticipant {
                     { prompt: '', command: 'refresh', label: `Refresh: ${task.title}` },
                 ];
                 // Add worktree followup if no worktree exists and service is available
-                if (!task.worktree && this.worktreeService) {
+                if (!task.worktree && this._resolveActiveWorktreeService()) {
                     followups.push({ prompt: '', command: 'worktree', label: `Create Worktree: ${task.title}` });
-                } else if (task.worktree && this.worktreeService) {
+                } else if (task.worktree && this._resolveActiveWorktreeService()) {
                     followups.push({ prompt: 'open', command: 'worktree', label: `Open Worktree: ${task.title}` });
                 }
                 return followups;
@@ -656,12 +775,12 @@ export class ChatParticipant {
         this.logger.info('chatParticipant', `Created task: ${task.id}`);
 
         response.markdown(`Created task **${title}**\n\n`);
-        response.markdown(`File: \`${vscode.workspace.asRelativePath(taskUri)}\`\n\n`);
+        response.markdown(`File: \`${this._relativeToFolder(this._resolveActiveFolderUri(), taskUri)}\`\n\n`);
         response.markdown('Use `@kanban /task ' + title + '` to start working on it.');
     }
 
     private async handleTask(prompt: string, response: vscode.ChatResponseStream): Promise<void> {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        const folderUri = this._resolveActiveFolderUri();
 
         if (!prompt) {
             // In a worktree workspace with no args — detect linked task and show reminder
@@ -710,9 +829,9 @@ export class ChatParticipant {
             try {
                 const customUri = customPath.match(/^[a-zA-Z]:[\\/]/) || customPath.startsWith('/')
                     ? vscode.Uri.file(customPath)
-                    : vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, customPath);
+                    : vscode.Uri.joinPath(folderUri!, customPath);
                 await vscode.workspace.fs.stat(customUri);
-                const customRelPath = vscode.workspace.asRelativePath(customUri);
+                const customRelPath = this._relativeToFolder(folderUri, customUri);
                 response.markdown(`Read \`${customRelPath}\` for additional instructions.\n\n`);
             } catch {
                 this.logger.warn('chatParticipant', `Custom instruction file not found: ${customPath}`);
@@ -744,10 +863,11 @@ export class ChatParticipant {
         this.lastSelectedTaskId = task.id;
         this.logger.info('chatParticipant', `Selected task: ${task.id} (${task.title})`);
 
+        const folderUri = this._resolveActiveFolderUri();
         const instrUri = this.getIsInitialised() ? await this.syncInstructionFile() : undefined;
         const taskUri = this.taskStore.getTaskUri(task.id);
-        const taskRelPath = vscode.workspace.asRelativePath(taskUri);
-        const todoRelPath = vscode.workspace.asRelativePath(this.taskStore.getTodoUri(task.id));
+        const taskRelPath = this._relativeToFolder(folderUri, taskUri);
+        const todoRelPath = this._relativeToFolder(folderUri, this.taskStore.getTodoUri(task.id));
 
         if (this.getIsInitialised()) {
             await this.syncAgentsMdSection({
@@ -763,7 +883,7 @@ export class ChatParticipant {
 
         if (instrUri) {
             response.reference(instrUri);
-            const instrRelPath = vscode.workspace.asRelativePath(instrUri);
+            const instrRelPath = this._relativeToFolder(folderUri, instrUri);
             response.markdown(`Read \`${instrRelPath}\` for workflow instructions.\n\n`);
         }
         response.reference(taskUri);
@@ -824,8 +944,8 @@ export class ChatParticipant {
         const { taskRelPath } = await this.selectTask(task, response);
 
         // Load work-on-task prompt template
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
+        const folderUri = this._resolveActiveFolderUri();
+        if (!folderUri) {
             response.markdown('No workspace folder is open.');
             return;
         }
@@ -834,7 +954,7 @@ export class ChatParticipant {
         let promptUri: vscode.Uri;
 
         // Try workspace copy first, fall back to bundled
-        const workspacePromptUri = vscode.Uri.joinPath(workspaceFolder.uri, ...PROMPTS_REL_PATH.split('/'), 'work-on-task.md');
+        const workspacePromptUri = vscode.Uri.joinPath(folderUri, ...PROMPTS_REL_PATH.split('/'), 'work-on-task.md');
         const bundledPromptUri = vscode.Uri.joinPath(this.extensionUri, 'assets', 'prompts', 'work-on-task.md');
 
         try {
@@ -1009,8 +1129,8 @@ export class ChatParticipant {
             return;
         }
 
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
+        const folderUriSpec = this._resolveActiveFolderUri();
+        if (!folderUriSpec) {
             response.markdown('No workspace folder is open.');
             return;
         }
@@ -1019,8 +1139,8 @@ export class ChatParticipant {
         const capability = this.slugifySpecPart(prompt.trim() || changeSlug) || changeSlug;
         const changeRelPath = `${CHANGES_REL_PATH}/${changeSlug}`;
         const specRelPath = `${SPECS_REL_PATH}/${capability}/spec.md`;
-        const changeUri = this.uriFromRelativePath(workspaceFolder.uri, changeRelPath);
-        const specUri = this.uriFromRelativePath(workspaceFolder.uri, specRelPath);
+        const changeUri = this.uriFromRelativePath(folderUriSpec, changeRelPath);
+        const specUri = this.uriFromRelativePath(folderUriSpec, specRelPath);
         const config = this.boardConfigStore.get();
 
         try {
@@ -1037,7 +1157,7 @@ export class ChatParticipant {
             // Capability spec lives once under .agentkanban/specs/<capability>/ and is
             // referenced (not duplicated) by the task via the `spec` frontmatter key.
             await vscode.workspace.fs.createDirectory(
-                this.uriFromRelativePath(workspaceFolder.uri, `${SPECS_REL_PATH}/${capability}`),
+                this.uriFromRelativePath(folderUriSpec, `${SPECS_REL_PATH}/${capability}`),
             );
             await this.writeTemplateIfMissing('spec.md', specUri, task, changeSlug, capability, created, reused);
 
@@ -1052,8 +1172,8 @@ export class ChatParticipant {
             await this.taskStore.save(task);
 
             const taskUri = this.taskStore.getTaskUri(task.id);
-            const taskRelPath = vscode.workspace.asRelativePath(taskUri);
-            const todoRelPath = vscode.workspace.asRelativePath(this.taskStore.getTodoUri(task.id));
+            const taskRelPath = this._relativeToFolder(folderUriSpec, taskUri);
+            const todoRelPath = this._relativeToFolder(folderUriSpec, this.taskStore.getTodoUri(task.id));
             await this.syncAgentsMdSection({
                 title: task.title,
                 taskRelPath,
@@ -1079,14 +1199,14 @@ export class ChatParticipant {
             if (created.length > 0) {
                 response.markdown('Created:\n');
                 for (const uri of created) {
-                    response.markdown(`- \`${vscode.workspace.asRelativePath(uri)}\`\n`);
+                    response.markdown(`- \`${this._relativeToFolder(folderUriSpec, uri)}\`\n`);
                 }
                 response.markdown('\n');
             }
             if (reused.length > 0) {
                 response.markdown('Preserved existing files:\n');
                 for (const uri of reused) {
-                    response.markdown(`- \`${vscode.workspace.asRelativePath(uri)}\`\n`);
+                    response.markdown(`- \`${this._relativeToFolder(folderUriSpec, uri)}\`\n`);
                 }
                 response.markdown('\n');
             }
@@ -1104,8 +1224,8 @@ export class ChatParticipant {
      * capability spec under `.agentkanban/specs/` is left in place (it is shared).
      */
     private async handleArchive(prompt: string, response: vscode.ChatResponseStream): Promise<void> {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
+        const folderUri = this._resolveActiveFolderUri();
+        if (!folderUri) {
             response.markdown('No workspace folder is open.');
             return;
         }
@@ -1125,8 +1245,8 @@ export class ChatParticipant {
 
         const sourceRel = `${CHANGES_REL_PATH}/${slug}`;
         const destRel = `${CHANGES_REL_PATH}/archive/${slug}`;
-        const sourceUri = this.uriFromRelativePath(workspaceFolder.uri, sourceRel);
-        const destUri = this.uriFromRelativePath(workspaceFolder.uri, destRel);
+        const sourceUri = this.uriFromRelativePath(folderUri, sourceRel);
+        const destUri = this.uriFromRelativePath(folderUri, destRel);
 
         if (!(await this.exists(sourceUri))) {
             response.markdown(`No change folder at \`${sourceRel}\`.`);
@@ -1139,7 +1259,7 @@ export class ChatParticipant {
 
         try {
             await vscode.workspace.fs.createDirectory(
-                this.uriFromRelativePath(workspaceFolder.uri, `${CHANGES_REL_PATH}/archive`),
+                this.uriFromRelativePath(folderUri, `${CHANGES_REL_PATH}/archive`),
             );
             await vscode.workspace.fs.rename(sourceUri, destUri, { overwrite: false });
             response.markdown(`Archived change \`${slug}\`:\n- \`${sourceRel}\` → \`${destRel}\`\n\nThe capability spec under \`${SPECS_REL_PATH}/\` was left in place (shared across tasks).`);
@@ -1171,13 +1291,13 @@ export class ChatParticipant {
 
     /** Pick a prompt file from the workspace and copy its content to clipboard. */
     private async handlePromptsPicker(response: vscode.ChatResponseStream): Promise<void> {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
+        const folderUri = this._resolveActiveFolderUri();
+        if (!folderUri) {
             response.markdown('No workspace folder is open.');
             return;
         }
 
-        const promptsDir = vscode.Uri.joinPath(workspaceFolder.uri, PROMPTS_REL_PATH);
+        const promptsDir = vscode.Uri.joinPath(folderUri, PROMPTS_REL_PATH);
         let entries: [string, vscode.FileType][];
         try {
             entries = await vscode.workspace.fs.readDirectory(promptsDir);
@@ -1237,14 +1357,14 @@ export class ChatParticipant {
      */
     private async handlePromptsRefresh(response: vscode.ChatResponseStream): Promise<void> {
         const { created, updated, skipped } = await this.scaffoldPrompts(true);
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        const folderUri = this._resolveActiveFolderUri();
         if (created.length === 0 && updated.length === 0) {
             response.markdown('No prompts were written (no workspace, or the bundled prompts are missing).');
             return;
         }
         response.markdown(`Refreshed stage-driver prompts in \`${PROMPTS_REL_PATH}/\` (${created.length} created, ${updated.length} updated).\n\n`);
-        if (workspaceFolder) {
-            const readmeUri = vscode.Uri.joinPath(workspaceFolder.uri, ...PROMPTS_REL_PATH.split('/'), 'README.md');
+        if (folderUri) {
+            const readmeUri = vscode.Uri.joinPath(folderUri, ...PROMPTS_REL_PATH.split('/'), 'README.md');
             response.reference(readmeUri);
         }
         response.markdown('Start with `stage-planning-to-review.md` (the autonomous default). See `README.md` for the flow.');
@@ -1258,6 +1378,7 @@ export class ChatParticipant {
         prompt: string,
         response: vscode.ChatResponseStream,
     ): Promise<void> {
+        const folderUri = this._resolveActiveFolderUri();
         // Auto-detect linked task in worktree workspace
         if (!this.lastSelectedTaskId) {
             const linkedTask = this.findLinkedWorktreeTask();
@@ -1299,8 +1420,8 @@ export class ChatParticipant {
         const instrUri = this.getIsInitialised() ? await this.syncInstructionFile() : undefined;
         if (this.getIsInitialised()) {
             const refreshTaskUri = this.taskStore.getTaskUri(task.id);
-            const refreshTaskRelPath = vscode.workspace.asRelativePath(refreshTaskUri);
-            const refreshTodoRelPath = vscode.workspace.asRelativePath(this.taskStore.getTodoUri(task.id));
+            const refreshTaskRelPath = this._relativeToFolder(folderUri, refreshTaskUri);
+            const refreshTodoRelPath = this._relativeToFolder(folderUri, this.taskStore.getTodoUri(task.id));
             await this.syncAgentsMdSection({
                 title: task.title,
                 taskRelPath: refreshTaskRelPath,
@@ -1313,7 +1434,7 @@ export class ChatParticipant {
         }
 
         const taskUri = this.taskStore.getTaskUri(task.id);
-        const taskRelPath = vscode.workspace.asRelativePath(taskUri);
+        const taskRelPath = this._relativeToFolder(folderUri, taskUri);
 
         // Attach files as references so they persist in conversation context
         if (instrUri) { response.reference(instrUri); }
@@ -1329,7 +1450,7 @@ export class ChatParticipant {
 
         // Output context for Copilot
         if (instrUri) {
-            const instrRelPath = vscode.workspace.asRelativePath(instrUri);
+            const instrRelPath = this._relativeToFolder(folderUri, instrUri);
             response.markdown(`Read \`${instrRelPath}\` for workflow instructions.\n\n`);
         }
 
@@ -1352,12 +1473,13 @@ export class ChatParticipant {
      * Subcommands: (none) → create, "open" → open, "remove" → remove.
      */
     private async handleWorktree(prompt: string, response: vscode.ChatResponseStream): Promise<void> {
-        if (!this.worktreeService) {
+        const worktreeService = this._resolveActiveWorktreeService();
+        if (!worktreeService) {
             response.markdown('Git worktree support is not available (workspace may not be a git repository).');
             return;
         }
 
-        const isGit = await this.worktreeService.isGitRepo();
+        const isGit = await worktreeService.isGitRepo();
         if (!isGit) {
             response.markdown('This workspace is not a git repository. Worktree support requires git.');
             return;
@@ -1398,8 +1520,13 @@ export class ChatParticipant {
         task: ReturnType<TaskStore['get']> & {},
         response: vscode.ChatResponseStream,
     ): Promise<void> {
+        const worktreeService = this._resolveActiveWorktreeService();
+        if (!worktreeService) {
+            response.markdown('Git worktree support is not available (workspace may not be a git repository).');
+            return;
+        }
         if (task.worktree) {
-            const exists = await this.worktreeService!.exists(task.worktree.path);
+            const exists = await worktreeService.exists(task.worktree.path);
             if (exists) {
                 response.markdown(`Task **${task.title}** already has a worktree at \`${task.worktree.path}\`.\n\n`);
                 response.markdown('Use `@kanban /worktree open` to open it, or `@kanban /worktree remove` to remove it.\n\n');
@@ -1416,7 +1543,7 @@ export class ChatParticipant {
             response.markdown(`Creating worktree for **${task.title}**...\n\n`);
 
             const taskUri = this.taskStore.getTaskUri(task.id);
-            const taskRelPath = vscode.workspace.asRelativePath(taskUri);
+            const taskRelPath = this._relativeToFolder(this._resolveActiveFolderUri(), taskUri);
             const config = this.boardConfigStore.get();
             const activePack = config.activeStack
                 ? config.packs?.find(p => p.name === config.activeStack)
@@ -1424,7 +1551,7 @@ export class ChatParticipant {
             const projectSkills = config.skills ?? [];
             const packSkills = activePack?.skills ?? [];
             const resolvedSkills = Array.from(new Set([...projectSkills, ...packSkills]));
-            const worktreeInfo = await this.worktreeService!.create(task.id, task.title, taskRelPath, resolvedSkills);
+            const worktreeInfo = await worktreeService.create(task.id, task.title, taskRelPath, resolvedSkills);
 
             // Update task frontmatter with worktree info
             task.worktree = worktreeInfo;
@@ -1445,7 +1572,7 @@ export class ChatParticipant {
             response.markdown(`- **Path:** \`${worktreeInfo.path}\`\n\n`);
             response.markdown('Opening worktree in VS Code...\n');
 
-            await this.worktreeService!.openInVSCode(worktreeInfo.path);
+            await worktreeService.openInVSCode(worktreeInfo.path);
         } catch (err: any) {
             response.markdown(`❌ Failed to create worktree: ${err.message}`);
             this.logger.warn('chatParticipant', `Worktree creation failed: ${err.message}`);
@@ -1456,12 +1583,17 @@ export class ChatParticipant {
         task: ReturnType<TaskStore['get']> & {},
         response: vscode.ChatResponseStream,
     ): Promise<void> {
+        const worktreeService = this._resolveActiveWorktreeService();
+        if (!worktreeService) {
+            response.markdown('Git worktree support is not available (workspace may not be a git repository).');
+            return;
+        }
         if (!task.worktree) {
             response.markdown(`Task **${task.title}** has no worktree. Use \`@kanban /worktree\` to create one.`);
             return;
         }
 
-        const exists = await this.worktreeService!.exists(task.worktree.path);
+        const exists = await worktreeService.exists(task.worktree.path);
         if (!exists) {
             response.markdown(`Worktree directory no longer exists at \`${task.worktree.path}\`.\n\n`);
             response.markdown('Use `@kanban /worktree` to create a new one.');
@@ -1475,20 +1607,25 @@ export class ChatParticipant {
         if (this.isInTaskWorktree(task)) {
             response.markdown(WORKTREE_WORKSPACE_HINT);
         }
-        await this.worktreeService!.openInVSCode(task.worktree.path);
+        await worktreeService.openInVSCode(task.worktree.path);
     }
 
     private async handleWorktreeRemove(
         task: ReturnType<TaskStore['get']> & {},
         response: vscode.ChatResponseStream,
     ): Promise<void> {
+        const worktreeService = this._resolveActiveWorktreeService();
+        if (!worktreeService) {
+            response.markdown('Git worktree support is not available (workspace may not be a git repository).');
+            return;
+        }
         if (!task.worktree) {
             response.markdown(`Task **${task.title}** has no worktree to remove.`);
             return;
         }
 
         try {
-            await this.worktreeService!.remove(task.worktree);
+            await worktreeService.remove(task.worktree);
             const branch = task.worktree.branch;
             task.worktree = undefined;
             await this.taskStore.save(task);
@@ -1600,182 +1737,117 @@ export class ChatParticipant {
     ): Promise<void> {
         const config = this.boardConfigStore.get();
 
-        // Parse flags from the prompt arg
+        // Parse flags
         const args = prompt.split(/\s+/).filter(Boolean);
-        let targetLane = getDefaultLoopLane(config.profile);
+        let lane = getDefaultLoopLane(config.profile);
         let filterLabel: string | undefined;
         let filterPriority: string | undefined;
-        let filterPack: string | undefined;
 
         for (const arg of args) {
             if (arg.startsWith('--label=')) {
                 filterLabel = arg.slice('--label='.length);
             } else if (arg.startsWith('--priority=')) {
                 filterPriority = arg.slice('--priority='.length);
-            } else if (arg.startsWith('--pack=')) {
-                filterPack = arg.slice('--pack='.length);
-            } else if (arg.startsWith('--stack=')) {
-                filterPack = arg.slice('--stack='.length);
             } else if (!arg.startsWith('-')) {
-                targetLane = arg;
+                lane = arg;
             }
         }
 
-        if (!config.lanes.includes(targetLane)) {
-            response.markdown(`❌ Invalid lane **${targetLane}**. Valid lanes: ${config.lanes.map(l => `\`${l}\``).join(', ')}\n`);
+        if (!config.lanes.includes(lane)) {
+            response.markdown(`No lane **${lane}**. Valid: ${config.lanes.map(l => `\`${l}\``).join(', ')}\n`);
             return;
         }
 
-        // Human gate guard: Standard profile cannot auto-advance from `review`
-        if (config.profile === 'standard' && targetLane === 'review') {
-            response.markdown('⛔ `/loop review` is a human gate in Standard profile.\n\n');
-            response.markdown('`review → done` requires human approval. Run `@kanban /evidence <task>` to verify all checks pass, then move the task to `done` manually.\n');
+        const promptName = getLanePrompt(config.profile, lane);
+        if (!promptName) {
+            response.markdown(`No stage-driver prompt for \`${lane}\` in the **${config.profile}** profile. Nothing to emit.\n`);
             return;
         }
 
-        const advanceLane = getLoopAdvanceTarget(config.profile, targetLane);
-        const packName = filterPack || config.activeStack;
-        const selectedPack = packName ? config.packs?.find(p => p.name === packName) : undefined;
-
-        const activeFilters: string[] = [];
-        if (filterLabel) { activeFilters.push(`label: \`${filterLabel}\``); }
-        if (filterPriority) { activeFilters.push(`priority: \`${filterPriority}\``); }
-        if (packName) { activeFilters.push(`pack: \`${packName}\``); }
-        const filterSuffix = activeFilters.length > 0 ? ` (filtered by ${activeFilters.join(', ')})` : '';
-
-        response.markdown(`## Loop: \`${targetLane}\` → \`${advanceLane}\`\n\n`);
-        response.markdown(`Profile: **${config.profile}**${filterSuffix}\n\n`);
-
-        let passCount = 0;
-        let totalAdvanced = 0;
-        let totalParked = 0;
-        let capHit = false;
-
-        while (passCount < MAX_LOOP_PASSES) {
-            passCount++;
-
-            // Re-read tasks each pass (lanes changed in prior pass)
-            const allTasks = this.taskStore.getAll();
-            const tasksInLane = allTasks.filter(t => t.lane === targetLane);
-
-            const readyTasks = tasksInLane.filter(task => {
-                // Exclude blocked tasks (parked by a prior pass)
-                if (task.labels?.includes('blocked')) { return false; }
-                // Dependency guardrail
-                if (task.dependsOn && task.dependsOn.length > 0) {
-                    for (const depId of task.dependsOn) {
-                        const depTask = allTasks.find(t => t.id === depId || t.slug === depId);
-                        if (depTask && depTask.lane !== 'done' && depTask.lane !== 'archive') {
-                            return false;
-                        }
-                    }
-                }
-                if (filterLabel && (!task.labels || !task.labels.includes(filterLabel))) { return false; }
-                if (filterPriority && task.priority !== filterPriority) { return false; }
-                return true;
-            });
-
-            if (readyTasks.length === 0) {
-                break; // Nothing to advance — dry
-            }
-
-            response.markdown(`#### Pass ${passCount} — ${readyTasks.length} ready task(s)\n\n`);
-
-            let advancedThisPass = 0;
-
-            for (const task of readyTasks) {
-                response.markdown(`Processing **${task.title}**...\n`);
-
-                // Move to in-progress (skip if already there or lane absent in profile)
-                const inProgressLane = 'in-progress';
-                if (task.lane !== inProgressLane && config.lanes.includes(inProgressLane)) {
-                    const allCurrent = this.taskStore.getAll();
-                    const wipBreach = wipExceeded(config, allCurrent, inProgressLane, task.id);
-                    if (wipBreach) {
-                        response.markdown(`⚠ **${task.title}**: WIP limit on \`${inProgressLane}\` (${wipBreach.count}/${wipBreach.limit}). Skipping this pass.\n\n`);
-                        continue;
-                    }
-                    task.lane = inProgressLane;
-                    await this.taskStore.save(task);
-                }
-
-                // Build verification commands
-                const commandsToRun: { name: string; command: string }[] = [];
-                if (selectedPack?.verifyCmds && selectedPack.verifyCmds.length > 0) {
-                    for (let i = 0; i < selectedPack.verifyCmds.length; i++) {
-                        commandsToRun.push({ name: `verifyCmd[${i}]`, command: selectedPack.verifyCmds[i] });
-                    }
-                } else {
-                    const verification = config.policies?.verification;
-                    if (verification?.testCommand) { commandsToRun.push({ name: 'test', command: verification.testCommand }); }
-                    if (verification?.lintCommand) { commandsToRun.push({ name: 'lint', command: verification.lintCommand }); }
-                    if (verification?.buildCommand) { commandsToRun.push({ name: 'build', command: verification.buildCommand }); }
-                }
-
-                let passed = true;
-                let errorLogs = '';
-                const cwd = task.worktree?.path || this.taskStore.getWorkspacePath();
-
-                for (const cmd of commandsToRun) {
-                    try {
-                        this.logger.info('chatParticipant', `Loop running command: ${cmd.command} (cwd: ${cwd})`);
-                        await execAsync(cmd.command, { cwd });
-                    } catch (err: any) {
-                        passed = false;
-                        const stdout = err.stdout ? `\nStdout:\n${err.stdout}` : '';
-                        const stderr = err.stderr ? `\nStderr:\n${err.stderr}` : '';
-                        errorLogs += `Command failed: "${cmd.command}"\nError: ${err.message || err}${stdout}${stderr}\n`;
-                        break;
-                    }
-                }
-
-                if (passed) {
-                    task.lane = advanceLane;
-                    if (task.labels) {
-                        const hadBlocker = task.labels.some(l => l === 'blocked' || l.startsWith('blocked-by:'));
-                        task.labels = task.labels.filter(l => l !== 'blocked' && !l.startsWith('blocked-by:'));
-                        if (hadBlocker) { task.blockerResolved = true; }
-                    }
-                    const successComment = `[comment: loop pass ${passCount}: verification passed on ${new Date().toISOString()}]`;
-                    await this.appendCommentToTask(task, successComment);
-                    response.markdown(`✅ **${task.title}**: passed → moved to **${advanceLane.toUpperCase()}**\n\n`);
-                    advancedThisPass++;
-                    totalAdvanced++;
-                } else {
-                    task.lane = targetLane;
-                    if (!task.labels) { task.labels = []; }
-                    if (!task.labels.includes('blocked')) { task.labels.push('blocked'); }
-                    const failureComment = `[comment: loop pass ${passCount}: verification failed on ${new Date().toISOString()}\nLogs:\n${errorLogs}]`;
-                    await this.appendCommentToTask(task, failureComment);
-                    response.markdown(`❌ **${task.title}**: failed → back to **${targetLane.toUpperCase()}** (blocked)\n\n`);
-                    totalParked++;
+        // Gather ready tasks in the lane
+        const allTasks = this.taskStore.getAll();
+        const readyTasks = allTasks.filter(task => {
+            if (task.lane !== lane) { return false; }
+            if (task.labels?.includes('blocked')) { return false; }
+            if (task.dependsOn && task.dependsOn.length > 0) {
+                for (const depId of task.dependsOn) {
+                    const dep = allTasks.find(t => t.id === depId || t.slug === depId);
+                    if (dep && dep.lane !== 'done' && dep.lane !== 'archive') { return false; }
                 }
             }
+            if (filterLabel && (!task.labels || !task.labels.includes(filterLabel))) { return false; }
+            if (filterPriority && task.priority !== filterPriority) { return false; }
+            return true;
+        });
 
-            if (advancedThisPass === 0) {
-                break; // Dry — no progress this pass
-            }
+        if (readyTasks.length === 0) {
+            response.markdown(`No ready tasks in \`${lane}\`.\n`);
+            return;
         }
 
-        if (passCount >= MAX_LOOP_PASSES) {
-            capHit = true;
+        // Load the prompt (workspace copy first, bundled fallback)
+        const folderUri = this._resolveActiveFolderUri();
+        if (!folderUri) {
+            response.markdown('No workspace folder is open.\n');
+            return;
         }
 
-        // Loop Summary
-        const allTasksFinal = this.taskStore.getAll();
-        const remaining = allTasksFinal.filter(t => t.lane === targetLane && !t.labels?.includes('blocked')).length;
+        let promptContent: string;
+        let promptUri: vscode.Uri;
 
-        response.markdown(`### Loop Summary\n\n`);
-        response.markdown(`- Profile: **${config.profile}**\n`);
-        response.markdown(`- Source lane: \`${targetLane}\` → Advance to: \`${advanceLane}\`\n`);
-        response.markdown(`- Passes run: **${passCount}**${capHit ? ' (**cap hit**)' : ''}\n`);
-        response.markdown(`- Total advanced: **${totalAdvanced}**\n`);
-        response.markdown(`- Parked/blocked: **${totalParked}**\n`);
-        response.markdown(`- Remaining (unblocked) in \`${targetLane}\`: **${remaining}**\n`);
+        const workspacePromptUri = vscode.Uri.joinPath(folderUri, ...PROMPTS_REL_PATH.split('/'), promptName);
+        const bundledPromptUri = vscode.Uri.joinPath(this.extensionUri, 'assets', 'prompts', promptName);
 
-        if (capHit) {
-            response.markdown(`\n> Loop hit the ${MAX_LOOP_PASSES}-pass safety cap. Re-run \`@kanban /loop\` to continue.\n`);
+        try {
+            promptUri = (await this.exists(workspacePromptUri)) ? workspacePromptUri : bundledPromptUri;
+            const bytes = await vscode.workspace.fs.readFile(promptUri);
+            promptContent = new TextDecoder().decode(bytes);
+        } catch (err: any) {
+            response.markdown(`Failed to read prompt \`${promptName}\`: ${err.message}\n`);
+            return;
         }
+
+        // Interpolate
+        const activePack = config.activeStack
+            ? config.packs?.find(p => p.name === config.activeStack)
+            : undefined;
+        const firstReady = readyTasks[0];
+        const taskRelPath = this.taskStore.getTaskUri(firstReady.id).fsPath.replace(
+            folderUri.fsPath + (process.platform === 'win32' ? '\\' : '/'), '',
+        );
+        const vars = {
+            ...resolveVars(config, activePack),
+            taskTitle: firstReady.title,
+            taskFile: taskRelPath,
+        };
+        const interpolated = interpolate(promptContent, vars);
+
+        // Build ready-task list for multi-task context
+        const taskList = readyTasks.map(t => {
+            const relPath = this.taskStore.getTaskUri(t.id).fsPath.replace(
+                folderUri.fsPath + (process.platform === 'win32' ? '\\' : '/'), '',
+            );
+            return `- **${t.title}** (\`${relPath}\`)`;
+        }).join('\n');
+
+        // Copy to clipboard
+        try {
+            await vscode.env.clipboard.writeText(interpolated);
+        } catch {
+            // Non-fatal — button still works
+        }
+
+        response.markdown(`## Loop: \`${lane}\` driver (${config.profile})\n\n`);
+        response.markdown(`### Ready tasks in \`${lane}\` (${readyTasks.length})\n\n${taskList}\n\n`);
+        response.reference(promptUri);
+
+        // Button sends the prompt directly into chat — one click, no copy-paste needed
+        response.button({
+            title: '▶ Send prompt to chat',
+            command: 'workbench.action.chat.open',
+            arguments: [{ query: interpolated }],
+        });
+        response.markdown('\n\nPrompt also copied to clipboard.\n');
     }
 
     private async handlePack(
@@ -1834,24 +1906,6 @@ export class ChatParticipant {
             response.markdown('- `@kanban /pack list` - List all configured stack packs\n');
             response.markdown('- `@kanban /pack use <name>` - Select a stack pack and bake it into prompts and AGENTS.md\n');
         }
-    }
-
-    private async appendCommentToTask(task: import('../types').Task, comment: string): Promise<void> {
-        const uri = this.taskStore.getTaskUri(task.id);
-        let body = '\n## Conversation\n\n### user\n\n';
-        try {
-            const existing = await vscode.workspace.fs.readFile(uri);
-            const existingText = new TextDecoder().decode(existing);
-            const parsed = TaskStore.splitFrontmatter(existingText);
-            if (parsed.body) {
-                body = parsed.body;
-            }
-        } catch {
-            // Keep default body
-        }
-        const separator = body.endsWith('\n') ? '' : '\n';
-        const updatedBody = `${body}${separator}\n${comment}\n`;
-        await this.taskStore.saveWithBody(task, updatedBody);
     }
 
     private getTaskSlug(task: { id: string; title: string; slug?: string }): string {
@@ -1914,8 +1968,8 @@ export class ChatParticipant {
         response: vscode.ChatResponseStream,
     ): Promise<void> {
         const config = this.boardConfigStore.get();
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
+        const folderUri = this._resolveActiveFolderUri();
+        if (!folderUri) {
             response.markdown('No workspace folder is open.');
             return;
         }
@@ -1940,8 +1994,8 @@ export class ChatParticipant {
             const goalSlug = TaskStore.slugify(objective);
             const goalDirRel = `${GOALS_REL_PATH}/${goalSlug}`;
             const goalFileRel = `${goalDirRel}/goal.md`;
-            const goalDirUri = this.uriFromRelativePath(workspaceFolder.uri, goalDirRel);
-            const goalFileUri = this.uriFromRelativePath(workspaceFolder.uri, goalFileRel);
+            const goalDirUri = this.uriFromRelativePath(folderUri, goalDirRel);
+            const goalFileUri = this.uriFromRelativePath(folderUri, goalFileRel);
 
             // Scaffold goal artifact
             await vscode.workspace.fs.createDirectory(goalDirUri);
@@ -1964,7 +2018,7 @@ export class ChatParticipant {
             await this.taskStore.save(epicTask);
 
             // Load goal-decompose prompt (workspace-first / bundled fallback)
-            const workspacePromptUri = vscode.Uri.joinPath(workspaceFolder.uri, ...PROMPTS_REL_PATH.split('/'), 'goal-decompose.md');
+            const workspacePromptUri = vscode.Uri.joinPath(folderUri, ...PROMPTS_REL_PATH.split('/'), 'goal-decompose.md');
             const bundledPromptUri = vscode.Uri.joinPath(this.extensionUri, 'assets', 'prompts', 'goal-decompose.md');
             let promptContent: string;
             let promptUri: vscode.Uri;
@@ -2033,7 +2087,7 @@ export class ChatParticipant {
             response.markdown(`Progress: **${done}/${total}** done\n\n`);
 
             if (epic.goal) {
-                const goalFileUri = this.uriFromRelativePath(workspaceFolder.uri, `${epic.goal}/goal.md`);
+                const goalFileUri = this.uriFromRelativePath(folderUri, `${epic.goal}/goal.md`);
                 response.reference(goalFileUri);
             }
 
@@ -2096,8 +2150,8 @@ export class ChatParticipant {
     }
 
     private async handleDoctor(response: vscode.ChatResponseStream): Promise<void> {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
+        const folderUri = this._resolveActiveFolderUri();
+        if (!folderUri) {
             response.markdown('No workspace folder is open.');
             return;
         }
@@ -2106,7 +2160,7 @@ export class ChatParticipant {
         const doctor = new WorkflowDoctor(
             this.taskStore,
             this.boardConfigStore,
-            workspaceFolder.uri,
+            folderUri,
             undefined,
         );
         const issues = await doctor.diagnose();

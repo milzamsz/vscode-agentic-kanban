@@ -9,6 +9,7 @@ import type { WorktreeService } from './WorktreeService';
 import type { LogService } from './LogService';
 import { NO_OP_LOGGER } from './LogService';
 import { TransitionService } from './TransitionService';
+import type { WorkspaceRegistry, ProjectContext } from './WorkspaceRegistry';
 import {
     getFirstLane,
     isProtectedLane,
@@ -52,6 +53,7 @@ export class KanbanEditorPanel {
         isInitialised = true,
         worktreeService?: WorktreeService,
         scaffolder?: PromptScaffolder,
+        registry?: WorkspaceRegistry,
     ): KanbanEditorPanel {
         const column =
             vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
@@ -88,6 +90,7 @@ export class KanbanEditorPanel {
             isInitialised,
             worktreeService,
             scaffolder,
+            registry,
         );
         return KanbanEditorPanel.currentPanel;
     }
@@ -102,6 +105,7 @@ export class KanbanEditorPanel {
         isInitialised = true,
         worktreeService?: WorktreeService,
         scaffolder?: PromptScaffolder,
+        registry?: WorkspaceRegistry,
     ): void {
         KanbanEditorPanel.currentPanel = new KanbanEditorPanel(
             panel,
@@ -112,6 +116,7 @@ export class KanbanEditorPanel {
             isInitialised,
             worktreeService,
             scaffolder,
+            registry,
         );
     }
 
@@ -147,6 +152,39 @@ export class KanbanEditorPanel {
 
     // ── Constructor ──────────────────────────────────────────────────────────
 
+    private _registry: WorkspaceRegistry | undefined;
+
+    private _currentContext(): ProjectContext | undefined {
+        return this._registry?.getActiveContext();
+    }
+
+    private _currentWorktreeService(): WorktreeService | undefined {
+        return this._currentContext()?.worktreeService ?? this._worktreeService;
+    }
+
+    private _isCurrentContextInitialised(): boolean {
+        return this._currentContext()?.isInitialised ?? this._isInitialised;
+    }
+
+    private _relativeToCurrentFolder(targetUri: vscode.Uri): string {
+        const folderUri = this._currentContext()?.folder.uri;
+        if (!folderUri) {
+            return vscode.workspace.asRelativePath(targetUri);
+        }
+        const folderPath = folderUri.fsPath.replace(/\\/g, '/').replace(/\/+$/, '');
+        const targetPath = targetUri.fsPath.replace(/\\/g, '/');
+        const base = process.platform === 'win32' ? folderPath.toLowerCase() : folderPath;
+        const full = process.platform === 'win32' ? targetPath.toLowerCase() : targetPath;
+        if (full === base) {
+            return '';
+        }
+        const prefix = `${base}/`;
+        if (full.startsWith(prefix)) {
+            return targetPath.slice(folderPath.length + 1).replace(/\\/g, '/');
+        }
+        return vscode.workspace.asRelativePath(targetUri);
+    }
+
     private constructor(
         panel: vscode.WebviewPanel,
         private readonly _extensionUri: vscode.Uri,
@@ -156,12 +194,14 @@ export class KanbanEditorPanel {
         isInitialised = true,
         worktreeService?: WorktreeService,
         scaffolder?: PromptScaffolder,
+        registry?: WorkspaceRegistry,
     ) {
         this._panel = panel;
         this._logger = logger ?? NO_OP_LOGGER;
         this._isInitialised = isInitialised;
         this._worktreeService = worktreeService;
         this._scaffolder = scaffolder;
+        this._registry = registry;
 
         // Enforce options (important when reviving a deserialized panel)
         this._panel.webview.options = {
@@ -238,11 +278,27 @@ export class KanbanEditorPanel {
                 laneInvalid: !laneSet.has(t.lane) || undefined,
             };
         }));
-        const currentBranch = this._worktreeService ? await this._worktreeService.getCurrentBranch() : '';
+        const worktreeService = this._currentWorktreeService();
+        const currentBranch = worktreeService ? await worktreeService.getCurrentBranch() : '';
+        const workspaceInfo = this._buildWorkspaceInfo();
         await this._panel.webview.postMessage({
             type: 'stateUpdate',
-            state: { tasks: enriched, config, isInitialised: this._isInitialised, currentBranch },
+            state: { tasks: enriched, config, isInitialised: this._isCurrentContextInitialised(), currentBranch, ...workspaceInfo },
         });
+    }
+
+    /** Build workspace list info for the webview. */
+    private _buildWorkspaceInfo(): { workspaceList?: Array<{ uri: string; name: string; initialised: boolean }>; activeWorkspaceUri?: string } {
+        if (!this._registry) { return {}; }
+        const contexts = this._registry.getContexts();
+        return {
+            workspaceList: contexts.map(ctx => ({
+                uri: ctx.folder.uri.toString(),
+                name: ctx.folder.name,
+                initialised: ctx.isInitialised,
+            })),
+            activeWorkspaceUri: this._registry.getActiveContext()?.folder.uri.toString(),
+        };
     }
 
     // ── Message Handlers ─────────────────────────────────────────────────────
@@ -350,6 +406,26 @@ export class KanbanEditorPanel {
                     body = '\n## Conversation\n\n### user\n\n';
                 }
                 await this._taskStore.saveWithBody(task, body);
+                break;
+            }
+
+            case 'switchWorkspace': {
+                if (!this._registry) { break; }
+                const targetUri = message.uri as string;
+                if (!targetUri) { break; }
+                await this._registry.setActiveContext(targetUri);
+                this._isInitialised = this._isCurrentContextInitialised();
+                // Push updated state with the new active project
+                await this._sendState();
+                break;
+            }
+
+            case 'initialiseWorkspace': {
+                if (!this._registry) { break; }
+                const initUri = message.uri as string;
+                if (!initUri) { break; }
+                // Trigger the initialise command which will handle profile selection
+                await vscode.commands.executeCommand('agentKanban.initialise');
                 break;
             }
 
@@ -533,13 +609,14 @@ export class KanbanEditorPanel {
             }
 
             case 'createWorktree': {
-                if (!this._worktreeService) { break; }
+                const worktreeService = this._currentWorktreeService();
+                if (!worktreeService) { break; }
                 const task = this._taskStore.get(message.taskId);
                 if (!task) { break; }
                 try {
                     const taskUri = this._taskStore.getTaskUri(task.id);
-                    const taskRelPath = vscode.workspace.asRelativePath(taskUri);
-                    const worktreeInfo = await this._worktreeService.create(task.id, task.title, taskRelPath);
+                    const taskRelPath = this._relativeToCurrentFolder(taskUri);
+                    const worktreeInfo = await worktreeService.create(task.id, task.title, taskRelPath);
                     task.worktree = worktreeInfo;
                     await this._taskStore.save(task);
 
@@ -552,7 +629,7 @@ export class KanbanEditorPanel {
                         this._logger.warn('kanbanEditorPanel', `Failed to sync task file to worktree: ${syncErr.message}`);
                     }
 
-                    await this._worktreeService.openInVSCode(worktreeInfo.path);
+                    await worktreeService.openInVSCode(worktreeInfo.path);
                 } catch (err: any) {
                     vscode.window.showErrorMessage(`Failed to create worktree: ${err.message}`);
                 }
@@ -560,12 +637,13 @@ export class KanbanEditorPanel {
             }
 
             case 'openWorktree': {
-                if (!this._worktreeService) { break; }
+                const worktreeService = this._currentWorktreeService();
+                if (!worktreeService) { break; }
                 const task = this._taskStore.get(message.taskId);
                 if (!task?.worktree) { break; }
-                const exists = await this._worktreeService.exists(task.worktree.path);
+                const exists = await worktreeService.exists(task.worktree.path);
                 if (exists) {
-                    await this._worktreeService.openInVSCode(task.worktree.path);
+                    await worktreeService.openInVSCode(task.worktree.path);
                 } else {
                     vscode.window.showWarningMessage('Worktree directory no longer exists.');
                     task.worktree = undefined;
@@ -575,16 +653,17 @@ export class KanbanEditorPanel {
             }
 
             case 'linkBranch': {
-                if (!this._worktreeService) { break; }
+                const worktreeService = this._currentWorktreeService();
+                if (!worktreeService) { break; }
                 const task = this._taskStore.get(message.taskId);
                 if (!task) { break; }
                 try {
-                    const branches = await this._worktreeService.getBranches();
+                    const branches = await worktreeService.getBranches();
                     if (branches.length === 0) {
                         vscode.window.showWarningMessage('No local git branches found.');
                         break;
                     }
-                    const currentBranch = await this._worktreeService.getCurrentBranch();
+                    const currentBranch = await worktreeService.getCurrentBranch();
                     const items = branches.map(b => {
                         if (b === currentBranch) {
                             return {
@@ -715,7 +794,7 @@ export class KanbanEditorPanel {
 
             case 'requestSkills': {
                 const extraDirs = vscode.workspace.getConfiguration('agentKanban').get<string[]>('skillsDirs', []);
-                const wsFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
+                const wsFolder = this._currentContext()?.folder.uri;
                 const discovered = await discoverSkills(wsFolder ?? vscode.Uri.file(process.cwd()), extraDirs);
                 if (this._webviewReady) {
                     this._panel.webview.postMessage({ type: 'skillsList', skills: discovered });
@@ -762,12 +841,13 @@ export class KanbanEditorPanel {
      * The lane move has already happened — this is best-effort cleanup.
      */
     private _promptWorktreeRemoval(task: import('./types').Task): void {
-        if (!this._worktreeService || !task.worktree) { return; }
+        const worktreeService = this._currentWorktreeService();
+        if (!worktreeService || !task.worktree) { return; }
 
         const worktreePath = task.worktree.path;
 
         // Fire-and-forget — doesn't block the lane move
-        this._worktreeService.exists(worktreePath).then(async (exists) => {
+        worktreeService.exists(worktreePath).then(async (exists) => {
             if (!exists) {
                 // Stale metadata — silently clear
                 task.worktree = undefined;
@@ -782,7 +862,7 @@ export class KanbanEditorPanel {
 
             if (answer === 'Yes') {
                 try {
-                    await this._worktreeService!.remove(task.worktree!);
+                    await worktreeService.remove(task.worktree!);
                     task.worktree = undefined;
                     await this._taskStore.save(task);
                 } catch (err: any) {

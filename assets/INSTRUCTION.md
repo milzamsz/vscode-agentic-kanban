@@ -101,6 +101,20 @@ Rules:
 - Mark completed items during or immediately after implementation.
 - For spec-driven tasks linked through `change: .agentkanban/changes/<task-slug>`, use the change `tasks.md` as the authoritative checklist instead of the sibling `todo_*.md`.
 
+## Definition of Done Checklist
+
+When the board policy `requireDoneChecklistForDone` is on (standard profile default), the `review -> done` transition requires a `## Definition of Done` section in the task body. This section is separate from the planning checklist (`todo_*.md` / `tasks.md`).
+
+Rules:
+
+- The section heading must be exactly `## Definition of Done`.
+- Items use `- [ ]` / `- [x]` syntax, same as the planning checklist.
+- Each item may carry an `(agent)` or `(human)` owner tag: `- [x] (agent) Tests pass` or `- [ ] (human) Release sign-off`.
+- Untagged items default to `agent` owner.
+- Human-owned items require a human actor to clear (actor must be in `enforcement.overrides.actors` as `human`).
+- All items must be checked for the task to move to `done`.
+- The board webview renders a `DoD` progress badge on cards with this section.
+
 ## Spec-Driven Development
 
 Some tasks opt into spec-driven development. They carry two frontmatter keys: a `change` pointing at
@@ -125,6 +139,15 @@ For those tasks:
 
 Maintain `TECHNICAL.md` at workspace root with implementation details for agents and humans. Update the relevant section when behavior or workflow rules change.
 
+## Multi-Root Workspaces
+
+When multiple workspace folders are open in VS Code:
+
+- treat each folder as an independent project with its own `.agentkanban/` state
+- operate on the active project selected in the board UI
+- do not create `.agentkanban/` in an uninitialised folder unless that specific folder is initialised
+- keep each project's chosen profile and board policy isolated to that folder
+
 ## Workflow Profiles
 
 ### Lite profile
@@ -138,7 +161,7 @@ Guidance:
 - `backlog` is for rough work items that still need lightweight clarification.
 - `in-progress` is where implementation happens.
 - `done` is for completed work.
-- `/loop` defaults to `in-progress` and advances passing tasks directly to `done` (no review gate in Lite).
+- `/loop` defaults to `backlog` and emits the `work-on-task` driver prompt for the selected lane. Use `@kanban /loop in-progress` to drive the implementation lane.
 
 ### Standard profile
 
@@ -152,8 +175,8 @@ Guidance:
 - `planning`: refine scope, write the implementation plan, identify risks, and update the checklist artifact as needed. This is where the plan is **approved**. To transition a task from `planning` to `in-progress`, it must have a checklist with at least one item, and if it is spec-driven, it must also have a valid spec file and change folder.
 - `in-progress`: implement the approved plan. Entering `in-progress` is **not** a separate human gate — an agent may carry an approved task from `planning` straight through implementation to `review` in one pass (the autonomous `planning -> review` flow). When running this flow, the task must be moved to `in-progress` before starting work, so the board reflects the current progress state. Worktrees are optional unless the board policy requires them.
 - `review`: implementation review. Return to `in-progress` for revisions, or move to `done` when approved.
-- The two human gates are **plan approval** (in `planning`) and **`review -> done`**. Everything between can run hands-off. Before moving to `done`, all four evidence checks (lint, test, build, behavior) must be recorded as passing via `@kanban /evidence`.
-- `/loop` defaults to `planning` and advances passing tasks to `review`. Running `/loop review` is refused as a human gate guard.
+- The two human gates are **plan approval** (in `planning`) and **`review -> done`**. Everything between can run hands-off. Before moving to `done`, all four evidence checks (lint, test, build, behavior) must be recorded as passing via `@kanban /evidence`. When `requireDoneChecklistForDone` is on, the task body must also contain a `## Definition of Done` section with all items checked; items tagged `(human)` require a human actor.
+- `/loop [lane]` is a **lane-flow prompt driver**: it emits the stage-driver prompt for the selected lane into chat. Click the **"Send prompt to chat"** button in the response to inject it directly into the chat input (clipboard copy as fallback). Default lane is `backlog`. Lane-to-prompt mapping: `backlog` -> `stage-backlog-to-planning`, `planning`/`in-progress` -> `stage-planning-to-review`, `review` -> `stage-review-to-done`. The agent driven by that prompt performs the actual work and board moves; gates are enforced when the agent moves a task via the board UI. `/prompts` is the general manual prompt picker.
 - Real blockers → keep the task in its lane. Use the task's `dependsOn` frontmatter array or `blocked-by:<slug>` labels to document task dependencies, and the `blocked` label for external blockers. The board webview and backend sync these fields bidirectionally. Record what clears the blocker and never force past a real blocker.
 - One active implementation task at a time (WIP) unless the board allows otherwise.
 
@@ -183,8 +206,7 @@ Treat `TODO` as the checklist artifact only. Do not treat `todo` as a workflow l
 | `/worktree` | `@kanban /worktree` | Create git worktree for task |
 | `/archive` | `@kanban /archive [slug]` | Archive completed change folder |
 | `/prompts` | `@kanban /prompts` | Write/refresh bundled stage prompts |
-| `/loop` | `@kanban /loop [lane]` | Loop-until-dry over ready tasks; profile-aware advance target |
-| `/sweep` | `@kanban /sweep [lane]` | Alias of `/loop` (deprecated) |
+| `/loop` | `@kanban /loop [lane]` | Emit stage-driver prompt for a lane into chat; default lane: `backlog` |
 | `/goal new` | `@kanban /goal new <objective>` | Define a goal: epic card + artifact + decompose prompt |
 | `/goal` | `@kanban /goal` | Goal progress dashboard |
 | `/goal show` | `@kanban /goal show <slug>` | Detail view for a specific goal |
@@ -210,7 +232,7 @@ Child tasks carry `parent: <goalSlug>` in frontmatter. The epic carries `goal: .
 
 Goal tier: **goal (epic) > capability spec > change > task**. In Standard profile, complex child tasks should use `/spec` to attach a capability spec. In Lite, children use lightweight proposal + tasks only.
 
-After decomposition run `@kanban /loop` to drive child tasks forward. `/loop` is profile-aware and respects the two human gates (plan approval in `planning`; `review -> done`).
+After decomposition run `@kanban /loop backlog` to get the backlog-to-planning driver prompt for child tasks. Use `/loop <lane>` as you advance through each lane stage.
 
 `@kanban /goal` shows a progress dashboard. `@kanban /goal show <slug>` shows next-ready and blocked children.
 

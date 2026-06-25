@@ -57,18 +57,17 @@ Manages high-level objectives that group related tasks.
   - `@kanban /goal show <slug>` - Shows the detail view for a specific goal by slug.
 
 ### `/loop`
-Runs the loop-until-dry model: repeatedly advances tasks through lanes until no further progress can be made.
+Emits the stage-driver prompt for a lane into chat. Click the **"Send prompt to chat"** button in the response to inject it directly into the chat input — no copy-paste needed.
 - **Usage:** `@kanban /loop [lane] [options]`
 - **Options:**
-  - `--label=<name>` - Loop only tasks carrying the specified label.
-  - `--priority=<level>` - Loop only tasks of a specific priority level.
-  - `--pack=<name>` or `--stack=<name>` - Loop tasks matching a specific technology pack.
-- **Example:** `@kanban /loop in-progress --priority=high`
-- **Behavior:** Scans the target lane, validates dependencies, runs test/lint/build commands, and advances passing tasks while marking failing ones as blocked. Repeats until the lane is dry.
-- **Profile behaviour:** Standard profile default advances `planning` to `review` (refuses `review` as source lane); Lite profile default advances `in-progress` to `done`.
-
-### `/sweep`
-Alias of `/loop` (deprecated). Use `/loop` instead.
+  - `--label=<name>` - Scope the ready-task list to tasks with the specified label.
+  - `--priority=<level>` - Scope the ready-task list to tasks of a specific priority.
+- **Example:** `@kanban /loop planning --priority=high`
+- **Behavior:** Resolves the stage-driver prompt for the chosen lane (workspace copy in `.agentkanban/prompts/` first, bundled fallback), interpolates it with board config vars, shows the list of ready tasks in that lane (non-blocked, dependency-satisfied), and renders a **"Send prompt to chat"** button. Clicking the button opens the chat input pre-filled with the prompt — press Enter to run. Clipboard copy is also provided as a fallback. No lanes are moved by this command.
+- **Default lane:** `backlog` (first lane of the active profile) when no lane arg is given.
+- **Lane-to-prompt mapping (Standard):** `backlog` -> `stage-backlog-to-planning`, `planning`/`in-progress` -> `stage-planning-to-review`, `review` -> `stage-review-to-done`, `done` -> no driver.
+- **Lane-to-prompt mapping (Lite):** `backlog`/`in-progress` -> `work-on-task`, `done` -> no driver.
+- **Gate enforcement:** gates are still enforced when the agent performs the actual board move (UI/`moveTask` -> `TransitionService`). `/loop` does not gate-check or block tasks itself.
 
 ### `/work`
 Resolves a task and copies the work prompt to clipboard.

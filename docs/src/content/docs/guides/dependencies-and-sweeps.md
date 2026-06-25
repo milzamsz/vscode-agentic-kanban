@@ -27,27 +27,29 @@ A task is considered **ready** only when all task slugs/IDs listed in its `depen
 
 ## 2. Lane Loop (`/loop`)
 
-The `@kanban /loop` command processes tasks in a specific lane using a loop-until-dry model. It automatically:
-1. Filters out blocked tasks.
-2. Runs verification commands against ready tasks.
-3. Advances passing tasks to the next lane.
-4. Marks failing tasks with a blocker label and records the output in the task conversation.
-5. Repeats until no further tasks can be advanced in the lane.
+The `@kanban /loop` command is a **profile-aware lane-flow prompt driver**. It emits the stage-driver prompt for the selected lane into chat. A **"Send prompt to chat"** button in the response injects the prompt directly into the chat input with one click — no copy-paste needed.
 
-> **Note:** `/loop` is profile-aware. Standard profile default source lane is `planning` (advances to `review`); `review` is refused as a source lane in Standard. Lite profile default source lane is `in-progress` (advances to `done`).
+It automatically:
+1. Filters out blocked tasks and tasks with unsatisfied dependencies.
+2. Applies any `--label` or `--priority` filter you provide.
+3. Loads the stage-driver prompt for the lane (workspace `.agentkanban/prompts/` first, bundled fallback).
+4. Interpolates the prompt with board config vars and shows the ready-task list.
+5. Renders a **"Send prompt to chat"** button. Click it, then press Enter to run.
+6. Also copies the prompt to clipboard as a fallback.
+
+> **Note:** `/loop` does not move tasks itself. The agent driven by the emitted prompt performs the actual work and board moves. Gates (checklist, spec, evidence, Definition of Done) are enforced when the agent moves a task via the board UI. The default lane is `backlog` when no lane arg is given.
 
 ### Running a Loop
-To loop all tasks currently in `in-progress` to `review`:
+To get the driver prompt for tasks in `planning`:
 
 ```text
-@kanban /loop in-progress
+@kanban /loop planning
 ```
 
-### Advanced Filtering Options
-You can narrow down the loop using filtering flags:
-- **By Label:** `@kanban /loop in-progress --label=security`
-- **By Priority:** `@kanban /loop in-progress --priority=high`
-- **By Stack Pack:** `@kanban /loop in-progress --pack=odoo`
+### Filtering Options
+You can narrow the ready-task list using filtering flags:
+- **By Label:** `@kanban /loop planning --label=security`
+- **By Priority:** `@kanban /loop backlog --priority=high`
 
 ---
 

@@ -2,6 +2,34 @@
 
 All notable changes to Agentic Kanban will be documented here.
 
+## [1.7.0] - 2026-06-25
+
+### Added
+- **Screenshots**: Added five product screenshots (kanban board, settings, skills, chat commands, dependency graph) to the README to give users a visual walkthrough of the extension.
+
+### Fixed
+- **Screenshot broken links**: Screenshot image assets were not tracked in Git and displayed as broken placeholders on GitHub. Images are now committed as part of the release.
+
+## [1.6.10] - 2026-06-25
+
+### Added
+- **Multi-Root Workspace Support**: VS Code workspaces with multiple folders are now supported as independent project contexts.
+- **WorkspaceRegistry**: A central project context registry manages lifecycle, active project selection, and persistent workspace settings.
+- **Project Selector dropdown**: Switch active projects directly on the Kanban board. Uninitialised projects are labeled and can be initialised independently.
+- **Dynamic File Watchers**: Scoped file watchers are created and disposed cleanly as folders are added to or removed from the VS Code workspace.
+- **Context-aware Chat commands**: `@kanban` commands and prompting templates auto-route to the active project context.
+
+## [1.6.9] - 2026-06-24
+
+### Added
+- **Definition of Done gate**: new `requireDoneChecklistForDone` transition policy (Standard default on) blocks `review → done` until a `## Definition of Done` section in the task body has all items checked. Items carry an optional `(agent)`/`(human)` owner tag; human-owned pending items prompt for human sign-off. Complements the existing evidence gate. New "Done Checklist Required for Done" toggle in Settings.
+
+### Changed
+- **`/loop` redesigned as a profile-aware lane-flow prompt driver.** Instead of running shell commands and moving tasks mechanically, `/loop [lane]` emits the stage-driver prompt for the selected lane into chat. A **"Send prompt to chat" button** sends the prompt directly to the VS Code chat input with one click (no copy-paste). Clipboard copy is included as a fallback. Default lane is `backlog`. Lane mapping: Standard `backlog` -> `stage-backlog-to-planning`, `planning`/`in-progress` -> `stage-planning-to-review`, `review` -> `stage-review-to-done`; Lite `backlog`/`in-progress` -> `work-on-task`. Workspace prompt overrides bundled fallback. Ready-task list (non-blocked, dep-satisfied, matching any `--label`/`--priority` filters) is shown so the agent knows the scope. No lanes are moved by the command itself. Gates are still enforced when the agent performs the actual move via the board UI. `/prompts` remains the general manual prompt picker.
+
+### Removed
+- **`/sweep` chat command** removed. It was a deprecated alias of `/loop` since the loop-until-dry rework. Use `@kanban /loop [lane]` instead.
+
 ## [1.6.8] - 2026-06-24
 
 ### Added

@@ -12,6 +12,7 @@ src/
 ├── BoardViewProvider.ts      # Sidebar webview — kanban board UI
 ├── KanbanEditorPanel.ts      # Full editor panel — kanban board with worktree support
 ├── WorktreeService.ts        # Git worktree lifecycle management
+├── WorkspaceRegistry.ts      # Per-folder state management & active-project resolution
 ├── agents/
 │   └── ChatParticipant.ts    # Lightweight @kanban chat command router
 └── test/
@@ -20,7 +21,93 @@ src/
     ├── TaskStore.test.ts     # Frontmatter round-trip, slug, ID, findByTitle tests
     ├── BoardConfigStore.test.ts # Board config serialisation tests
     ├── ChatParticipant.test.ts  # Command routing, task resolution, worktree tests
+    ├── WorkspaceRegistry.test.ts # Multi-root registry tests
     └── WorktreeService.test.ts  # Worktree creation, removal, git operations
+```
+
+## Multi-Root Workspace Architecture (`WorkspaceRegistry.ts`)
+
+Agentic Kanban supports VS Code multi-root workspaces via a central `WorkspaceRegistry`
+that manages per-folder `ProjectContext` instances.
+
+### ProjectContext
+
+Each workspace folder in a multi-root workspace gets its own `ProjectContext` with
+independent state:
+
+```typescript
+interface ProjectContext {
+    folder: vscode.WorkspaceFolder;
+    isInitialised: boolean;
+    taskStore: TaskStore;
+    boardConfigStore: BoardConfigStore;
+    worktreeService: WorktreeService;
+    logService: LogService;
+    fileWatchers: vscode.FileSystemWatcher[];
+    subscriptions: vscode.Disposable[];
+}
+```
+
+### WorkspaceRegistry
+
+The registry owns all contexts and provides active-project resolution:
+
+- `getActiveContext()` — Resolves the active project, with fallback chain:
+  1. Explicitly set active project (via `setActiveContext()`)
+  2. First initialised project
+  3. First project (any initialisation state)
+- `ensureContext(folder)` — Creates or retrieves a context for a folder
+- `setActiveContext(folderUri)` — Persistently switches the active project
+- `disposeContext(folderUri)` — Cleans up watchers and state on folder removal
+- `onDidChangeActiveProject` — Event fired when active project changes
+- `onDidChangeContexts` — Event fired when contexts are added/removed
+
+### Delegating Stores
+
+`extension.ts` creates proxy-style TaskStore and BoardConfigStore via `createDelegatingTaskStore()`
+and `createDelegatingBoardConfigStore()`. These proxies always resolve reads and writes through
+the registry's active context, so shared global surfaces (ChatParticipant, BoardViewProvider,
+KanbanEditorPanel) automatically operate on the correct project's data.
+
+### ChatParticipant Registry Integration
+
+`ChatParticipant` accepts an optional `WorkspaceRegistry` parameter. When provided, all
+workspace-folder-dependent operations use `_resolveActiveFolderUri()`, which reads the
+active project from the registry. A fallback to `workspaceFolders?.[0]` ensures
+backward compatibility with single-root workspaces.
+
+### BoardViewProvider Dynamic Initialisation
+
+`BoardViewProvider._isInitialised` is now a getter function `() => boolean` instead of a
+static boolean. This allows the sidebar to reflect the active project's initialisation
+state reactively when the user switches projects.
+
+### KanbanEditorPanel Workspace Switching
+
+The panel accepts an optional `WorkspaceRegistry`. When provided, state updates include
+a `workspaceList` (all folders + initialisation status) and `activeWorkspaceUri`. The
+webview renders a project selector when multiple folders are present, and posts
+`switchWorkspace` messages to change the active project.
+
+### File Watchers
+
+Each `ProjectContext` creates scoped file watchers for:
+- `.agentkanban/tasks/**/*.md` (debounced 200ms reload)
+- `.agentkanban/specs/**/*`
+- `.agentkanban/changes/**/*`
+- `.agentkanban/board.yaml`
+
+Watchers are disposed when the context is removed via `disposeContext()` or registry
+teardown via `dispose()`.
+
+### Activation Flow
+
+1. `WorkspaceRegistry` is created in `activate()`
+2. Contexts are built for all workspace folders (without creating `.agentkanban` in uninitialised ones)
+3. Single shared `ChatParticipant`, `BoardViewProvider`, and `KanbanEditorPanel` are created with delegating stores
+4. All command handlers resolve through the registry's active context
+5. `onDidChangeWorkspaceFolders` listener manages folder add/remove at runtime
+6. Deactivation (`deactivate()`) disposes the registry, cleaning up all contexts and watchers
 ```
 
 ## Core Types
@@ -247,8 +334,7 @@ Lightweight `@kanban` chat participant that routes commands to task markdown fil
 | `/worktree` | `handleWorktree()` | Create, open, or remove a git worktree for the selected task |
 | `/archive` | `handleArchive()` | Archives a completed spec change folder to `changes/archive/` |
 | `/prompts` | `handlePrompts()` | Opens QuickPick; writes or refreshes bundled stage-driver prompts to `.agentkanban/prompts/` |
-| `/loop` | `handleLoop()` | Loop-until-dry over ready tasks: runs passes until none advance (25-pass cap). Profile-aware default lane and advance target. Human gate guard for `review` source in Standard. Supports `--label=`, `--priority=`, `--pack=` filters. |
-| `/sweep` | (alias) | Deprecated alias of `/loop`; prints a one-line notice then delegates. |
+| `/loop` | `handleLoop()` | Lane-flow prompt driver. Resolves the stage-driver prompt for the selected lane (`getLanePrompt`), gathers ready tasks (non-blocked, dep-satisfied, filtered by `--label`/`--priority`), interpolates the prompt via `resolveVars`, emits ready-task list into chat, renders a "Send prompt to chat" button (`response.button` -> `workbench.action.chat.open`), and copies to clipboard as fallback. Default lane: `backlog` (`getDefaultLoopLane`). No lane mutations; no shell commands. Gates enforced when the agent moves a task via the board UI. |
 | `/goal` | `handleGoal()` | Subcommands: `new <objective>` (scaffold epic + artifact + clipboard decompose prompt), bare (dashboard), `show <slug>` (detail view). |
 | `/doctor` | `handleDoctor()` | Runs workflow diagnostics: lane drift, stale blockers, dependency cycles, worktrees, spec drift |
 | `/pack` | `handlePack()` | Lists or activates a stack pack; activating regenerates prompts and syncs AGENTS.md |

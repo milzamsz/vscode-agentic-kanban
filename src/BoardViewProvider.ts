@@ -18,7 +18,7 @@ export class BoardViewProvider implements vscode.WebviewViewProvider {
         private readonly _extensionUri: vscode.Uri,
         private readonly _taskStore: TaskStore,
         private readonly _boardConfigStore: BoardConfigStore,
-        private _isInitialised: boolean,
+        private readonly _isInitialised: () => boolean,
         logger?: LogService,
     ) {
         this._logger = logger ?? NO_OP_LOGGER;
@@ -26,12 +26,15 @@ export class BoardViewProvider implements vscode.WebviewViewProvider {
         this._boardConfigStore.onDidChange(() => this.refresh());
     }
 
-    setInitialised(flag: boolean): void {
-        this._isInitialised = flag;
+    setInitialised(_flag: boolean): void {
         this.refresh();
-        if (flag) {
+        if (_flag) {
             vscode.commands.executeCommand('agentKanban.openBoard');
         }
+    }
+
+    get isCurrentlyInitialised(): boolean {
+        return this._isInitialised();
     }
 
     resolveWebviewView(
@@ -55,7 +58,7 @@ export class BoardViewProvider implements vscode.WebviewViewProvider {
             } else if (message.type === 'initialise') {
                 await vscode.commands.executeCommand('agentKanban.initialise');
             } else if (message.type === 'focusSidebar') {
-                if (this._isInitialised) {
+                if (this.isCurrentlyInitialised) {
                     await vscode.commands.executeCommand('agentKanban.openBoard');
                 }
             }
@@ -65,7 +68,7 @@ export class BoardViewProvider implements vscode.WebviewViewProvider {
         // resolveWebviewView fires once (first reveal); onDidChangeVisibility covers
         // subsequent Activity Bar clicks that bring the sidebar back into view.
         const openBoardIfInitialised = () => {
-            if (this._isInitialised) {
+            if (this.isCurrentlyInitialised) {
                 vscode.commands.executeCommand('agentKanban.openBoard');
             }
         };
@@ -85,7 +88,7 @@ export class BoardViewProvider implements vscode.WebviewViewProvider {
         if (!this.view) {
             return;
         }
-        if (!this._isInitialised) {
+        if (!this.isCurrentlyInitialised) {
             this.view.webview.html = this._getUninitHtml();
             return;
         }

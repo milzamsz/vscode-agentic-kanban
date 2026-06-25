@@ -113,6 +113,7 @@ export interface Task {
      * Transient fields computed for board rendering only — never serialised to disk.
      */
     checklist?: { done: number; total: number };
+    doneChecklist?: { done: number; total: number; agentDone: number; agentTotal: number; humanDone: number; humanTotal: number };
     specMissing?: boolean;
     changeMissing?: boolean;
     laneInvalid?: boolean;
@@ -123,6 +124,13 @@ export interface TransitionPolicies {
     requireSpecForInProgress?: boolean;
     requireDescriptionForReview?: boolean;
     requireWorktreeForInProgress?: boolean;
+    /**
+     * When true (standard profile default), the `review -> done` transition
+     * also requires a `## Definition of Done` section in the task body with
+     * all items checked. Each item may carry an `(agent)` or `(human)` owner
+     * tag; human-owned items require a human actor to move.
+     */
+    requireDoneChecklistForDone?: boolean;
 }
 
 export interface VerificationConfig {
@@ -229,6 +237,7 @@ export const DEFAULT_POLICIES: Record<WorkflowProfile, BoardPolicies> = {
             requireSpecForInProgress: false,
             requireDescriptionForReview: false,
             requireWorktreeForInProgress: false,
+            requireDoneChecklistForDone: false,
         },
         verification: {},
     },
@@ -238,6 +247,7 @@ export const DEFAULT_POLICIES: Record<WorkflowProfile, BoardPolicies> = {
             requireSpecForInProgress: true,
             requireDescriptionForReview: true,
             requireWorktreeForInProgress: false,
+            requireDoneChecklistForDone: true,
         },
         verification: {},
     },

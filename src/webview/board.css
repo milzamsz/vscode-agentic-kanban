@@ -76,9 +76,27 @@
 
     /* ── Toolbar ─────────────────────────────────── */
     .toolbar {
-        @apply flex flex-shrink-0 gap-2 px-4 py-2.5;
+        @apply flex flex-shrink-0 gap-2 px-4 py-2.5 items-center;
         border-bottom: 1px solid var(--vscode-widget-border);
         background-color: var(--vscode-sideBar-background);
+    }
+
+    .workspace-selector-container {
+        @apply flex items-center mr-2;
+    }
+
+    .workspace-selector {
+        @apply px-2 py-1 rounded border text-sm;
+        background-color: var(--vscode-dropdown-background);
+        color: var(--vscode-dropdown-foreground);
+        border-color: var(--vscode-dropdown-border);
+        min-width: 180px;
+        max-width: 280px;
+    }
+
+    .workspace-selector:focus {
+        outline: none;
+        border-color: var(--vscode-focusBorder);
     }
 
     /* ── Search ──────────────────────────────────── */
@@ -422,6 +440,15 @@
         background: var(--vscode-editorWidget-background, #2a2a2a);
         color: var(--vscode-descriptionForeground, #b8b8b8);
         font-variant-numeric: tabular-nums;
+    }
+
+    .dod-badge {
+        @apply text-xs font-medium rounded px-1.5 py-0.5 inline-block ml-1;
+        line-height: 1.2;
+        background: var(--vscode-editorWidget-background, #2a2a2a);
+        color: var(--vscode-descriptionForeground, #b8b8b8);
+        font-variant-numeric: tabular-nums;
+        border: 1px solid var(--vscode-widget-border, #3a3a3a);
     }
 
     .warn-badge {

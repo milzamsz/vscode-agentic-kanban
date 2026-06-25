@@ -36,6 +36,7 @@ const CONFIG_HEADER = [
     '# policies.transition.requireSpecForInProgress: true | false',
     '# policies.transition.requireDescriptionForReview: true | false',
     '# policies.transition.requireWorktreeForInProgress: true | false',
+    '# policies.transition.requireDoneChecklistForDone: true | false  (review -> done also needs a full Definition of Done section)',
     '# policies.verification.testCommand: "npm test" (run on in-progress -> review)',
     '# policies.verification.lintCommand: "npm run lint" (run on in-progress -> review)',
     '# policies.verification.buildCommand: "npm run build" (run on in-progress -> review)',

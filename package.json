@@ -2,7 +2,7 @@
     "name": "agentic-kanban",
     "displayName": "Agentic Kanban",
     "description": "A profile-driven Kanban board for AI-assisted software development with persistent markdown task conversations.",
-    "version": "1.6.8",
+    "version": "1.7.0",
     "publisher": "milzam",
     "license": "Elastic-2.0",
     "icon": "images/icon.png",
@@ -184,10 +184,6 @@
                     {
                         "name": "loop",
                         "description": "[lane] - loop-until-dry over ready tasks with profile-aware advance target (default lane: planning/in-progress)"
-                    },
-                    {
-                        "name": "sweep",
-                        "description": "(alias of /loop)"
                     },
                     {
                         "name": "goal",

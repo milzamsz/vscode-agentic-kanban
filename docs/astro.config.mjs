@@ -44,6 +44,7 @@ export default defineConfig({
             { label: 'Dependencies & Loop', link: '/guides/dependencies-and-sweeps' },
             { label: 'Git Worktrees', link: '/guides/worktrees' },
             { label: 'Context Injection', link: '/guides/context-injection' },
+            { label: 'Multi-Root Workspaces', link: '/guides/multi-root-workspaces' },
           ],
         },
         {

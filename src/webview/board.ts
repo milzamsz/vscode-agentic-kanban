@@ -15,6 +15,8 @@ interface BoardState {
     config: BoardConfig;
     isInitialised?: boolean;
     currentBranch?: string;
+    workspaceList?: Array<{ uri: string; name: string; initialised: boolean }>;
+    activeWorkspaceUri?: string;
 }
 
 // ── State ────────────────────────────────────────────────────────────────────
@@ -320,6 +322,9 @@ function buildBoardHtml(): string {
     ];
     return `
         <div class="toolbar">
+            <div class="workspace-selector-container">
+                ${workspaceSelectorHtml()}
+            </div>
             <button id="btn-new-task" class="btn-primary">+ New Task</button>
             <button id="btn-dep-graph" class="btn-secondary">Dependencies</button>
             <div class="search-area">
@@ -384,6 +389,9 @@ function buildCardHtml(task: Task): string {
     const progressBadge = task.checklist
         ? `<span class="progress-badge" title="Checklist progress">${task.checklist.done}/${task.checklist.total}</span>`
         : '';
+    const doneChecklistBadge = task.doneChecklist && task.doneChecklist.total > 0
+        ? `<span class="progress-badge dod-badge" title="Definition of Done progress: ${task.doneChecklist.agentDone}/${task.doneChecklist.agentTotal} agent + ${task.doneChecklist.humanDone}/${task.doneChecklist.humanTotal} human">DoD ${task.doneChecklist.done}/${task.doneChecklist.total}</span>`
+        : '';
     const warnBits: string[] = [];
     if (task.specMissing) { warnBits.push('spec file missing'); }
     if (task.changeMissing) { warnBits.push('change folder missing'); }
@@ -397,6 +405,7 @@ function buildCardHtml(task: Task): string {
                 ${priorityBadge}
                 ${specBadge}
                 ${progressBadge}
+                ${doneChecklistBadge}
                 ${warnBadge}
                 <button class="icon-btn card-delete" data-delete-task-id="${esc(task.id)}" title="Delete task">&times;</button>
             </div>
@@ -575,6 +584,13 @@ function setupEventListeners(): void {
         }
     });
     document.addEventListener('change', (e: Event) => {
+        if ((e.target as HTMLElement)?.id === 'workspace-selector') {
+            const select = e.target as HTMLSelectElement;
+            const uri = select.value;
+            if (uri) {
+                vscode.postMessage({ type: 'switchWorkspace', uri });
+            }
+        }
         if ((e.target as HTMLElement)?.classList.contains('skill-checkbox')) {
             const checkbox = e.target as HTMLInputElement;
             if (checkbox.checked) {
@@ -1339,6 +1355,7 @@ function saveSettingsModal(): void {
     const transitionSpec = (document.getElementById('settings-transition-spec') as HTMLSelectElement)?.value || '1';
     const transitionDescription = (document.getElementById('settings-transition-description') as HTMLSelectElement)?.value || '1';
     const transitionWorktree = (document.getElementById('settings-transition-worktree') as HTMLSelectElement)?.value || '1';
+    const transitionDoneChecklist = (document.getElementById('settings-transition-done-checklist') as HTMLSelectElement)?.value || '1';
 
     const verificationTest = (document.getElementById('settings-verification-test') as HTMLInputElement)?.value || '';
     const verificationLint = (document.getElementById('settings-verification-lint') as HTMLInputElement)?.value || '';
@@ -1387,6 +1404,7 @@ function saveSettingsModal(): void {
                 requireSpecForInProgress: transitionSpec === '1',
                 requireDescriptionForReview: transitionDescription === '1',
                 requireWorktreeForInProgress: transitionWorktree === '1',
+                requireDoneChecklistForDone: transitionDoneChecklist === '1',
             },
             verification: {
                 testCommand: verificationTest,
@@ -2254,6 +2272,22 @@ function renderDepGraph(): void {
     });
 }
 
+function workspaceSelectorHtml(): string {
+    const list = state.workspaceList;
+    if (!list || list.length <= 1) { return ''; }
+    const activeUri = state.activeWorkspaceUri;
+    const options = list.map(w => {
+        const badge = w.initialised ? '' : ' (Not initialised)';
+        const selected = w.uri === activeUri ? ' selected' : '';
+        return `<option value="${esc(w.uri)}"${selected}>${esc(w.name)}${badge}</option>`;
+    }).join('');
+    return `
+        <select id="workspace-selector" class="workspace-selector" title="Switch project">
+            ${options}
+        </select>
+    `;
+}
+
 function buildDepGraphModalHtml(): string {
     return `
         <div class="modal-backdrop" id="dep-graph-backdrop" hidden>
@@ -2444,6 +2478,13 @@ function buildSettingsModalHtml(): string {
                                     <select class="form-control" id="settings-transition-worktree">
                                         <option value="1" ${transition.requireWorktreeForInProgress === true ? 'selected' : ''}>Yes</option>
                                         <option value="0" ${transition.requireWorktreeForInProgress !== true ? 'selected' : ''}>No</option>
+                                    </select>
+                                </div>
+                                <div class="transition-row">
+                                    <span class="transition-label">Done Checklist Required for Done</span>
+                                    <select class="form-control" id="settings-transition-done-checklist">
+                                        <option value="1" ${transition.requireDoneChecklistForDone !== false ? 'selected' : ''}>Yes</option>
+                                        <option value="0" ${transition.requireDoneChecklistForDone === false ? 'selected' : ''}>No</option>
                                     </select>
                                 </div>
                             </div>
