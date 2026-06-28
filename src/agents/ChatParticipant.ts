@@ -56,10 +56,13 @@ const STANDARD_PROMPT_FILES = [
 const LITE_PROMPT_FILES = [
     'README.md',
     'new-task-intake.md',
-    'stage-backlog-to-planning.md',
+    'stage-backlog-to-inprogress.md',
+    'stage-inprogress-to-done.md',
     'work-on-task.md',
     'goal-decompose.md',
 ];
+
+const ALL_PROMPT_FILES = Array.from(new Set([...STANDARD_PROMPT_FILES, ...LITE_PROMPT_FILES]));
 
 export const AGENTS_MD_BEGIN = '<!-- BEGIN AGENTIC KANBAN \u2014 DO NOT EDIT THIS SECTION -->';
 export const AGENTS_MD_END = '<!-- END AGENTIC KANBAN -->';
@@ -482,6 +485,7 @@ export class ChatParticipant {
         }
 
         const targetFiles = config.profile === 'lite' ? LITE_PROMPT_FILES : STANDARD_PROMPT_FILES;
+        const targetFileSet = new Set(targetFiles);
         const activePack = config.activeStack
             ? config.packs?.find(p => p.name === config.activeStack)
             : undefined;
@@ -505,6 +509,23 @@ export class ChatParticipant {
                 this.logger.warn('chatParticipant', `Failed to write prompt ${name}: ${err.message}`);
             }
         }
+
+        if (overwrite) {
+            for (const name of ALL_PROMPT_FILES) {
+                if (targetFileSet.has(name)) {
+                    continue;
+                }
+                const obsoleteUri = vscode.Uri.joinPath(destDir, name);
+                try {
+                    if (await this.exists(obsoleteUri)) {
+                        await vscode.workspace.fs.delete(obsoleteUri);
+                    }
+                } catch (err: any) {
+                    this.logger.warn('chatParticipant', `Failed to prune obsolete prompt ${name}: ${err.message}`);
+                }
+            }
+        }
+
         this.logger.info('chatParticipant', `Scaffolded prompts: +${result.created.length} ~${result.updated.length} =${result.skipped.length}`);
         return result;
     }

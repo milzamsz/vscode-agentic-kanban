@@ -721,23 +721,26 @@ export class TaskStore {
         return `task_${ds}_${uuid}_${slug}`;
     }
 
-    /**
-     * Extract the slug portion from a task ID.
-     * ID format: task_YYYYMMDD_XXXXXX_<slug>
-     * Also supports legacy format: task_YYYYMMDD_HHmmssfff_XXXXXX_<slug>
-     * Returns empty string if the ID doesn't match the expected format.
-     */
     static extractSlugFromId(id: string): string {
         const parts = id.split('_');
-        if (parts.length < 4 || parts[0] !== 'task') { return ''; }
-        // New format: task_YYYYMMDD_XXXXXX_slug... (date is 8 digits, uuid is 6 alnum)
-        // Legacy format: task_YYYYMMDD_HHmmssfff_XXXXXX_slug... (time is 9 digits)
-        if (parts.length >= 5 && /^\d{9}$/.test(parts[2])) {
-            // Legacy format — skip date, time, uuid
+        if (parts[0] !== 'task' || parts.length < 2) { return ''; }
+
+        // Legacy format: task_YYYYMMDD_HHmmssfff_XXXXXX_slug
+        if (parts.length >= 5 && /^\d{8}$/.test(parts[1]) && /^\d{9}$/.test(parts[2])) {
             return parts.slice(4).join('_');
         }
-        // New format — skip date, uuid
-        return parts.slice(3).join('_');
+
+        // New format: task_YYYYMMDD_XXXXXX_slug
+        if (parts.length >= 4 && /^\d{8}$/.test(parts[1]) && /^[a-z0-9]{6}$/.test(parts[2])) {
+            return parts.slice(3).join('_');
+        }
+
+        // Sequenced format: task_001_slug or task_123_slug
+        if (parts.length >= 3 && /^\d+$/.test(parts[1])) {
+            return parts.slice(2).join('_');
+        }
+
+        return '';
     }
 
     /**
@@ -842,7 +845,7 @@ export class TaskStore {
             return null;
         }
         try {
-            const data = parse(parsed.frontmatter) as Record<string, unknown>;
+            const data = TaskStore.parseFrontmatter(parsed.frontmatter);
             if (!data || typeof data.title !== 'string') {
                 return null;
             }
@@ -883,20 +886,20 @@ export class TaskStore {
                 id: '', // Caller sets this from filename
                 title: data.title,
                 lane: typeof data.lane === 'string' ? data.lane : '',
-                created: (data.created as string) ?? new Date().toISOString(),
-                updated: (data.updated as string) ?? new Date().toISOString(),
-                description: (data.description as string) ?? '',
+                created: TaskStore.asString(data.created) ?? new Date().toISOString(),
+                updated: TaskStore.asString(data.updated) ?? new Date().toISOString(),
+                description: TaskStore.asString(data.description) ?? '',
                 priority: (data.priority as Priority) || undefined,
-                assignee: (data.assignee as string) || undefined,
+                assignee: TaskStore.asString(data.assignee) || undefined,
                 labels: finalLabels.length > 0 ? finalLabels : undefined,
-                dueDate: (data.dueDate as string) || undefined,
+                dueDate: TaskStore.asString(data.dueDate) || undefined,
                 sortOrder: typeof data.sortOrder === 'number' ? data.sortOrder : undefined,
-                slug: typeof data.slug === 'string' ? data.slug : undefined,
-                change: typeof data.change === 'string' ? data.change : undefined,
-                spec: typeof data.spec === 'string' ? data.spec : undefined,
-                goal: typeof data.goal === 'string' ? data.goal : undefined,
+                slug: TaskStore.asString(data.slug) || undefined,
+                change: TaskStore.asString(data.change) || undefined,
+                spec: TaskStore.asString(data.spec) || undefined,
+                goal: TaskStore.asString(data.goal) || undefined,
                 dependsOn: finalDependsOn.length > 0 ? finalDependsOn : undefined,
-                resumeLane: typeof data.resumeLane === 'string' ? data.resumeLane : undefined,
+                resumeLane: TaskStore.asString(data.resumeLane) || undefined,
                 worktree: data.worktree && typeof data.worktree === 'object'
                     ? {
                         branch: String((data.worktree as Record<string, unknown>).branch ?? ''),
@@ -907,15 +910,108 @@ export class TaskStore {
                 evidence: data.evidence && typeof data.evidence === 'object'
                     ? data.evidence as import('./types').TaskEvidence
                     : undefined,
-                parent: typeof data.parent === 'string' ? data.parent : undefined,
+                parent: TaskStore.asString(data.parent) || undefined,
                 superseeds: Array.isArray(data.superseeds) ? (data.superseeds as string[]) : undefined,
-                superseededBy: typeof data.superseededBy === 'string' ? data.superseededBy : undefined,
+                superseededBy: TaskStore.asString(data.superseededBy) || undefined,
                 blockerResolved: typeof data.blockerResolved === 'boolean' ? data.blockerResolved : undefined,
                 extras: Object.keys(extras).length > 0 ? extras : undefined,
             };
         } catch {
             return null;
         }
+    }
+
+    private static parseFrontmatter(frontmatter: string): Record<string, unknown> | null {
+        try {
+            return parse(frontmatter) as Record<string, unknown>;
+        } catch {
+            return TaskStore.parseFrontmatterRelaxed(frontmatter);
+        }
+    }
+
+    private static parseFrontmatterRelaxed(frontmatter: string): Record<string, unknown> | null {
+        const result: Record<string, unknown> = {};
+        const lines = frontmatter.split('\n');
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (!line.trim()) {
+                continue;
+            }
+            const match = /^([A-Za-z][A-Za-z0-9_]*):\s*(.*)$/.exec(line);
+            if (!match) {
+                continue;
+            }
+
+            const [, key, rawValue] = match;
+            if (rawValue === '') {
+                const blockLines: string[] = [];
+                let j = i + 1;
+                while (j < lines.length && (/^\s+/.test(lines[j]) || !lines[j].trim())) {
+                    if (lines[j].trim()) {
+                        blockLines.push(lines[j].replace(/^\s{2}/, ''));
+                    }
+                    j++;
+                }
+                i = j - 1;
+
+                if (blockLines.length === 0) {
+                    result[key] = '';
+                    continue;
+                }
+
+                const blockText = blockLines.join('\n');
+                try {
+                    result[key] = parse(blockText);
+                } catch {
+                    result[key] = blockText;
+                }
+                continue;
+            }
+
+            result[key] = TaskStore.parseRelaxedValue(rawValue);
+        }
+
+        return Object.keys(result).length > 0 ? result : null;
+    }
+
+    private static parseRelaxedValue(rawValue: string): unknown {
+        const value = rawValue.trim();
+        if (!value) {
+            return '';
+        }
+
+        if (
+            value.startsWith('[') ||
+            value.startsWith('{') ||
+            value.startsWith('"') ||
+            value.startsWith("'") ||
+            value === 'true' ||
+            value === 'false' ||
+            value === 'null' ||
+            /^-?\d+(\.\d+)?$/.test(value)
+        ) {
+            try {
+                return parse(value);
+            } catch {
+                return value;
+            }
+        }
+
+        return value;
+    }
+
+    private static asString(value: unknown): string | undefined {
+        if (typeof value === 'string') {
+            return value;
+        }
+        if (value == null) {
+            return undefined;
+        }
+        if (value instanceof Date) {
+            return value.toISOString();
+        }
+        return String(value);
     }
 
     /** Split a markdown file into frontmatter and body. */

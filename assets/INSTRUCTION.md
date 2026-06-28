@@ -161,7 +161,7 @@ Guidance:
 - `backlog` is for rough work items that still need lightweight clarification.
 - `in-progress` is where implementation happens.
 - `done` is for completed work.
-- `/loop` defaults to `backlog` and emits the `work-on-task` driver prompt for the selected lane. Use `@kanban /loop in-progress` to drive the implementation lane.
+- `/loop [lane]` is a lane-flow prompt driver for Lite too. Default lane is `backlog`. Lane-to-prompt mapping: `backlog` -> `stage-backlog-to-inprogress`, `in-progress` -> `stage-inprogress-to-done`.
 
 ### Standard profile
 

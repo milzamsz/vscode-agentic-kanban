@@ -62,7 +62,8 @@ export function getDefaultLoopLane(profile: 'standard' | 'lite'): string {
  */
 export function getLanePrompt(profile: 'standard' | 'lite', lane: string): string | null {
     if (profile === 'lite') {
-        if (lane === 'backlog' || lane === 'in-progress') { return 'work-on-task.md'; }
+        if (lane === 'backlog') { return 'stage-backlog-to-inprogress.md'; }
+        if (lane === 'in-progress') { return 'stage-inprogress-to-done.md'; }
         return null;
     }
     // Standard

@@ -203,7 +203,7 @@ function isReservedLane(slug: string): boolean
 
 - Reads/writes `.md` files with YAML frontmatter under `.agentkanban/tasks/` (flat) and `.agentkanban/tasks/archive/`
 - All non-archived tasks live directly in `tasks/`; lane is stored in frontmatter
-- Task filenames: `task_YYYYMMDD_XXXXXX_slug.md` (ID derived from filename minus `.md`)
+- Task filenames: `task_YYYYMMDD_XXXXXX_slug.md` by default, with backward-compatible support for sequenced forms like `task_001_slug.md` when loading existing boards
 - `init()` calls `migrateFromDirectories()` (moves legacy lane-directory task files into flat `tasks/`, adds lane to frontmatter, renames from old HHmmssfff format), then `reload()`
 - `reload()` reads flat `tasks/` and `tasks/archive/`, parses tasks, reads `task.lane` from frontmatter, migrates legacy `lane: blocked` tasks back into an active lane with a `blocked` label, and rewrites legacy `reviewType` semantics into the simplified Standard flow
 - `save()` writes to `tasks/` (or `tasks/archive/` for archived tasks), preserves existing markdown body
@@ -334,7 +334,7 @@ Lightweight `@kanban` chat participant that routes commands to task markdown fil
 | `/worktree` | `handleWorktree()` | Create, open, or remove a git worktree for the selected task |
 | `/archive` | `handleArchive()` | Archives a completed spec change folder to `changes/archive/` |
 | `/prompts` | `handlePrompts()` | Opens QuickPick; writes or refreshes bundled stage-driver prompts to `.agentkanban/prompts/` |
-| `/loop` | `handleLoop()` | Lane-flow prompt driver. Resolves the stage-driver prompt for the selected lane (`getLanePrompt`), gathers ready tasks (non-blocked, dep-satisfied, filtered by `--label`/`--priority`), interpolates the prompt via `resolveVars`, emits ready-task list into chat, renders a "Send prompt to chat" button (`response.button` -> `workbench.action.chat.open`), and copies to clipboard as fallback. Default lane: `backlog` (`getDefaultLoopLane`). No lane mutations; no shell commands. Gates enforced when the agent moves a task via the board UI. |
+| `/loop` | `handleLoop()` | Lane-flow prompt driver. Resolves the stage-driver prompt for the selected lane (`getLanePrompt`), gathers ready tasks (non-blocked, dep-satisfied, filtered by `--label`/`--priority`), interpolates the prompt via `resolveVars`, emits ready-task list into chat, renders a "Send prompt to chat" button (`response.button` -> `workbench.action.chat.open`), and copies to clipboard as fallback. Default lane: `backlog` (`getDefaultLoopLane`). Standard mapping stays `backlog -> stage-backlog-to-planning`, `planning`/`in-progress -> stage-planning-to-review`, `review -> stage-review-to-done`; Lite mapping is `backlog -> stage-backlog-to-inprogress`, `in-progress -> stage-inprogress-to-done`. No lane mutations; no shell commands. Gates enforced when the agent moves a task via the board UI. |
 | `/goal` | `handleGoal()` | Subcommands: `new <objective>` (scaffold epic + artifact + clipboard decompose prompt), bare (dashboard), `show <slug>` (detail view). |
 | `/doctor` | `handleDoctor()` | Runs workflow diagnostics: lane drift, stale blockers, dependency cycles, worktrees, spec drift |
 | `/pack` | `handlePack()` | Lists or activates a stack pack; activating regenerates prompts and syncs AGENTS.md |

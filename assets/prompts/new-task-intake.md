@@ -47,6 +47,7 @@ Spotted while doing another task -> create it here with label `discovered` +
 - [ ] Frontmatter + spec link where useful; left in `backlog`
 
 ## Next
-[stage-backlog-to-planning.md](stage-backlog-to-planning.md).
+Standard profile: [stage-backlog-to-planning.md](stage-backlog-to-planning.md).
+Lite profile: [stage-backlog-to-inprogress.md](stage-backlog-to-inprogress.md).
 ```
 ```

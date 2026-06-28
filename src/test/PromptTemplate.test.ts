@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { interpolate, resolveVars } from '../PromptTemplate';
+import { getLanePrompt, interpolate, resolveVars } from '../PromptTemplate';
 import type { BoardConfig, StackPack } from '../types';
 
 describe('PromptTemplate', () => {
@@ -101,6 +101,21 @@ describe('PromptTemplate', () => {
             expect(result).toContain('.agentkanban/tasks/task_1_auth.md');
             expect(result).toContain('lite');
             expect(result).toContain('backlog → in-progress → done');
+        });
+    });
+
+    describe('getLanePrompt', () => {
+        it('maps Standard lanes to the existing stage prompts', () => {
+            expect(getLanePrompt('standard', 'backlog')).toBe('stage-backlog-to-planning.md');
+            expect(getLanePrompt('standard', 'planning')).toBe('stage-planning-to-review.md');
+            expect(getLanePrompt('standard', 'in-progress')).toBe('stage-planning-to-review.md');
+            expect(getLanePrompt('standard', 'review')).toBe('stage-review-to-done.md');
+        });
+
+        it('maps Lite lanes to the dedicated Lite stage prompts', () => {
+            expect(getLanePrompt('lite', 'backlog')).toBe('stage-backlog-to-inprogress.md');
+            expect(getLanePrompt('lite', 'in-progress')).toBe('stage-inprogress-to-done.md');
+            expect(getLanePrompt('lite', 'done')).toBeNull();
         });
     });
 });

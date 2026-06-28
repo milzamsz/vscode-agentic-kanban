@@ -2,7 +2,7 @@
     "name": "agentic-kanban",
     "displayName": "Agentic Kanban",
     "description": "A profile-driven Kanban board for AI-assisted software development with persistent markdown task conversations.",
-    "version": "1.7.0",
+    "version": "1.7.1",
     "publisher": "milzam",
     "license": "Elastic-2.0",
     "icon": "images/icon.png",
@@ -15,7 +15,7 @@
         "url": "https://github.com/milzamsz/vscode-agentic-kanban/issues"
     },
     "engines": {
-        "vscode": "^1.125.0"
+        "vscode": "^1.105.0"
     },
     "categories": [
         "Other"
@@ -220,7 +220,7 @@
     "devDependencies": {
         "@tailwindcss/postcss": "^4.3.1",
         "@types/node": "^26.0.0",
-        "@types/vscode": "^1.125.0",
+        "@types/vscode": "^1.105.0",
         "autoprefixer": "^10.5.0",
         "esbuild": "^0.28.1",
         "postcss": "^8.5.8",
