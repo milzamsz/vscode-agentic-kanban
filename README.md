@@ -247,7 +247,7 @@ code --install-extension agentic-kanban-<version>.vsix
 backlog -> in-progress -> done
 ```
 
-Lite is intended for smaller changes and fast paths. Planning can remain lightweight, worktrees are optional by default, and there is no separate review lane. `/loop` defaults to `backlog` and emits the `work-on-task` prompt for the selected lane.
+Lite is intended for smaller changes and fast paths. Planning can remain lightweight, worktrees are optional by default, and there is no separate review lane. `/loop` defaults to `backlog` and emits `stage-backlog-to-inprogress`; use `/loop in-progress` to emit `stage-inprogress-to-done`.
 
 ### Standard
 
@@ -351,7 +351,7 @@ flowchart TD
 | `/worktree remove` | `@kanban /worktree remove` | Remove the selected task's worktree and branch |
 | `/archive` | `@kanban /archive [slug]` | Archive a completed spec change folder |
 | `/prompts` | `@kanban /prompts` | Write or refresh bundled stage-driver prompts |
-| `/loop` | `@kanban /loop [lane]` | Lane-flow prompt driver: emits the stage-driver prompt for the selected lane into chat. Click the **"Send prompt to chat"** button to inject it directly into the chat input (clipboard copy as fallback). Default lane: `backlog`. Mapping: `backlog` -> `stage-backlog-to-planning`, `planning`/`in-progress` -> `stage-planning-to-review`, `review` -> `stage-review-to-done` (Standard); `backlog`/`in-progress` -> `work-on-task` (Lite). Workspace prompt overrides bundled. Appends ready-task list (non-blocked, dep-satisfied). Supports `--label=`, `--priority=` filters. No lanes moved by the command itself. |
+| `/loop` | `@kanban /loop [lane]` | Lane-flow prompt driver: emits the stage-driver prompt for the selected lane into chat. Click the **"Send prompt to chat"** button to inject it directly into the chat input (clipboard copy as fallback). Default lane: `backlog`. Mapping: `backlog` -> `stage-backlog-to-planning`, `planning`/`in-progress` -> `stage-planning-to-review`, `review` -> `stage-review-to-done` (Standard); `backlog` -> `stage-backlog-to-inprogress`, `in-progress` -> `stage-inprogress-to-done` (Lite). Workspace prompt overrides bundled. Appends ready-task list (non-blocked, dep-satisfied). Supports `--label=`, `--priority=` filters. No lanes moved by the command itself. |
 | `/goal new` | `@kanban /goal new <objective>` | Create a goal epic card + goal artifact; copy decompose prompt to clipboard |
 | `/goal` | `@kanban /goal` | Show goal dashboard (progress per goal) |
 | `/goal show` | `@kanban /goal show <slug>` | Show detail for a specific goal |

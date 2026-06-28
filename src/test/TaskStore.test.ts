@@ -342,6 +342,37 @@ describe('TaskStore', () => {
             expect(reparsed!.extras).toEqual({ customKey: 'hello' });
         });
 
+        it('should tolerate relaxed frontmatter with colon-rich descriptions and flow arrays', () => {
+            const md = [
+                '---',
+                'title: Shared lint/build config',
+                'lane: in-progress',
+                'created: 2026-06-28T00:00:00Z',
+                'updated: 2026-06-29T00:00:00+07:00',
+                'description: packages/config: tsconfig base, eslint+prettier, ruff+mypy, golangci-lint.',
+                'labels: ["planned-lite", "started-lite"]',
+                'parent: epic-001-platform-foundation',
+                'dependsOn: ["monorepo-scaffold"]',
+                'spec: .agentkanban/specs/shared-config/spec.md',
+                'change: .agentkanban/changes/shared-config',
+                '---',
+                '',
+                '## Conversation',
+            ].join('\n');
+
+            const parsed = TaskStore.deserialise(md);
+
+            expect(parsed).not.toBeNull();
+            expect(parsed!.title).toBe('Shared lint/build config');
+            expect(parsed!.lane).toBe('in-progress');
+            expect(parsed!.description).toContain('packages/config: tsconfig base');
+            expect(parsed!.labels).toEqual(['planned-lite', 'started-lite', 'blocked-by:monorepo-scaffold']);
+            expect(parsed!.dependsOn).toEqual(['monorepo-scaffold']);
+            expect(parsed!.parent).toBe('epic-001-platform-foundation');
+            expect(parsed!.spec).toBe('.agentkanban/specs/shared-config/spec.md');
+            expect(parsed!.change).toBe('.agentkanban/changes/shared-config');
+        });
+
         it('should synchronise dependsOn and blocked-by: slug labels in both directions', () => {
             const md1 = [
                 '---',
@@ -1203,6 +1234,11 @@ describe('TaskStore', () => {
 
         it('should return empty string for non-task prefix', () => {
             expect(TaskStore.extractSlugFromId('todo_20260311_085243300_abc123_slug')).toBe('');
+        });
+
+        it('should extract slug from sequenced format task ID', () => {
+            expect(TaskStore.extractSlugFromId('task_007_media-pipeline-and-r2-delivery'))
+                .toBe('media-pipeline-and-r2-delivery');
         });
     });
 

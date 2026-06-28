@@ -31,8 +31,10 @@ intake -> backlog --[plan]-> planning ==[planning->review: AUTO]==> review --[au
 |---|---|
 | [new-task-intake.md](new-task-intake.md) | raw idea/bug -> well-formed task in `backlog` |
 | [stage-backlog-to-planning.md](stage-backlog-to-planning.md) | clarify + plan all ready backlog tasks (spec-driven); ending in `planning` |
+| [stage-backlog-to-inprogress.md](stage-backlog-to-inprogress.md) | Lite sweep: clarify + lightly plan all ready backlog tasks, then start them in `in-progress` |
 | [stage-review-to-done.md](stage-review-to-done.md) | finalize approved tasks (human gate; runs the production-readiness audit) |
 | [stage-review-to-in-progress.md](stage-review-to-in-progress.md) | revise: send a rejected task back to implementation |
+| [stage-inprogress-to-done.md](stage-inprogress-to-done.md) | Lite sweep: review, verify, and close every task in `in-progress` |
 | [stage-blocked-and-resume.md](stage-blocked-and-resume.md) | block one / sweep blocked to resume cleared |
 | [production-readiness-audit.md](production-readiness-audit.md) | gate run by `review->done` (evidence the behavior RUNS, not a status write) |
 | [work-on-task.md](work-on-task.md) | single-task driver; used by `/work` (pick a not-done task, copy interpolated prompt to clipboard) |
@@ -61,5 +63,5 @@ copies are preserved on init; `/prompts` overwrites to the latest bundled versio
 `@kanban /loop [lane]` emits the stage-driver prompt for the selected lane into chat. A **"Send prompt to chat"**
 button in the response injects it directly into the chat input (one click, press Enter to run). Clipboard copy
 included as fallback. Default lane is `backlog`. Lane-to-prompt mapping (Standard): `backlog` -> `stage-backlog-to-planning`,
-`planning`/`in-progress` -> `stage-planning-to-review`, `review` -> `stage-review-to-done`; (Lite): `backlog`/
-`in-progress` -> `work-on-task`. Use `@kanban /prompts` to pick a prompt manually.
+`planning`/`in-progress` -> `stage-planning-to-review`, `review` -> `stage-review-to-done`; (Lite): `backlog` ->
+`stage-backlog-to-inprogress`, `in-progress` -> `stage-inprogress-to-done`. Use `@kanban /prompts` to pick a prompt manually.

@@ -100,6 +100,9 @@ function installMockFs(initialFiles: Record<string, string> = {}) {
         }
         dirs.add(d);
     });
+    vi.spyOn(workspace.fs, 'delete').mockImplementation(async (uri: any) => {
+        files.delete(normalise(uri));
+    });
 
     return {
         files,
@@ -669,7 +672,7 @@ describe('ChatParticipant', () => {
             'README.md', 'new-task-intake.md', 'stage-backlog-to-planning.md',
             'stage-planning-to-review.md', 'stage-review-to-in-progress.md',
             'stage-review-to-done.md', 'stage-blocked-and-resume.md', 'production-readiness-audit.md',
-            'work-on-task.md',
+            'work-on-task.md', 'stage-backlog-to-inprogress.md', 'stage-inprogress-to-done.md',
         ];
         const seedAssets = (extra: Record<string, string> = {}) => {
             const files: Record<string, string> = { ...extra };
@@ -703,6 +706,21 @@ describe('ChatParticipant', () => {
 
             expect(fs.text('/test-workspace/.agentkanban/prompts/README.md')).toBe('# bundled README.md');
             expect(response.messages.some((m: string) => m.includes('Refreshed stage-driver prompts'))).toBe(true);
+        });
+
+        it('prunes stale Standard-only prompt files when refreshing a Lite workspace', async () => {
+            const fs = seedAssets({
+                '/test-workspace/.agentkanban/prompts/stage-backlog-to-planning.md': '# stale standard prompt',
+            });
+            const config = boardConfigStore.get();
+            config.profile = 'lite';
+            config.lanes = ['backlog', 'in-progress', 'done'];
+
+            await participant.scaffoldPrompts(true);
+
+            expect(fs.has('/test-workspace/.agentkanban/prompts/stage-backlog-to-planning.md')).toBe(false);
+            expect(fs.has('/test-workspace/.agentkanban/prompts/stage-backlog-to-inprogress.md')).toBe(true);
+            expect(fs.has('/test-workspace/.agentkanban/prompts/stage-inprogress-to-done.md')).toBe(true);
         });
     });
 
@@ -2079,7 +2097,7 @@ describe('ChatParticipant', () => {
             clipboardSpy.mockRestore();
         });
 
-        it('Lite /loop (no arg) defaults to backlog and emits work-on-task', async () => {
+        it('Lite /loop (no arg) defaults to backlog and emits stage-backlog-to-inprogress', async () => {
             const config = boardConfigStore.get();
             config.profile = 'lite';
             config.lanes = ['backlog', 'in-progress', 'done'];
@@ -2090,7 +2108,7 @@ describe('ChatParticipant', () => {
             };
             (taskStore as any).tasks.set(task.id, task);
             installMockFs({
-                '/test-extension/assets/prompts/work-on-task.md': WORK_ON_TASK,
+                '/test-extension/assets/prompts/stage-backlog-to-inprogress.md': '# Backlog to In Progress\n{{taskTitle}}',
             });
 
             const clipboardSpy = vi.spyOn(env.clipboard, 'writeText').mockResolvedValue(undefined);
@@ -2100,6 +2118,30 @@ describe('ChatParticipant', () => {
             expect(execMock).not.toHaveBeenCalled();
             expect(clipboardSpy).toHaveBeenCalledOnce();
             expect(clipboardSpy.mock.calls[0][0]).toContain('Lite Task');
+            clipboardSpy.mockRestore();
+        });
+
+        it('Lite /loop in-progress emits stage-inprogress-to-done', async () => {
+            const config = boardConfigStore.get();
+            config.profile = 'lite';
+            config.lanes = ['backlog', 'in-progress', 'done'];
+
+            const task: Task = {
+                id: 'task_loop_lite_done', title: 'Lite Finish Task', lane: 'in-progress',
+                created: '2026-01-01T00:00:00.000Z', updated: '2026-01-01T00:00:00.000Z', description: '',
+            };
+            (taskStore as any).tasks.set(task.id, task);
+            installMockFs({
+                '/test-extension/assets/prompts/stage-inprogress-to-done.md': '# In Progress to Done\n{{taskTitle}}',
+            });
+
+            const clipboardSpy = vi.spyOn(env.clipboard, 'writeText').mockResolvedValue(undefined);
+            const response = mockResponse();
+            await participant.handleRequest(mockRequest('loop', 'in-progress'), {} as any, response, mockToken);
+
+            expect(execMock).not.toHaveBeenCalled();
+            expect(clipboardSpy).toHaveBeenCalledOnce();
+            expect(clipboardSpy.mock.calls[0][0]).toContain('Lite Finish Task');
             clipboardSpy.mockRestore();
         });
 
@@ -2295,6 +2337,8 @@ describe('ChatParticipant', () => {
                 '/test-extension/assets/prompts/README.md': 'Profile {{profile}}',
                 '/test-extension/assets/prompts/new-task-intake.md': 'Intake',
                 '/test-extension/assets/prompts/stage-backlog-to-planning.md': 'Backlog',
+                '/test-extension/assets/prompts/stage-backlog-to-inprogress.md': 'Lite backlog',
+                '/test-extension/assets/prompts/stage-inprogress-to-done.md': 'Lite done',
                 '/test-extension/assets/prompts/work-on-task.md': 'Work',
                 '/test-extension/assets/prompts/goal-decompose.md': 'Goal',
             });
@@ -2311,7 +2355,11 @@ describe('ChatParticipant', () => {
             const written = (workspace.fs.writeFile as any).mock.calls
                 .map((call: any[]) => ({ path: call[0].fsPath || call[0].path, text: new TextDecoder().decode(call[1]) }));
             const readmeWrite = written.find((entry: any) => entry.path.includes('/other-workspace/.agentkanban/prompts/README.md'));
+            const liteBacklogWrite = written.find((entry: any) => entry.path.includes('/other-workspace/.agentkanban/prompts/stage-backlog-to-inprogress.md'));
+            const liteDoneWrite = written.find((entry: any) => entry.path.includes('/other-workspace/.agentkanban/prompts/stage-inprogress-to-done.md'));
             expect(readmeWrite?.text).toContain('Profile lite');
+            expect(liteBacklogWrite?.text).toBe('Lite backlog');
+            expect(liteDoneWrite?.text).toBe('Lite done');
         });
 
         it('syncAgentsMdSectionForContext uses the provided task store, not the active store', async () => {
