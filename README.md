@@ -6,7 +6,7 @@ A VS Code Kanban board where you and a coding agent share the same task files. P
 
 📖 **[Read the Documentation](https://agentic-kanban-docs.pages.dev/)**
 
-![Version 1.7.0](https://img.shields.io/badge/version-1.7.0-2563eb)
+![Version 1.7.2](https://img.shields.io/badge/version-1.7.2-2563eb)
 [![Elastic License 2.0](https://img.shields.io/badge/license-Elastic%202.0%20source--available-f59e0b)](LICENSE)
 [![GitHub Release](https://img.shields.io/github/v/release/milzamsz/vscode-agentic-kanban?label=GitHub%20Release)](https://github.com/milzamsz/vscode-agentic-kanban/releases)
 
@@ -356,8 +356,6 @@ flowchart TD
 | `/goal` | `@kanban /goal` | Show goal dashboard (progress per goal) |
 | `/goal show` | `@kanban /goal show <slug>` | Show detail for a specific goal |
 | `/doctor` | `@kanban /doctor` | Run workflow diagnostics (lane drift, stale blockers, dependency cycles, spec drift) |
-| `/pack` | `@kanban /pack list` | List configured stack packs |
-| `/pack use` | `@kanban /pack use <name>` | Activate a stack pack and regenerate prompts |
 | `/work` | `@kanban /work [task]` | Resolve a task and copy the work prompt to the clipboard |
 | `/evidence` | `@kanban /evidence [task]` | Show evidence status for a task |
 | `/evidence record` | `@kanban /evidence <task> <check> <pass\|fail> ["<notes>"]` | Record a lint, test, build, or behavior evidence result |
@@ -533,16 +531,16 @@ VS Code settings seed `board.yaml`; they do not silently override it. `board.yam
 
 Use **Agentic Kanban: Apply Settings to Board Config** when you want the current workspace settings to update an existing `board.yaml`. If the target profile would leave tasks in lanes that do not exist in that profile, the command warns before applying the change. Human overrides still respect the board's `enforcement.overrides` policy, and agent guidance is refreshed from the live `enforcement` and `reviewPolicy` values in `board.yaml`.
 
-### Skill Packs Settings
+### Project Skills Settings
 
-The Settings modal includes a **Skill Packs** tab for stack selection and project skill activation.
+The Settings modal includes a **Project Skills** tab for project-local skill activation.
 
-- **Project Skills** are discovered from installed skill folders on this machine, including `~/.agents/skills/`, `~/.codex/skills/`, workspace `skills/`, workspace `.claude/skills/`, and any extra directories configured through `agentKanban.skillsDirs`.
-- **Checked = active**. Checked skills are written to `board.yaml` and loaded into the managed agent context for the project.
+- **Project-local skills** in `project/.agents/skills/`, `project/skills/`, and `project/.claude/skills/` are discovered automatically and treated as active for the project.
+- **Machine-installed skills** are discovered from `~/.agents/skills/`, `~/.codex/skills/`, `~/.claude/skills/`, `~/.antigravity/skills/`, and any extra directories configured through `agentKanban.skillsDirs`.
+- **Checked = active**. Checking a machine-installed skill links it into `project/.agents/skills/` so prompts and `AGENTS.md` load it from the project.
 - The installed skill list shows **Installed**, **Active**, and **Inactive** filters, plus a source badge for each discovered skill.
-- If `board.yaml` references skills that are not currently discovered, Settings shows a warning before save instead of silently hiding them.
-- **Stack Packs** come from `.agentkanban/packs.yaml`, the active `packs` entries in `.agentkanban/board.yaml`, and global templates saved from the Settings modal.
-- After adding a new skill folder or pack, reopen Settings to refresh the discovered list.
+- If a skill is a real project-owned folder instead of a link, it stays active until removed manually.
+- After adding a new skill folder, reopen Settings to refresh the discovered list.
 
 ## Maintainer Release Flow
 

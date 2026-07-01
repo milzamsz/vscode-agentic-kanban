@@ -3,6 +3,8 @@ export interface SettingsDiscoveredSkill {
     description?: string;
     source?: string;
     sourceLabel?: string;
+    isActive?: boolean;
+    canDeactivate?: boolean;
 }
 
 export type SettingsSkillStatusFilter = 'all' | 'active' | 'inactive';
@@ -10,7 +12,6 @@ export type SettingsSkillStatusFilter = 'all' | 'active' | 'inactive';
 export interface SettingsSkillsViewModel {
     installedCount: number;
     activeInstalledCount: number;
-    configuredMissing: string[];
     filtered: SettingsDiscoveredSkill[];
     emptyMessage?: string;
 }
@@ -22,16 +23,12 @@ function norm(value: string): string {
 export function getSettingsSkillsViewModel(
     discoveredSkills: SettingsDiscoveredSkill[],
     selectedSkills: Iterable<string>,
-    configuredSkills: Iterable<string>,
     filterText = '',
     statusFilter: SettingsSkillStatusFilter = 'all',
 ): SettingsSkillsViewModel {
     const selected = new Set(Array.from(selectedSkills));
-    const configured = Array.from(configuredSkills);
-    const discoveredNames = new Set(discoveredSkills.map((skill) => skill.name));
     const installedCount = discoveredSkills.length;
     const activeInstalledCount = discoveredSkills.filter((skill) => selected.has(skill.name)).length;
-    const configuredMissing = configured.filter((skill) => !discoveredNames.has(skill));
 
     const filter = norm(filterText);
     const filtered = discoveredSkills.filter((skill) => {
@@ -63,7 +60,6 @@ export function getSettingsSkillsViewModel(
     return {
         installedCount,
         activeInstalledCount,
-        configuredMissing,
         filtered,
         emptyMessage,
     };

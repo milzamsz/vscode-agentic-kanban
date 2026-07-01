@@ -10,11 +10,7 @@ Carry one chosen task to **done** without touching other tasks. Uses the `{{prof
 
 Source-of-truth order: AGENTS.md (custom rules + DoD) -> code -> TECHNICAL.md -> .agentkanban/INSTRUCTION.md.
 Read AGENTS.md, .agentkanban/memory.md, and the task file + linked artifacts before touching code.
-Stack: `{{stack}}`.
 Required Skills: {{skills}}
-
-## Stack-Specific Coverage Requirements
-{{coverage}}
 
 ## Task
 
@@ -40,8 +36,7 @@ Re-read the task's `dependsOn` list. Do not start if a dependency is not in `don
 ### 2. Implement only this task's scope
 
 Move the task to `in-progress`. Implement strictly the approved scope from `tasks.md`.
-Reuse existing repository patterns. Honor stack coverage (`{{coverage}}`) and required
-skills (`{{skills}}`).
+Reuse existing repository patterns. Honor the required skills (`{{skills}}`).
 
 ### 3. Verify gate
 

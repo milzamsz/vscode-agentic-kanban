@@ -211,7 +211,6 @@ Treat `TODO` as the checklist artifact only. Do not treat `todo` as a workflow l
 | `/goal` | `@kanban /goal` | Goal progress dashboard |
 | `/goal show` | `@kanban /goal show <slug>` | Detail view for a specific goal |
 | `/doctor` | `@kanban /doctor` | Run workflow diagnostics |
-| `/pack` | `@kanban /pack list\|use <name>` | Manage stack packs |
 | `/work` | `@kanban /work [task]` | Copy task work prompt to clipboard |
 | `/evidence` | `@kanban /evidence [task] [check] [pass\|fail]` | View or record task evidence |
 
@@ -257,14 +256,12 @@ The active board policy is injected through `AGENTS.md`.
 - `independent-agent` means a different agent should review that stage.
 - `independent-agent+human` means a different agent review plus human review is required.
 
-## Stack Packs & Project Skills
+## Project Skills
 
-To automate injecting stack-specific context and verification commands, you can configure stack packs and project skills in `.agentkanban/board.yaml`:
+Project skills are loaded from the workspace first and then from machine-level installations:
 
-- **Always-on project skills (`skills`):** An array of agent skill names loaded every turn via the `AGENTS.md` managed sentinel (e.g. `[git, workspace]`).
-- **Stack packs (`packs`):** Bundled configuration matching target technology stacks. Preset presets are seeded into `.agentkanban/packs.yaml` (e.g. `odoo`, `web`, `api`, `go`, `frappe`).
-- **Active stack (`activeStack`):** The name of the selected stack pack.
+- **Project-local active skills:** `project/.agents/skills/`, `project/skills/`, and `project/.claude/skills/`
+- **Machine-installed skills:** `~/.agents/skills/`, `~/.codex/skills/`, `~/.claude/skills/`, `~/.antigravity/skills/`, plus `agentKanban.skillsDirs`
+- **Prompt variables:** `{{skills}}` is resolved from the active project skills and injected into scaffolded prompts and the managed `AGENTS.md` sentinel
 
-Commands:
-- `@kanban /pack list`: List all configured stack packs.
-- `@kanban /pack use <name>`: Set the active stack pack. This automatically regenerates prompts under `.agentkanban/prompts/` and syncs the new active skills to the `AGENTS.md` sentinel.
+Checking a machine-installed skill in Settings links it into `project/.agents/skills/` so the project owns the active skill set.

@@ -50,6 +50,14 @@ function activeLogger(): LogService {
     return getActiveContext()?.logService ?? NO_OP_LOGGER;
 }
 
+async function refreshContextFromDisk(ctx: ProjectContext | undefined): Promise<void> {
+    if (!ctx?.isInitialised) {
+        return;
+    }
+    await ctx.boardConfigStore.init();
+    await ctx.taskStore.reload();
+}
+
 // ---------------------------------------------------------------------------
 // Activation
 // ---------------------------------------------------------------------------
@@ -129,10 +137,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     context.subscriptions.push(
         _registry.onDidChangeActiveProject(() => {
-            _boardViewProvider?.refresh();
             const active = getActiveContext();
-            KanbanEditorPanel.currentPanel?.setInitialised(active?.isInitialised ?? false);
-            void KanbanEditorPanel.currentPanel?.refresh();
+            void refreshContextFromDisk(active).then(() => {
+                _boardViewProvider?.refresh();
+                KanbanEditorPanel.currentPanel?.setInitialised(active?.isInitialised ?? false);
+                void KanbanEditorPanel.currentPanel?.refresh();
+            });
         }),
     );
     context.subscriptions.push(
@@ -147,6 +157,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.window.registerWebviewPanelSerializer(KanbanEditorPanel.VIEW_TYPE, {
             async deserializeWebviewPanel(panel: vscode.WebviewPanel) {
                 const revivedCtx = _registry?.getActiveContext();
+                await refreshContextFromDisk(revivedCtx);
                 KanbanEditorPanel.revive(
                     panel,
                     context.extensionUri,
@@ -166,16 +177,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.commands.registerCommand('agentKanban.openBoard', () => {
             const ctx = getActiveContext();
             if (!ctx) { return; }
-            KanbanEditorPanel.createOrShow(
-                context.extensionUri,
-                createDelegatingTaskStore(),
-                createDelegatingBoardConfigStore(),
-                NO_OP_LOGGER,
-                ctx.isInitialised,
-                activeWorktreeService(),
-                _chatParticipantHandler!,
-                _registry,
-            );
+            void refreshContextFromDisk(ctx).then(() => {
+                KanbanEditorPanel.createOrShow(
+                    context.extensionUri,
+                    createDelegatingTaskStore(),
+                    createDelegatingBoardConfigStore(),
+                    NO_OP_LOGGER,
+                    ctx.isInitialised,
+                    activeWorktreeService(),
+                    _chatParticipantHandler!,
+                    _registry,
+                );
+            });
         }),
     );
 
@@ -183,17 +196,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.commands.registerCommand('agentKanban.newTask', () => {
             const ctx = getActiveContext();
             if (!ctx) { return; }
-            KanbanEditorPanel.createOrShow(
-                context.extensionUri,
-                createDelegatingTaskStore(),
-                createDelegatingBoardConfigStore(),
-                NO_OP_LOGGER,
-                ctx.isInitialised,
-                activeWorktreeService(),
-                _chatParticipantHandler!,
-                _registry,
-            );
-            KanbanEditorPanel.currentPanel?.triggerCreateModal();
+            void refreshContextFromDisk(ctx).then(() => {
+                KanbanEditorPanel.createOrShow(
+                    context.extensionUri,
+                    createDelegatingTaskStore(),
+                    createDelegatingBoardConfigStore(),
+                    NO_OP_LOGGER,
+                    ctx.isInitialised,
+                    activeWorktreeService(),
+                    _chatParticipantHandler!,
+                    _registry,
+                );
+                KanbanEditorPanel.currentPanel?.triggerCreateModal();
+            });
         }),
     );
 
@@ -201,17 +216,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.commands.registerCommand('agentKanban.openSettings', () => {
             const ctx = getActiveContext();
             if (!ctx) { return; }
-            KanbanEditorPanel.createOrShow(
-                context.extensionUri,
-                createDelegatingTaskStore(),
-                createDelegatingBoardConfigStore(),
-                NO_OP_LOGGER,
-                ctx.isInitialised,
-                activeWorktreeService(),
-                _chatParticipantHandler!,
-                _registry,
-            );
-            KanbanEditorPanel.currentPanel?.triggerSettingsModal();
+            void refreshContextFromDisk(ctx).then(() => {
+                KanbanEditorPanel.createOrShow(
+                    context.extensionUri,
+                    createDelegatingTaskStore(),
+                    createDelegatingBoardConfigStore(),
+                    NO_OP_LOGGER,
+                    ctx.isInitialised,
+                    activeWorktreeService(),
+                    _chatParticipantHandler!,
+                    _registry,
+                );
+                KanbanEditorPanel.currentPanel?.triggerSettingsModal();
+            });
         }),
     );
 
@@ -256,8 +273,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             worktreePolicy: resolveWorktreePolicy(profile),
         });
         await ctx.taskStore.initialise();
-        await _chatParticipantHandler!.syncPacksYamlForContext(ctx);
-        await ctx.boardConfigStore.loadExternalPacksIfAbsent();
         await _chatParticipantHandler!.syncInstructionFileForContext(ctx);
         await _chatParticipantHandler!.scaffoldPromptsForContext(ctx, false);
         await _chatParticipantHandler!.syncAgentsMdSectionForContext(ctx);

@@ -19,6 +19,7 @@ import { getDefaultProfile, isEnforceWorktrees } from '../settings';
 import { WorkflowDoctor } from '../WorkflowDoctor';
 import { interpolate, resolveVars, getDefaultLoopLane, getLanePrompt } from '../PromptTemplate';
 import { TaskEvidenceValidator } from '../TaskEvidenceValidator';
+import { ProjectSkillService } from '../ProjectSkillService';
 
 /** Relative path within the workspace for the instruction file. */
 const INSTRUCTION_REL_PATH = '.agentkanban/INSTRUCTION.md';
@@ -241,6 +242,7 @@ export class ChatParticipant {
     private readonly extensionUri: vscode.Uri;
     private readonly getIsInitialised: () => boolean;
     private readonly worktreeService: WorktreeService | undefined;
+    private readonly projectSkillService = new ProjectSkillService();
 
     /** Tracks the last task selected via /task, used by verb commands. */
     lastSelectedTaskId: string | undefined;
@@ -278,6 +280,14 @@ export class ChatParticipant {
 
     private _resolveActiveWorktreeService(): WorktreeService | undefined {
         return this._resolveActiveContext()?.worktreeService ?? this.worktreeService;
+    }
+
+    private async getActiveProjectSkills(folderUri: vscode.Uri | undefined): Promise<string[]> {
+        if (!folderUri) {
+            return [];
+        }
+        const extraDirs = vscode.workspace.getConfiguration('agentKanban').get<string[]>('skillsDirs', []);
+        return this.projectSkillService.getActiveSkillNames(folderUri, extraDirs);
     }
 
     private _relativeToFolder(folderUri: vscode.Uri | undefined, targetUri: vscode.Uri): string {
@@ -353,9 +363,6 @@ export class ChatParticipant {
             case 'doctor':
                 await this.handleDoctor(response);
                 return;
-            case 'pack':
-                await this.handlePack(prompt, response);
-                return;
             case 'work':
                 await this.handleWork(prompt, response);
                 return;
@@ -363,7 +370,7 @@ export class ChatParticipant {
                 await this.handleEvidence(prompt, response);
                 return;
             default: {
-                response.markdown('Available commands: `/new`, `/task`, `/refresh`, `/spec`, `/worktree`, `/archive`, `/prompts`, `/loop`, `/goal`, `/doctor`, `/pack`, `/work`, `/evidence`\n\n');
+                response.markdown('Available commands: `/new`, `/task`, `/refresh`, `/spec`, `/worktree`, `/archive`, `/prompts`, `/loop`, `/goal`, `/doctor`, `/work`, `/evidence`\n\n');
                 response.markdown('- `@kanban /new <task title>` - Create a new task\n');
                 response.markdown('- `@kanban /task <task name>` - Select a task to work on\n');
                 response.markdown('- `@kanban /refresh` - Re-inject agent context for the selected task\n');
@@ -379,8 +386,6 @@ export class ChatParticipant {
                 response.markdown('- `@kanban /goal` - Show goal dashboard (progress per goal)\n');
                 response.markdown('- `@kanban /goal show <slug>` - Show detail for a specific goal\n');
                 response.markdown('- `@kanban /doctor` - Run workflow diagnostics for lane drift, blockers, dependencies, and stale worktrees\n');
-                response.markdown('- `@kanban /pack list` - List all configured stack packs\n');
-                response.markdown('- `@kanban /pack use <name>` - Select an active stack pack\n');
                 response.markdown('- `@kanban /work [task name]` - Pick a not-done task and copy a task-specific work prompt to clipboard\n');
                 response.markdown('- `@kanban /evidence [task]` - Show evidence status for a task\n');
                 response.markdown('- `@kanban /evidence <task> lint|test|build|behavior pass|fail ["<notes>"]` - Record evidence for a task\n');
@@ -425,37 +430,6 @@ export class ChatParticipant {
     }
 
     /**
-     * Copy `assets/packs.yaml` to `.agentkanban/packs.yaml` if absent (or overwrite if requested).
-     */
-    async syncPacksYaml(overwrite = false): Promise<vscode.Uri | undefined> {
-        const folderUri = this._resolveActiveFolderUri();
-        if (!folderUri) { return undefined; }
-        return this.syncPacksYamlForUri(folderUri, overwrite);
-    }
-
-    async syncPacksYamlForUri(folderUri: vscode.Uri, overwrite = false): Promise<vscode.Uri | undefined> {
-        const destUri = vscode.Uri.joinPath(folderUri, '.agentkanban', 'packs.yaml');
-        try {
-            const exists = await this.exists(destUri);
-            if (exists && !overwrite) {
-                return destUri;
-            }
-            const srcUri = vscode.Uri.joinPath(this.extensionUri, 'assets', 'packs.yaml');
-            const content = await vscode.workspace.fs.readFile(srcUri);
-            await vscode.workspace.fs.writeFile(destUri, content);
-            this.logger.info('chatParticipant', 'Synced packs.yaml from assets');
-            return destUri;
-        } catch (err: any) {
-            this.logger.warn('chatParticipant', `Failed to sync packs.yaml: ${err.message}`);
-            return undefined;
-        }
-    }
-
-    async syncPacksYamlForContext(ctx: { folder: vscode.WorkspaceFolder }, overwrite = false): Promise<vscode.Uri | undefined> {
-        return this.syncPacksYamlForUri(ctx.folder.uri, overwrite);
-    }
-
-    /**
      * Write the bundled stage-driver prompts to `.agentkanban/prompts/`.
      * On init (`overwrite=false`) only missing files are written, so user edits
      * survive. `@kanban /prompts` calls with `overwrite=true` to refresh them all.
@@ -486,10 +460,8 @@ export class ChatParticipant {
 
         const targetFiles = config.profile === 'lite' ? LITE_PROMPT_FILES : STANDARD_PROMPT_FILES;
         const targetFileSet = new Set(targetFiles);
-        const activePack = config.activeStack
-            ? config.packs?.find(p => p.name === config.activeStack)
-            : undefined;
-        const vars = resolveVars(config, activePack);
+        const activeSkills = await this.getActiveProjectSkills(folderUri);
+        const vars = resolveVars(config, activeSkills);
 
         for (const name of targetFiles) {
             const destUri = vscode.Uri.joinPath(destDir, name);
@@ -592,12 +564,7 @@ export class ChatParticipant {
             }
 
             const config = boardConfigStore.get();
-            const activePack = config.activeStack
-                ? config.packs?.find(p => p.name === config.activeStack)
-                : undefined;
-            const projectSkills = config.skills ?? [];
-            const packSkills = activePack?.skills ?? [];
-            const resolvedSkills = Array.from(new Set([...projectSkills, ...packSkills]));
+            const resolvedSkills = await this.getActiveProjectSkills(folderUri);
 
             const section = taskContext
                 ? buildWorktreeAgentsMdSection(
@@ -989,11 +956,9 @@ export class ChatParticipant {
 
         // Resolve vars and interpolate
         const config = this.boardConfigStore.get();
-        const activePack = config.activeStack
-            ? config.packs?.find(p => p.name === config.activeStack)
-            : undefined;
+        const activeSkills = await this.getActiveProjectSkills(folderUri);
         const vars = {
-            ...resolveVars(config, activePack),
+            ...resolveVars(config, activeSkills),
             taskTitle: task.title,
             taskFile: taskRelPath,
         };
@@ -1565,13 +1530,7 @@ export class ChatParticipant {
 
             const taskUri = this.taskStore.getTaskUri(task.id);
             const taskRelPath = this._relativeToFolder(this._resolveActiveFolderUri(), taskUri);
-            const config = this.boardConfigStore.get();
-            const activePack = config.activeStack
-                ? config.packs?.find(p => p.name === config.activeStack)
-                : undefined;
-            const projectSkills = config.skills ?? [];
-            const packSkills = activePack?.skills ?? [];
-            const resolvedSkills = Array.from(new Set([...projectSkills, ...packSkills]));
+            const resolvedSkills = await this.getActiveProjectSkills(this._resolveActiveFolderUri());
             const worktreeInfo = await worktreeService.create(task.id, task.title, taskRelPath, resolvedSkills);
 
             // Update task frontmatter with worktree info
@@ -1829,15 +1788,13 @@ export class ChatParticipant {
         }
 
         // Interpolate
-        const activePack = config.activeStack
-            ? config.packs?.find(p => p.name === config.activeStack)
-            : undefined;
+        const activeSkills = await this.getActiveProjectSkills(folderUri);
         const firstReady = readyTasks[0];
         const taskRelPath = this.taskStore.getTaskUri(firstReady.id).fsPath.replace(
             folderUri.fsPath + (process.platform === 'win32' ? '\\' : '/'), '',
         );
         const vars = {
-            ...resolveVars(config, activePack),
+            ...resolveVars(config, activeSkills),
             taskTitle: firstReady.title,
             taskFile: taskRelPath,
         };
@@ -2052,9 +2009,9 @@ export class ChatParticipant {
                 return;
             }
 
-            const activePack = config.activeStack ? config.packs?.find(p => p.name === config.activeStack) : undefined;
+            const activeSkills = await this.getActiveProjectSkills(folderUri);
             const vars = {
-                ...resolveVars(config, activePack),
+                ...resolveVars(config, activeSkills),
                 goalTitle: objective,
                 goalSlug,
                 goalDescription: objective,

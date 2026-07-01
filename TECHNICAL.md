@@ -337,7 +337,6 @@ Lightweight `@kanban` chat participant that routes commands to task markdown fil
 | `/loop` | `handleLoop()` | Lane-flow prompt driver. Resolves the stage-driver prompt for the selected lane (`getLanePrompt`), gathers ready tasks (non-blocked, dep-satisfied, filtered by `--label`/`--priority`), interpolates the prompt via `resolveVars`, emits ready-task list into chat, renders a "Send prompt to chat" button (`response.button` -> `workbench.action.chat.open`), and copies to clipboard as fallback. Default lane: `backlog` (`getDefaultLoopLane`). Standard mapping stays `backlog -> stage-backlog-to-planning`, `planning`/`in-progress -> stage-planning-to-review`, `review -> stage-review-to-done`; Lite mapping is `backlog -> stage-backlog-to-inprogress`, `in-progress -> stage-inprogress-to-done`. No lane mutations; no shell commands. Gates enforced when the agent moves a task via the board UI. |
 | `/goal` | `handleGoal()` | Subcommands: `new <objective>` (scaffold epic + artifact + clipboard decompose prompt), bare (dashboard), `show <slug>` (detail view). |
 | `/doctor` | `handleDoctor()` | Runs workflow diagnostics: lane drift, stale blockers, dependency cycles, worktrees, spec drift |
-| `/pack` | `handlePack()` | Lists or activates a stack pack; activating regenerates prompts and syncs AGENTS.md |
 | `/work` | `handleWork()` | Opens QuickPick for task selection, loads `work-on-task.md` prompt with interpolated vars, copies to clipboard |
 | `/evidence` | `handleEvidence()` | Views or records task evidence (lint / test / build / behavior) validated by `TaskEvidenceValidator` |
 | (none) | default | Shows available commands |
@@ -605,18 +604,13 @@ Completions are suppressed inside YAML frontmatter (between `---` delimiters) an
 
 Full editor panel providing the Kanban board UI with worktree support. Registered as a webview panel serialiser so it survives window reloads.
 
-### Settings Skill Packs UX
+### Settings Project Skills UX
 
 - The Settings modal requests discovered skills from the host with `requestSkills`.
-- `SkillDiscovery.discoverSkills()` returns `name`, optional `description`, raw `source`, and a normalized `sourceLabel` for UI display.
-- `KanbanEditorPanel` forwards that discovered skill payload unchanged through the `skillsList` webview message, and `board.ts` consumes it as `SettingsDiscoveredSkill[]` so `sourceLabel` stays typed end to end.
-- The webview Skill Packs tab keeps a local selection set while the modal is open so filter re-renders do not discard unsaved checkbox changes.
-- Skill list presentation is derived through `src/webview/settingsSkills.ts`, which computes:
-  - installed and active counts
-  - filtered skill results
-  - configured-but-undiscovered skill warnings
-  - persisted save selection limited to currently discovered skills
-- Save semantics are unchanged: missing skills are still dropped on save, but the UI now warns before that happens.
+- `ProjectSkillService` discovers project-local and machine-installed skills, marks active project skills, and reports `name`, optional `description`, raw `source`, `sourceLabel`, `isActive`, and `canDeactivate`.
+- `KanbanEditorPanel` forwards that discovered skill payload unchanged through the `skillsList` webview message, and `board.ts` consumes it as `SettingsDiscoveredSkill[]`.
+- The webview Project Skills tab keeps a local selection set while the modal is open so filter re-renders do not discard unsaved checkbox changes.
+- Saving the modal posts `applyProjectSkills`, which links selected machine-installed skills into `project/.agents/skills/`, refreshes prompts, and re-syncs `AGENTS.md`.
 
 ### Worktree Integration
 

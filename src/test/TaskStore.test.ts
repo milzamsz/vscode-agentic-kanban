@@ -373,6 +373,33 @@ describe('TaskStore', () => {
             expect(parsed!.change).toBe('.agentkanban/changes/shared-config');
         });
 
+        it('should tolerate relaxed frontmatter with CRLF lines and colon-rich descriptions', () => {
+            const md = [
+                '---',
+                'title: Repository closure + oca_dependencies',
+                'lane: in-progress',
+                'created: 2026-06-28T00:00:00Z',
+                'updated: 2026-06-29T15:51:32.6107044+07:00',
+                'description: Repository-level closure from oca_dependencies.txt evidence (§17.2 step 10-11).',
+                'labels: ["started-lite"]',
+                'parent: epic-005-dependency-resolver',
+                'dependsOn: ["resolver-core", "evidence-parsers"]',
+                '---',
+                '',
+                '## Conversation',
+            ].join('\r\n');
+
+            const parsed = TaskStore.deserialise(md);
+
+            expect(parsed).not.toBeNull();
+            expect(parsed!.title).toBe('Repository closure + oca_dependencies');
+            expect(parsed!.lane).toBe('in-progress');
+            expect(parsed!.description).toContain('oca_dependencies.txt');
+            expect(parsed!.labels).toEqual(['started-lite', 'blocked-by:resolver-core', 'blocked-by:evidence-parsers']);
+            expect(parsed!.dependsOn).toEqual(['resolver-core', 'evidence-parsers']);
+            expect(parsed!.parent).toBe('epic-005-dependency-resolver');
+        });
+
         it('should synchronise dependsOn and blocked-by: slug labels in both directions', () => {
             const md1 = [
                 '---',

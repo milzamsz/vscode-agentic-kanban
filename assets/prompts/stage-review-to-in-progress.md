@@ -7,11 +7,10 @@ Return every review-rejected task back to active work to apply the requested fix
 ```markdown
 # SWEEP REVIEW -> IN-PROGRESS
 
-Read AGENTS.md + the task file's review verdict + spec + change `tasks.md` first. Stack: `{{stack}}`.
+Read AGENTS.md + the task file's review verdict + spec + change `tasks.md` first.
 
 ## Scope (fill first)
 - Lane: `review` — return all tasks with verdict **revise** (or explicit user request to resume).
-- Stack: `{{stack}}`.
 - Required Skills: {{skills}}
 
 ## Per revise task (parallel where independent) — action: `implement`

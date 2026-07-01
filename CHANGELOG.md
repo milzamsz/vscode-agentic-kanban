@@ -2,6 +2,11 @@
 
 All notable changes to Agentic Kanban will be documented here.
 
+## [1.7.2] - 2026-06-30
+
+### Fixed
+- **Settings modal auto-close**: The sidebar Settings button no longer collapses the modal when the board webview rerenders after opening. The modal now keeps its visible tab state and restores the Project Skills pane correctly during refreshes.
+
 ## [1.7.0] - 2026-06-25
 
 ### Added

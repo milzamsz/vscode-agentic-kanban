@@ -83,7 +83,7 @@ medium: planning=self-agent, implementation=self-agent
 high: planning=independent-agent, implementation=independent-agent
 critical: planning=independent-agent, implementation=independent-agent+human
 
-Load these project skills before working: `agentic-kanban`, `astro`, `brainstorming`, `release`, `release-changelog`.
+Load these project skills before working: `agentic-kanban`.
 
 If a task file (`.agentkanban/tasks/**/*.md`) was referenced earlier in this conversation, re-read it before responding and always respond in and at the end the task file.
 <!-- END AGENTIC KANBAN -->

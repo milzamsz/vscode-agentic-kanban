@@ -14,62 +14,56 @@ const skill = (name: string, description?: string, sourceLabel?: string): Settin
 describe('getSettingsSkillsViewModel', () => {
     it('returns all discovered skills with no filter', () => {
         const discovered = [skill('react', 'React library'), skill('vue', 'Vue library')];
-        const vm = getSettingsSkillsViewModel(discovered, [], []);
+        const vm = getSettingsSkillsViewModel(discovered, []);
         expect(vm.filtered).toHaveLength(2);
         expect(vm.installedCount).toBe(2);
     });
 
     it('filters by name text (case insensitive)', () => {
         const discovered = [skill('react-hooks'), skill('vue-router'), skill('react-query')];
-        const vm = getSettingsSkillsViewModel(discovered, [], [], 'REACT');
+        const vm = getSettingsSkillsViewModel(discovered, [], 'REACT');
         expect(vm.filtered.map(s => s.name)).toEqual(['react-hooks', 'react-query']);
     });
 
     it('filters by description text', () => {
         const discovered = [skill('lib-a', 'Handles routing'), skill('lib-b', 'State management')];
-        const vm = getSettingsSkillsViewModel(discovered, [], [], 'routing');
+        const vm = getSettingsSkillsViewModel(discovered, [], 'routing');
         expect(vm.filtered).toHaveLength(1);
         expect(vm.filtered[0].name).toBe('lib-a');
     });
 
     it('status filter active returns only selected skills', () => {
         const discovered = [skill('a'), skill('b'), skill('c')];
-        const vm = getSettingsSkillsViewModel(discovered, ['a', 'c'], [], '', 'active');
+        const vm = getSettingsSkillsViewModel(discovered, ['a', 'c'], '', 'active');
         expect(vm.filtered.map(s => s.name)).toEqual(['a', 'c']);
     });
 
     it('status filter inactive returns only non-selected skills', () => {
         const discovered = [skill('a'), skill('b'), skill('c')];
-        const vm = getSettingsSkillsViewModel(discovered, ['a'], [], '', 'inactive');
+        const vm = getSettingsSkillsViewModel(discovered, ['a'], '', 'inactive');
         expect(vm.filtered.map(s => s.name)).toEqual(['b', 'c']);
-    });
-
-    it('reports configuredMissing for skills in config but not discovered', () => {
-        const discovered = [skill('found')];
-        const vm = getSettingsSkillsViewModel(discovered, ['found', 'missing'], ['found', 'missing']);
-        expect(vm.configuredMissing).toEqual(['missing']);
     });
 
     it('activeInstalledCount counts discovered skills that are selected', () => {
         const discovered = [skill('a'), skill('b'), skill('c')];
-        const vm = getSettingsSkillsViewModel(discovered, ['a', 'b'], []);
+        const vm = getSettingsSkillsViewModel(discovered, ['a', 'b']);
         expect(vm.activeInstalledCount).toBe(2);
     });
 
     it('emptyMessage when no skills discovered', () => {
-        const vm = getSettingsSkillsViewModel([], [], []);
+        const vm = getSettingsSkillsViewModel([], []);
         expect(vm.emptyMessage).toMatch(/no skills discovered/i);
     });
 
     it('emptyMessage when filter returns nothing', () => {
         const discovered = [skill('react')];
-        const vm = getSettingsSkillsViewModel(discovered, [], [], 'nonexistent');
+        const vm = getSettingsSkillsViewModel(discovered, [], 'nonexistent');
         expect(vm.emptyMessage).toMatch(/no skills match/i);
     });
 
     it('filters by source label as well as name and description', () => {
         const discovered = [skill('agentic-kanban', 'Workflow skill', '~/.agents/skills'), skill('astro', 'Astro skill', 'workspace/skills')];
-        const vm = getSettingsSkillsViewModel(discovered, [], [], 'workspace/skills');
+        const vm = getSettingsSkillsViewModel(discovered, [], 'workspace/skills');
         expect(vm.filtered.map(s => s.name)).toEqual(['astro']);
     });
 });

@@ -4,7 +4,7 @@ description: Use when developing, reviewing, packaging, rebranding, or validatin
 license: Elastic-2.0
 metadata:
   author: milzam
-  version: 1.2.0
+  version: 1.4.1
 ---
 
 # Agentic Kanban
@@ -23,6 +23,20 @@ Before changing anything, read these in order — they are the source of truth:
 4. `.agentkanban/INSTRUCTION.md` — the live workflow rules the extension injects.
 
 Never speculate about code you have not opened. Investigate before answering.
+
+## Windows parser pitfall
+
+If the board count does not match the number of `task_*.md` files on disk, investigate `TaskStore` before assuming stale webview state or lane logic.
+
+- First compare disk truth vs UI truth: count `task_*.md` files and count tasks per `lane:` in `.agentkanban/tasks/`.
+- If whole classes of tasks disappear from the board, suspect deserialisation, not rendering.
+- A confirmed Windows-specific failure mode was CRLF frontmatter combined with relaxed parsing fallback:
+  - strict YAML parse fails on unquoted colon-rich lines such as `description: apps/api: Go module...`
+  - the relaxed parser then misses keys because lines still end with `\r`
+  - result: tasks silently drop during `TaskStore.deserialise()`
+- The fix in `vscode-agentic-kanban` is to normalise line endings inside `TaskStore.parseFrontmatterRelaxed()` before splitting lines.
+- Regression coverage should include a CRLF sample with colon-rich `description:` and flow-array `labels` / `dependsOn`.
+- After any parser fix, verify with `npm test`, `npm run build`, `npx tsc --noEmit`, and a real parse check against the affected workspace.
 
 ## Core rules
 

@@ -2,7 +2,7 @@
     "name": "agentic-kanban",
     "displayName": "Agentic Kanban",
     "description": "A profile-driven Kanban board for AI-assisted software development with persistent markdown task conversations.",
-    "version": "1.7.1",
+    "version": "1.7.2",
     "publisher": "milzam",
     "license": "Elastic-2.0",
     "icon": "images/icon.png",
@@ -192,10 +192,6 @@
                     {
                         "name": "doctor",
                         "description": "run workflow diagnostics for lane drift, blockers, dependencies, and worktrees"
-                    },
-                    {
-                        "name": "pack",
-                        "description": "list|use <name> - manage stack packs"
                     },
                     {
                         "name": "work",
