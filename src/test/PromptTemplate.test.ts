@@ -1,21 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { getLanePrompt, interpolate, resolveVars } from '../PromptTemplate';
-import type { BoardConfig, StackPack } from '../types';
+import type { BoardConfig } from '../types';
 
 describe('PromptTemplate', () => {
     describe('interpolate', () => {
         it('should substitute simple variables', () => {
-            const content = 'Stack is {{stack}} and skills are {{skills}}';
-            const vars = { stack: 'Odoo', skills: '`odoo-19`' };
+            const content = 'Skills are {{skills}}';
+            const vars = { skills: '`odoo-19`' };
             const result = interpolate(content, vars);
-            expect(result).toBe('Stack is Odoo and skills are `odoo-19`');
-        });
-
-        it('should resolve legacy <stack skill> placeholders', () => {
-            const content = 'Stack: <stack skill>.';
-            const vars = { stack: 'Odoo' };
-            const result = interpolate(content, vars);
-            expect(result).toBe('Stack: Odoo.');
+            expect(result).toBe('Skills are `odoo-19`');
         });
 
         it('should collapse unknown variables to empty strings', () => {
@@ -30,7 +23,6 @@ describe('PromptTemplate', () => {
             profile: 'standard',
             profileVersion: 3,
             lanes: [],
-            skills: ['git', 'workspace'],
             policies: {
                 verification: {
                     testCommand: 'npm test',
@@ -40,43 +32,25 @@ describe('PromptTemplate', () => {
             },
         };
 
-        it('should resolve empty defaults when no active pack is provided', () => {
-            const vars = resolveVars(mockConfig);
-            expect(vars.stack).toBe('');
+        it('should resolve skills from the active project skill list', () => {
+            const vars = resolveVars(mockConfig, ['git', 'workspace']);
             expect(vars.skills).toBe('`git`, `workspace`');
-            expect(vars.coverage).toBe('');
             expect(vars.verifyCmds).toBe('- `npm test`\n- `npm run lint`\n- `npm run build`');
             expect(vars.lint).toBe('npm run lint');
             expect(vars.test).toBe('npm test');
             expect(vars.build).toBe('npm run build');
         });
 
-        it('should resolve pack stack, skills, and coverage', () => {
-            const pack: StackPack = {
-                name: 'odoo',
-                stack: 'Odoo 18.0',
-                skills: ['odoo-18', 'odoo-owl'],
-                coverage: ['__manifest__.py', 'security rules'],
-            };
-            const vars = resolveVars(mockConfig, pack);
-            expect(vars.stack).toBe('Odoo 18.0');
-            // Union of config.skills ['git', 'workspace'] and pack.skills ['odoo-18', 'odoo-owl']
-            expect(vars.skills).toBe('`git`, `workspace`, `odoo-18`, `odoo-owl`');
-            expect(vars.coverage).toBe('- [ ] __manifest__.py\n- [ ] security rules');
-        });
-
-        it('should override verification commands with pack verifyCmds', () => {
-            const pack: StackPack = {
-                name: 'custom',
-                verifyCmds: ['custom verify', 'another check'],
-            };
-            const vars = resolveVars(mockConfig, pack);
-            expect(vars.verifyCmds).toBe('- `custom verify`\n- `another check`');
+        it('should not expose removed stack-pack prompt variables', () => {
+            const vars = resolveVars(mockConfig, ['astro']);
+            expect(vars.skills).toBe('`astro`');
+            expect(vars.stack).toBeUndefined();
+            expect(vars.coverage).toBeUndefined();
         });
 
         it('should resolve profile-aware lanes for standard', () => {
             const config: BoardConfig = { ...mockConfig, profile: 'standard' };
-            const vars = resolveVars(config);
+            const vars = resolveVars(config, []);
             expect(vars.profile).toBe('standard');
             expect(vars.lanes).toBe('backlog → planning → in-progress → review → done');
             expect(vars.advance).toContain('review');
@@ -84,7 +58,7 @@ describe('PromptTemplate', () => {
 
         it('should resolve profile-aware lanes for lite', () => {
             const config: BoardConfig = { ...mockConfig, profile: 'lite' };
-            const vars = resolveVars(config);
+            const vars = resolveVars(config, []);
             expect(vars.profile).toBe('lite');
             expect(vars.lanes).toBe('backlog → in-progress → done');
             expect(vars.advance).toContain('no separate review lane');
@@ -93,7 +67,7 @@ describe('PromptTemplate', () => {
 
         it('should interpolate task-specific prompt with profile, lanes, taskTitle, taskFile', () => {
             const config: BoardConfig = { ...mockConfig, profile: 'lite' };
-            const vars = resolveVars(config);
+            const vars = resolveVars(config, ['agentic-kanban']);
             const promptVars = { ...vars, taskTitle: 'Auth Feature', taskFile: '.agentkanban/tasks/task_1_auth.md' };
             const template = '# Work: {{taskTitle}}\nFile: {{taskFile}}\nProfile: {{profile}}\nLanes: {{lanes}}';
             const result = interpolate(template, promptVars);

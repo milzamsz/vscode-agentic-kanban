@@ -1,7 +1,7 @@
 # Kanban prompts
 
 Paste-ready stage drivers for AI-assisted development on this board. Opinionated, not stack-agnostic -
-tailor the `{{stack}}` / `{{lint}}` / `{{test}}` / `{{build}}` placeholders for your project and they
+tailor the `{{skills}}` / `{{lint}}` / `{{test}}` / `{{build}}` placeholders for your project and they
 become a repeatable delivery pipeline.
 
 Shared rules live in the repo: `AGENTS.md` (the managed Agentic Kanban block + your custom rules),

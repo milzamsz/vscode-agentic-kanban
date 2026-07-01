@@ -20,11 +20,13 @@ import {
     type Priority,
 } from './types';
 import { discoverSkills } from './SkillDiscovery';
-import { StackTemplateStore } from './StackTemplateStore';
+import { ProjectSkillService } from './ProjectSkillService';
 
-/** Minimal interface for prompting re-scaffold on activeStack change. */
+/** Minimal interface for refreshing prompt scaffolds after settings changes. */
 export interface PromptScaffolder {
     scaffoldPrompts(overwrite?: boolean): Promise<{ created: string[]; updated: string[]; skipped: string[] }>;
+    syncAgentsMdSection?(): Promise<vscode.Uri | undefined>;
+    syncWorktreeAgentsMd?(): Promise<void>;
 }
 
 export class KanbanEditorPanel {
@@ -40,7 +42,7 @@ export class KanbanEditorPanel {
     private _isInitialised: boolean;
     private readonly _transitionService = new TransitionService();
     private readonly _scaffolder?: PromptScaffolder;
-    private readonly _stackTemplateStore = new StackTemplateStore();
+    private readonly _projectSkillService = new ProjectSkillService();
 
     // ── Public API ───────────────────────────────────────────────────────────
 
@@ -761,73 +763,38 @@ export class KanbanEditorPanel {
                 if (message.worktreePolicy !== undefined) { partial.worktreePolicy = message.worktreePolicy; }
                 if (message.wipLimits !== undefined) { partial.wipLimits = message.wipLimits; }
                 if (message.policies !== undefined) { partial.policies = message.policies; }
-                if (message.skills !== undefined) { partial.skills = message.skills; }
                 await this._boardConfigStore.update(partial);
                 break;
             }
 
-            case 'setActiveStack': {
-                const stackName = message.name as string;
-                const currentCfg = this._boardConfigStore.get();
-                const inPacks = (currentCfg.packs ?? []).some(p => p.name === stackName);
-                if (!inPacks) {
-                    // Check global templates and merge if found
-                    const globalTemplates = await this._stackTemplateStore.loadGlobalTemplates();
-                    const globalMatch = globalTemplates.find(t => t.name === stackName);
-                    if (globalMatch) {
-                        await this._boardConfigStore.update({
-                            packs: [...(currentCfg.packs ?? []), globalMatch],
-                            activeStack: stackName,
-                        });
-                    } else {
-                        await this._boardConfigStore.update({ activeStack: stackName });
-                    }
-                } else {
-                    await this._boardConfigStore.update({ activeStack: stackName });
-                }
-                // Re-scaffold prompts when active stack changes
+            case 'applyProjectSkills': {
+                const selectedSkills = Array.isArray(message.skills) ? message.skills as string[] : [];
+                const extraDirs = vscode.workspace.getConfiguration('agentKanban').get<string[]>('skillsDirs', []);
+                const wsFolder = this._currentContext()?.folder.uri ?? vscode.Uri.file(process.cwd());
+                const result = await this._projectSkillService.applySelection(wsFolder, selectedSkills, extraDirs);
                 if (this._scaffolder) {
                     await this._scaffolder.scaffoldPrompts(true);
+                }
+                await this._scaffolder?.syncAgentsMdSection?.();
+                await this._scaffolder?.syncWorktreeAgentsMd?.();
+                const discovered = await discoverSkills(wsFolder, extraDirs);
+                if (this._webviewReady) {
+                    this._panel.webview.postMessage({ type: 'skillsList', skills: discovered });
+                }
+                if (result.protected.length > 0) {
+                    vscode.window.showWarningMessage(
+                        `Some project-owned skills stay active until removed manually: ${result.protected.join(', ')}`,
+                    );
                 }
                 break;
             }
 
             case 'requestSkills': {
                 const extraDirs = vscode.workspace.getConfiguration('agentKanban').get<string[]>('skillsDirs', []);
-                const wsFolder = this._currentContext()?.folder.uri;
-                const discovered = await discoverSkills(wsFolder ?? vscode.Uri.file(process.cwd()), extraDirs);
+                const wsFolder = this._currentContext()?.folder.uri ?? vscode.Uri.file(process.cwd());
+                const discovered = await discoverSkills(wsFolder, extraDirs);
                 if (this._webviewReady) {
                     this._panel.webview.postMessage({ type: 'skillsList', skills: discovered });
-                }
-                break;
-            }
-
-            case 'requestStackTemplates': {
-                const templates = await this._stackTemplateStore.loadGlobalTemplates();
-                if (this._webviewReady) {
-                    this._panel.webview.postMessage({ type: 'stackTemplatesList', templates });
-                }
-                break;
-            }
-
-            case 'saveStackTemplate': {
-                const template = message.template;
-                if (!template?.name) { break; }
-                await this._stackTemplateStore.upsertGlobalTemplate(template);
-                // Merge into board config packs so resolveVars finds it
-                const cfg = this._boardConfigStore.get();
-                const existingPacks = cfg.packs ?? [];
-                const alreadyPresent = existingPacks.some(p => p.name === template.name);
-                const updatedPacks = alreadyPresent
-                    ? existingPacks.map(p => p.name === template.name ? template : p)
-                    : [...existingPacks, template];
-                await this._boardConfigStore.update({ packs: updatedPacks, activeStack: template.name });
-                if (this._scaffolder) {
-                    await this._scaffolder.scaffoldPrompts(true);
-                }
-                const templates = await this._stackTemplateStore.loadGlobalTemplates();
-                if (this._webviewReady) {
-                    this._panel.webview.postMessage({ type: 'stackTemplatesList', templates });
                 }
                 break;
             }

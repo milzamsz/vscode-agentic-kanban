@@ -15,7 +15,7 @@ describe('discoverSkills', () => {
     it('dedupes by name, filters hidden/files, reads SKILL.md description, sorts', async () => {
         vi.spyOn(workspace.fs, 'readDirectory').mockImplementation(async (uri: any) => {
             const p = norm(uri);
-            if (p.endsWith('.claude/skills')) {
+            if (p.endsWith('/home/user/.claude/skills')) {
                 return [
                     ['skill-b', FileType.Directory],
                     ['skill-a', FileType.Directory],
@@ -23,7 +23,7 @@ describe('discoverSkills', () => {
                     ['.system', FileType.Directory], // hidden -> skip
                 ] as Array<[string, number]>;
             }
-            if (p.endsWith('.codex/skills')) {
+            if (p.endsWith('/home/user/.codex/skills')) {
                 return [['skill-a', FileType.Directory]] as Array<[string, number]>; // duplicate name
             }
             throw new Error('ENOENT'); // every other dir is missing
@@ -84,7 +84,7 @@ describe('discoverSkills', () => {
 
         const skills = await discoverSkills(Uri.file('/test-workspace'), ['~/custom-skills']);
 
-        expect(skills.find((s) => s.name === 'skill-local')?.sourceLabel).toBe('workspace/skills');
+        expect(skills.find((s) => s.name === 'skill-local')?.sourceLabel).toBe('project/skills');
         expect(skills.find((s) => s.name === 'skill-custom')?.sourceLabel).toBe('~/custom-skills');
     });
 });

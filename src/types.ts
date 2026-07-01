@@ -144,12 +144,14 @@ export interface BoardPolicies {
     verification?: VerificationConfig;
 }
 
+// Legacy stack-pack config retained only so older configs and dead code paths
+// can compile during migration. New project-skill activation does not use it.
 export interface StackPack {
-    name: string;          // e.g. "odoo", "web", "api"
-    stack?: string;        // human label injected as {{stack}}
-    skills?: string[];     // skills this pack pulls in
-    coverage?: string[];   // design/impl checklist lines -> {{coverage}}
-    verifyCmds?: string[]; // overrides board verification in sweep -> {{verifyCmds}}
+    name: string;
+    stack?: string;
+    skills?: string[];
+    coverage?: string[];
+    verifyCmds?: string[];
 }
 
 export interface BoardConfig {

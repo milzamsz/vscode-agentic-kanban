@@ -1,6 +1,7 @@
 import type { Task, BoardConfig, Priority } from '../types';
 import type { SettingsDiscoveredSkill, SettingsSkillStatusFilter } from './settingsSkills';
 import { getSettingsSkillsViewModel, getPersistedSkillSelection } from './settingsSkills';
+import { getSettingsModalRenderState, type SettingsModalTab } from './settingsModalState';
 
 declare function acquireVsCodeApi(): {
     postMessage(message: unknown): void;
@@ -52,11 +53,12 @@ let modalSnapshot: ModalSnapshot | null = null;
 
 // ── Settings Modal state ───────────────────────────────────────────────
 let settingsMode = false; // true when settings modal is open
+let settingsActiveTab: SettingsModalTab = 'board-config';
 let settingsDiscoveredSkills: SettingsDiscoveredSkill[] = [];
 let settingsSkillFilter = '';
 let settingsSkillStatusFilter: SettingsSkillStatusFilter = 'all';
 let settingsSelectedSkills = new Set<string>();
-let stackTemplates: import('../types').StackPack[] = [];
+let settingsSkillsHydrated = false;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -115,7 +117,7 @@ const PRIORITY_LABELS: Record<string, string> = {
 // ── Message Handling ─────────────────────────────────────────────────────────
 
 window.addEventListener('message', (event: MessageEvent) => {
-    const msg = event.data as { type: string; state?: BoardState; skills?: Array<{ name: string; description?: string }>; templates?: import('../types').StackPack[] };
+    const msg = event.data as { type: string; state?: BoardState; skills?: SettingsDiscoveredSkill[] };
     if (msg.type === 'stateUpdate' && msg.state) {
         if (isDragging) {
             pendingState = msg.state;
@@ -132,9 +134,6 @@ window.addEventListener('message', (event: MessageEvent) => {
     }
     if (msg.type === 'skillsList') {
         handleSkillsList(msg.skills ?? []);
-    }
-    if (msg.type === 'stackTemplatesList') {
-        handleStackTemplatesList(msg.templates ?? []);
     }
 });
 
@@ -191,6 +190,10 @@ function renderBoard(): void {
             const len = si.value.length;
             si.setSelectionRange(len, len);
         }
+    }
+
+    if (settingsMode && settingsActiveTab === 'skill-packs') {
+        renderSkillsCheckboxes();
     }
 
     // Re-open modal if it was open before the re-render
@@ -659,7 +662,8 @@ function handleClick(e: MouseEvent): void {
     // Settings tab switching
     if ((t as HTMLElement).closest('.settings-tab')) {
         const tab = (t as HTMLElement).closest('.settings-tab') as HTMLElement;
-        const tabName = tab.dataset.tab;
+        const tabName = (tab.dataset.tab as SettingsModalTab) || 'board-config';
+        settingsActiveTab = tabName;
         document.querySelectorAll('.settings-tab').forEach(el => el.classList.remove('active'));
         tab.classList.add('active');
         document.querySelectorAll('.settings-panel').forEach(el => el.setAttribute('hidden', ''));
@@ -667,7 +671,6 @@ function handleClick(e: MouseEvent): void {
         document.getElementById(targetId)?.removeAttribute('hidden');
         if (tabName === 'skill-packs') {
             renderSkillsCheckboxes();
-            vscode.postMessage({ type: 'requestStackTemplates' });
         }
         return;
     }
@@ -1155,83 +1158,29 @@ function openCreateModal(): void {
 
 function openSettingsModal(): void {
     settingsMode = true;
-    settingsSelectedSkills = new Set(state.config.skills || []);
+    settingsActiveTab = 'board-config';
+    settingsSelectedSkills = new Set<string>();
+    settingsSkillsHydrated = false;
     const backdrop = document.getElementById('settings-backdrop');
     if (backdrop) {
         backdrop.removeAttribute('hidden');
     }
     vscode.postMessage({ type: 'requestSkills' });
-    vscode.postMessage({ type: 'requestStackTemplates' });
 
     const filterInput = document.getElementById('settings-skill-filter');
     if (filterInput) {
         (filterInput as HTMLInputElement).value = settingsSkillFilter;
     }
-    
-    // Initial render
+
     renderSkillsCheckboxes();
-
-    // Wire Active Stack dropdown for Create New
-    const stackSelect = document.getElementById('settings-active-stack') as HTMLSelectElement | null;
-    if (stackSelect) {
-        stackSelect.addEventListener('change', (e) => {
-            const val = (e.target as HTMLSelectElement).value;
-            if (val === '__create_new__') {
-                const form = document.getElementById('template-create-form');
-                form?.removeAttribute('hidden');
-                // Reset dropdown to previous value to avoid saving __create_new__
-                stackSelect.value = state.config.activeStack ?? '';
-            }
-        });
-    }
-    const saveTplBtn = document.getElementById('template-create-save');
-    if (saveTplBtn) {
-        saveTplBtn.addEventListener('click', handleCreateTemplateSave);
-    }
-    const cancelTplBtn = document.getElementById('template-create-cancel');
-    if (cancelTplBtn) {
-        cancelTplBtn.addEventListener('click', () => {
-            document.getElementById('template-create-form')?.setAttribute('hidden', '');
-        });
-    }
-}
-
-function handleCreateTemplateSave(): void {
-    const nameInput = document.getElementById('template-name') as HTMLInputElement | null;
-    const stackInput = document.getElementById('template-stack') as HTMLInputElement | null;
-    const skillsInput = document.getElementById('template-skills') as HTMLTextAreaElement | null;
-    const coverageInput = document.getElementById('template-coverage') as HTMLTextAreaElement | null;
-    const verifyCmdsInput = document.getElementById('template-verify') as HTMLTextAreaElement | null;
-
-    const name = nameInput?.value.trim() ?? '';
-    if (!name) {
-        nameInput?.focus();
-        return;
-    }
-
-    const splitLines = (v: string) => v.split('\n').map(s => s.trim()).filter(Boolean);
-    const template = {
-        name,
-        stack: stackInput?.value.trim() || undefined,
-        skills: splitLines(skillsInput?.value ?? ''),
-        coverage: splitLines(coverageInput?.value ?? ''),
-        verifyCmds: splitLines(verifyCmdsInput?.value ?? ''),
-    };
-
-    vscode.postMessage({ type: 'saveStackTemplate', template });
-    document.getElementById('template-create-form')?.setAttribute('hidden', '');
-
-    // Clear form
-    if (nameInput) { nameInput.value = ''; }
-    if (stackInput) { stackInput.value = ''; }
-    if (skillsInput) { skillsInput.value = ''; }
-    if (coverageInput) { coverageInput.value = ''; }
-    if (verifyCmdsInput) { verifyCmdsInput.value = ''; }
 }
 
 function handleSkillsList(skills: SettingsDiscoveredSkill[]): void {
     settingsDiscoveredSkills = skills;
-    // Re-render the skills checkbox list if the Skill Packs panel is visible
+    if (!settingsSkillsHydrated) {
+        settingsSelectedSkills = new Set(skills.filter((skill) => skill.isActive).map((skill) => skill.name));
+        settingsSkillsHydrated = true;
+    }
     const panel = document.getElementById('settings-skill-packs');
     if (panel && !panel.hasAttribute('hidden')) {
         renderSkillsCheckboxes();
@@ -1243,13 +1192,10 @@ function renderSkillsCheckboxes(): void {
     if (!container) {
         return;
     }
-    const config = state.config;
     const summary = document.getElementById('settings-skills-summary');
-    const warning = document.getElementById('settings-skills-warning');
     const skillsVM = getSettingsSkillsViewModel(
         settingsDiscoveredSkills,
         settingsSelectedSkills,
-        config.skills || [],
         settingsSkillFilter,
         settingsSkillStatusFilter
     );
@@ -1262,20 +1208,6 @@ function renderSkillsCheckboxes(): void {
         `;
     }
 
-    if (warning) {
-        if (skillsVM.configuredMissing.length > 0) {
-            warning.innerHTML = `
-                <strong>Configured but not discovered:</strong>
-                ${skillsVM.configuredMissing.map((skill) => `<code>${esc(skill)}</code>`).join(', ')}.
-                Saving this form on this machine will remove them from <code>board.yaml</code>.
-            `;
-            warning.removeAttribute('hidden');
-        } else {
-            warning.setAttribute('hidden', '');
-            warning.innerHTML = '';
-        }
-    }
-    
     if (skillsVM.filtered.length === 0) {
         container.innerHTML = `<div class="settings-skills-empty">${skillsVM.emptyMessage || 'No skills match your search.'}</div>`;
         return;
@@ -1300,40 +1232,13 @@ function renderSkillsCheckboxes(): void {
     }).join('');
 }
 
-function handleStackTemplatesList(templates: import('../types').StackPack[]): void {
-    stackTemplates = templates;
-    const panel = document.getElementById('settings-skill-packs');
-    if (panel && !panel.hasAttribute('hidden')) {
-        renderActiveStackDropdown();
-    }
-}
-
-function renderActiveStackDropdown(): void {
-    const select = document.getElementById('settings-active-stack') as HTMLSelectElement | null;
-    if (!select) { return; }
-    const config = state.config;
-    const localPacks = config.packs ?? [];
-    const localNames = new Set(localPacks.map(p => p.name));
-    const globalOnly = stackTemplates.filter(t => !localNames.has(t.name));
-    const allOptions = [
-        ...localPacks.map(p => {
-            const label = typeof p.stack === 'string' ? p.stack : p.name;
-            return `<option value="${esc(p.name)}" ${config.activeStack === p.name ? 'selected' : ''}>${esc(label)}</option>`;
-        }),
-        ...globalOnly.map(t => {
-            const label = typeof t.stack === 'string' ? t.stack : t.name;
-            return `<option value="${esc(t.name)}" ${config.activeStack === t.name ? 'selected' : ''}>[Global] ${esc(label)}</option>`;
-        }),
-        `<option value="__create_new__">+ Create New Template...</option>`,
-    ];
-    select.innerHTML = allOptions.join('');
-}
-
 function closeSettingsModal(): void {
     settingsMode = false;
+    settingsActiveTab = 'board-config';
     settingsSkillFilter = '';
     settingsSkillStatusFilter = 'all';
     settingsSelectedSkills = new Set<string>();
+    settingsSkillsHydrated = false;
     const backdrop = document.getElementById('settings-backdrop');
     if (backdrop) {
         backdrop.setAttribute('hidden', '');
@@ -1380,8 +1285,6 @@ function saveSettingsModal(): void {
         }
     });
 
-    const activeStack = (document.getElementById('settings-active-stack') as HTMLSelectElement)?.value || '';
-    // Gather checked skills from checkbox list
     const skills = getPersistedSkillSelection(settingsDiscoveredSkills, settingsSelectedSkills);
 
     const update: Record<string, unknown> = {
@@ -1412,14 +1315,10 @@ function saveSettingsModal(): void {
                 buildCommand: verificationBuild,
             },
         },
-        skills,
     };
 
     vscode.postMessage({ type: 'saveBoardConfig', ...update });
-
-    if (activeStack && activeStack !== '__create_new__' && activeStack !== config.activeStack) {
-        vscode.postMessage({ type: 'setActiveStack', name: activeStack });
-    }
+    vscode.postMessage({ type: 'applyProjectSkills', skills });
 
     closeSettingsModal();
 }
@@ -2311,6 +2210,7 @@ function buildDepGraphModalHtml(): string {
 function buildSettingsModalHtml(): string {
     const config = state.config;
     const reviewPolicyLevels = ['low', 'medium', 'high', 'critical'];
+    const settingsRenderState = getSettingsModalRenderState(settingsMode, settingsActiveTab);
 
     const enforcementMatrix = reviewPolicyLevels
         .map(level => {
@@ -2347,39 +2247,8 @@ function buildSettingsModalHtml(): string {
     const transition = config.policies?.transition || {};
     const verification = config.policies?.verification || {};
 
-    const localPackNames = new Set((config.packs || []).map(p => p.name));
-    const globalOnlyTemplates = stackTemplates.filter(t => !localPackNames.has(t.name));
-    const packOptions = [
-        ...(config.packs || []).map(pack => {
-            const stackName = typeof pack.stack === 'string' ? pack.stack : pack.name;
-            return `<option value="${esc(pack.name)}" ${config.activeStack === pack.name ? 'selected' : ''}>${esc(stackName)}</option>`;
-        }),
-        ...globalOnlyTemplates.map(t => {
-            const stackName = typeof t.stack === 'string' ? t.stack : t.name;
-            return `<option value="${esc(t.name)}" ${config.activeStack === t.name ? 'selected' : ''}>[Global] ${esc(stackName)}</option>`;
-        }),
-        `<option value="__create_new__">+ Create New Template...</option>`,
-    ].join('');
-
-    const packCards = (config.packs || []).map(pack => {
-        const stackName = typeof pack.stack === 'string' ? pack.stack : pack.name;
-        const skillsList = (pack.skills || []).map(s => `<span class="skill-badge">${s}</span>`).join('');
-        const coverageList = (pack.coverage || []).map(c => `<span class="coverage-badge">${c}</span>`).join('');
-        const verifyList = (pack.verifyCmds || []).map(c => `<span class="verify-cmd-badge">${c}</span>`).join('');
-        return `
-            <div class="skill-card">
-                <div class="skill-card-title">${stackName}</div>
-                <div class="skill-card-body">
-                    <div class="skill-list">${skillsList}</div>
-                    <div class="skill-coverage">${coverageList}</div>
-                    <div class="skill-verify">${verifyList}</div>
-                </div>
-            </div>
-        `;
-    }).join('');
-
     return `
-        <div class="modal-backdrop" id="settings-backdrop" hidden>
+        <div class="modal-backdrop" id="settings-backdrop"${settingsRenderState.hidden ? ' hidden' : ''}>
             <div class="modal settings-modal" id="settings-modal" role="dialog" aria-modal="true">
                 <div class="modal-header">
                     <h3 class="modal-title">Settings</h3>
@@ -2387,11 +2256,11 @@ function buildSettingsModalHtml(): string {
                 </div>
                 <div class="modal-body settings-body">
                     <div class="settings-tabs">
-                        <button class="settings-tab active" data-tab="board-config">Board Config</button>
-                        <button class="settings-tab" data-tab="skill-packs">Skill Packs</button>
+                        <button class="settings-tab${settingsRenderState.boardConfigActive ? ' active' : ''}" data-tab="board-config">Board Config</button>
+                        <button class="settings-tab${settingsRenderState.skillPacksActive ? ' active' : ''}" data-tab="skill-packs">Project Skills</button>
                     </div>
 
-                    <div class="settings-panel active" id="settings-board-config">
+                    <div class="settings-panel${settingsRenderState.boardConfigActive ? ' active' : ''}" id="settings-board-config"${settingsRenderState.boardConfigHidden ? ' hidden' : ''}>
                         <div class="section">
                             <h4 class="section-label">Enforcement</h4>
                             <div class="form-row">
@@ -2525,77 +2394,30 @@ function buildSettingsModalHtml(): string {
                         </div>
                     </div>
 
-                    <div class="settings-panel" id="settings-skill-packs" hidden>
-                        <div class="section">
-                            <h4 class="section-label">Active Stack</h4>
-                            <div class="form-row">
-                                <select class="form-control" id="settings-active-stack">
-                                    ${packOptions}
-                                </select>
-                            </div>
-                            <div class="template-create-form" id="template-create-form" hidden>
-                                <div class="template-create-title">New Global Template</div>
-                                <div class="form-row">
-                                    <label class="form-label" for="template-name">Name</label>
-                                    <input class="form-control" type="text" id="template-name" placeholder="e.g. my-stack">
-                                </div>
-                                <div class="form-row">
-                                    <label class="form-label" for="template-stack">Stack Label</label>
-                                    <input class="form-control" type="text" id="template-stack" placeholder="e.g. My Stack">
-                                </div>
-                                <div class="form-row">
-                                    <label class="form-label" for="template-skills">Skills (one per line)</label>
-                                    <textarea class="form-control" id="template-skills" rows="3" placeholder="skill-name&#10;another-skill"></textarea>
-                                </div>
-                                <div class="form-row">
-                                    <label class="form-label" for="template-coverage">Coverage Lines (one per line)</label>
-                                    <textarea class="form-control" id="template-coverage" rows="2" placeholder="src/&#10;tests/"></textarea>
-                                </div>
-                                <div class="form-row">
-                                    <label class="form-label" for="template-verify">Verify Commands (one per line)</label>
-                                    <textarea class="form-control" id="template-verify" rows="2" placeholder="npm test&#10;npm run lint"></textarea>
-                                </div>
-                                <div class="template-create-actions">
-                                    <button class="btn-primary btn-sm" id="template-create-save">Save</button>
-                                    <button class="btn-secondary btn-sm" id="template-create-cancel">Cancel</button>
-                                </div>
-                            </div>
-                        </div>
-
+                    <div class="settings-panel${settingsRenderState.skillPacksActive ? ' active' : ''}" id="settings-skill-packs"${settingsRenderState.skillPacksHidden ? ' hidden' : ''}>
                         <div class="section">
                             <h4 class="section-label">Project Skills</h4>
                             <div class="form-row">
                                 <label class="form-label">Installed Skills</label>
-                                <div class="settings-helper-text">Checked skills are active for this project and loaded into the managed agent context.</div>
+                                <div class="settings-helper-text">Checked skills are active for this project. Skills already present in the project stay active automatically.</div>
                                 <div class="settings-skills-summary" id="settings-skills-summary">
                                     <button type="button" class="settings-summary-chip active" data-settings-skill-filter="all">Installed 0</button>
                                     <button type="button" class="settings-summary-chip" data-settings-skill-filter="active">Active 0</button>
                                     <button type="button" class="settings-summary-chip" data-settings-skill-filter="inactive">Inactive 0</button>
                                 </div>
-                                <div class="settings-skills-warning" id="settings-skills-warning" hidden></div>
                                 <input type="text" class="form-control" id="settings-skill-filter" placeholder="Filter skills..." />
                                 <div class="settings-skills-list" id="settings-skills-list">
-                                    ${(config.skills || []).length > 0
-                                        ? `<div class="settings-skills-loading">Loading discovered skills...</div>`
-                                        : `<div class="settings-skills-empty">No skills configured. Discovering...</div>`
-                                    }
+                                    <div class="settings-skills-loading">Discovering project and machine skills...</div>
                                 </div>
-                            </div>
-                        </div>
-
-                        <div class="section">
-                            <h4 class="section-label">Stack Packs</h4>
-                            <div class="settings-packs-list">
-                                ${packCards}
                             </div>
                         </div>
 
                         <div class="section">
                             <h4 class="section-label">How to add more</h4>
                             <div class="settings-help-note">
-                                <p><strong>Project Skills</strong> come from skill folders discovered on this machine, including <code>~/.agents/skills/</code>, <code>~/.codex/skills/</code>, <code>workspace/skills/</code>, and <code>workspace/.claude/skills/</code>.</p>
-                                <p><strong>Stack Packs</strong> come from this workspace's <code>.agentkanban/packs.yaml</code>, the active settings in <code>.agentkanban/board.yaml</code>, and any global templates saved from this modal.</p>
-                                <p>After adding a skill folder or pack, reopen Settings to refresh the installed list.</p>
+                                <p><strong>Active project skills</strong> live in <code>project/.agents/skills/</code>. If you enable a machine-installed skill here, the extension links it into that folder.</p>
+                                <p><strong>Discovered skills</strong> come from <code>project/.agents/skills/</code>, <code>project/skills/</code>, <code>project/.claude/skills/</code>, <code>~/.agents/skills/</code>, <code>~/.codex/skills/</code>, and configured extra skill directories.</p>
+                                <p>After adding a new skill folder, reopen Settings to refresh the installed list.</p>
                             </div>
                         </div>
                     </div>

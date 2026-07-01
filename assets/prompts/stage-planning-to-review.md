@@ -13,11 +13,8 @@ Human gates: **plan approval** (in `planning`, before you launch) and **`review 
 
 Source-of-truth order: AGENTS.md (custom rules + DoD) -> code -> TECHNICAL.md -> .agentkanban/INSTRUCTION.md.
 Read AGENTS.md, .agentkanban/memory.md, and per task its capability spec + change `design.md`/`tasks.md`
-before touching code. Stack: `{{stack}}`.
+before touching code.
 Required Skills: {{skills}}
-
-## Stack-Specific Coverage Requirements
-{{coverage}}
 
 ## Scope (fill first)
 - Lane: `planning` — process approved + ready tasks only.

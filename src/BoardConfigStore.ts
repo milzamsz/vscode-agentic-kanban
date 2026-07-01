@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { parse, stringify } from 'yaml';
-import type { BoardConfig, WorkflowProfile, StackPack } from './types';
+import type { BoardConfig, WorkflowProfile } from './types';
 import {
     DEFAULT_BOARD_CONFIG,
     PROFILE_LANES,
@@ -40,15 +40,6 @@ const CONFIG_HEADER = [
     '# policies.verification.testCommand: "npm test" (run on in-progress -> review)',
     '# policies.verification.lintCommand: "npm run lint" (run on in-progress -> review)',
     '# policies.verification.buildCommand: "npm run build" (run on in-progress -> review)',
-    '#',
-    '# activeStack: odoo               (active stack pack name)',
-    '# skills: [git, workspace]        (always-on project skills)',
-    '# packs:                          (custom stack packs override packs.yaml)',
-    '#   - name: odoo',
-    '#     stack: Odoo 18.0',
-    '#     skills: [odoo-18]',
-    '#     coverage: [__manifest__.py]',
-    '#     verifyCmds: [npm test]',
     '# ===============================================================',
     '',
 ].join('\n');
@@ -69,7 +60,6 @@ export class BoardConfigStore {
         try {
             const text = new TextDecoder().decode(await vscode.workspace.fs.readFile(this.configUri));
             this.config = BoardConfigStore.deserialise(text);
-            await this.loadExternalPacksIfAbsent();
             if (BoardConfigStore.needsCanonicalRewrite(text, this.config)) {
                 await this.save();
                 this.logger.info('boardConfig', 'Rewrote legacy board config to canonical format');
@@ -77,7 +67,6 @@ export class BoardConfigStore {
             this.logger.info('boardConfig', `Loaded ${this.config.profile} profile`);
         } catch {
             this.config = normaliseBoardConfig(DEFAULT_BOARD_CONFIG);
-            await this.loadExternalPacksIfAbsent();
             this.logger.info('boardConfig', 'No config found, using defaults (not writing)');
         }
         this._onDidChange.fire();
@@ -95,7 +84,6 @@ export class BoardConfigStore {
         try {
             const text = new TextDecoder().decode(await vscode.workspace.fs.readFile(this.configUri));
             this.config = BoardConfigStore.deserialise(text);
-            await this.loadExternalPacksIfAbsent();
             if (BoardConfigStore.needsCanonicalRewrite(text, this.config)) {
                 await this.save();
                 this.logger.info('boardConfig', 'Rewrote legacy board config to canonical format');
@@ -106,7 +94,6 @@ export class BoardConfigStore {
                 profileVersion: PROFILE_VERSION,
                 ...overrides,
             });
-            await this.loadExternalPacksIfAbsent();
             await this.save();
         }
 
@@ -215,15 +202,6 @@ export class BoardConfigStore {
         if (normalised.wipLimits && Object.keys(normalised.wipLimits).length > 0) {
             payload.wipLimits = normalised.wipLimits;
         }
-        if (normalised.packs !== undefined) {
-            payload.packs = normalised.packs;
-        }
-        if (normalised.activeStack !== undefined) {
-            payload.activeStack = normalised.activeStack;
-        }
-        if (normalised.skills !== undefined) {
-            payload.skills = normalised.skills;
-        }
         // labels last for readability
         if (normalised.labels !== undefined) {
             payload.labels = normalised.labels;
@@ -258,25 +236,5 @@ export class BoardConfigStore {
         const loaded = parse(text);
         const canonical = parse(BoardConfigStore.serialise(config));
         return JSON.stringify(loaded) !== JSON.stringify(canonical);
-    }
-
-    private async loadPacks(): Promise<StackPack[]> {
-        const packsUri = vscode.Uri.joinPath(this.workspaceUri, '.agentkanban/packs.yaml');
-        try {
-            const bytes = await vscode.workspace.fs.readFile(packsUri);
-            const text = new TextDecoder().decode(bytes);
-            return parse(text) as StackPack[];
-        } catch {
-            return [];
-        }
-    }
-
-    async loadExternalPacksIfAbsent(): Promise<void> {
-        if (!this.config.packs || this.config.packs.length === 0) {
-            const externalPacks = await this.loadPacks();
-            if (externalPacks.length > 0) {
-                this.config.packs = externalPacks;
-            }
-        }
     }
 }

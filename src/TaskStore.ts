@@ -931,7 +931,7 @@ export class TaskStore {
 
     private static parseFrontmatterRelaxed(frontmatter: string): Record<string, unknown> | null {
         const result: Record<string, unknown> = {};
-        const lines = frontmatter.split('\n');
+        const lines = frontmatter.replace(/\r\n?/g, '\n').split('\n');
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];

@@ -2440,49 +2440,4 @@ describe('ChatParticipant', () => {
         });
     });
 
-    describe('/pack command', () => {
-        it('should list configured packs', async () => {
-            const config = boardConfigStore.get();
-            config.packs = [
-                { name: 'odoo', stack: 'Odoo Stack', skills: ['odoo-19'] },
-                { name: 'web', stack: 'Web Stack' }
-            ];
-            config.activeStack = 'odoo';
-
-            const response = mockResponse();
-            await participant.handleRequest(mockRequest('pack', 'list'), {} as any, response, mockToken);
-
-            expect(response.messages.some((m: string) => m.includes('### Configured Stack Packs'))).toBe(true);
-            expect(response.messages.some((m: string) => m.includes('**odoo** *(active)*'))).toBe(true);
-            expect(response.messages.some((m: string) => m.includes('**web**'))).toBe(true);
-        });
-
-        it('should change active stack pack and trigger sync', async () => {
-            const config = boardConfigStore.get();
-            config.packs = [
-                { name: 'odoo', stack: 'Odoo Stack' },
-                { name: 'web', stack: 'Web Stack' }
-            ];
-            config.activeStack = 'web';
-
-            installMockFs({
-                '/test-workspace/.agentkanban/board.yaml': 'profile: standard',
-                '/test-workspace/AGENTS.md': '',
-                '/test-extension/assets/prompts/README.md': 'Stack: <stack skill>',
-                '/test-extension/assets/prompts/new-task-intake.md': 'Intake prompt',
-                '/test-extension/assets/prompts/stage-backlog-to-planning.md': 'Planning prompt',
-                '/test-extension/assets/prompts/stage-planning-to-review.md': 'Planning to review prompt',
-                '/test-extension/assets/prompts/stage-review-to-in-progress.md': 'Review to in progress prompt',
-                '/test-extension/assets/prompts/stage-review-to-done.md': 'Review to done prompt',
-                '/test-extension/assets/prompts/stage-blocked-and-resume.md': 'Blocked prompt',
-                '/test-extension/assets/prompts/production-readiness-audit.md': 'Audit prompt',
-            });
-
-            const response = mockResponse();
-            await participant.handleRequest(mockRequest('pack', 'use odoo'), {} as any, response, mockToken);
-
-            expect(boardConfigStore.get().activeStack).toBe('odoo');
-            expect(response.messages.some((m: string) => m.includes('Active stack pack set to **odoo**'))).toBe(true);
-        });
-    });
 });
