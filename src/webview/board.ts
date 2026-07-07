@@ -2211,6 +2211,7 @@ function buildSettingsModalHtml(): string {
     const config = state.config;
     const reviewPolicyLevels = ['low', 'medium', 'high', 'critical'];
     const settingsRenderState = getSettingsModalRenderState(settingsMode, settingsActiveTab);
+    const activeWorkspaceName = state.workspaceList?.find((workspace) => workspace.uri === state.activeWorkspaceUri)?.name;
 
     const enforcementMatrix = reviewPolicyLevels
         .map(level => {
@@ -2397,6 +2398,7 @@ function buildSettingsModalHtml(): string {
                     <div class="settings-panel${settingsRenderState.skillPacksActive ? ' active' : ''}" id="settings-skill-packs"${settingsRenderState.skillPacksHidden ? ' hidden' : ''}>
                         <div class="section">
                             <h4 class="section-label">Project Skills</h4>
+                            ${activeWorkspaceName ? `<div class="settings-workspace-context">Active workspace: <strong>${esc(activeWorkspaceName)}</strong></div>` : ''}
                             <div class="form-row">
                                 <label class="form-label">Installed Skills</label>
                                 <div class="settings-helper-text">Checked skills are active for this project. Skills already present in the project stay active automatically.</div>
@@ -2415,8 +2417,8 @@ function buildSettingsModalHtml(): string {
                         <div class="section">
                             <h4 class="section-label">How to add more</h4>
                             <div class="settings-help-note">
-                                <p><strong>Active project skills</strong> live in <code>project/.agents/skills/</code>. If you enable a machine-installed skill here, the extension links it into that folder.</p>
-                                <p><strong>Discovered skills</strong> come from <code>project/.agents/skills/</code>, <code>project/skills/</code>, <code>project/.claude/skills/</code>, <code>~/.agents/skills/</code>, <code>~/.codex/skills/</code>, and configured extra skill directories.</p>
+                                <p><strong>Active project skills</strong> live in <code>project/.agents/skills/</code>, <code>project/skills/</code>, <code>project/.claude/skills/</code>, <code>project/.codex/skills/</code>, and <code>project/.antigravity/skills/</code>. If you enable a machine-installed skill here, the extension links it into <code>project/.agents/skills/</code>.</p>
+                                <p><strong>Discovered skills</strong> also come from <code>~/.agents/skills/</code>, <code>~/.claude/skills/</code>, <code>~/.codex/skills/</code>, <code>~/.antigravity/skills/</code>, and configured extra skill directories.</p>
                                 <p>After adding a new skill folder, reopen Settings to refresh the installed list.</p>
                             </div>
                         </div>

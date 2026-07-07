@@ -2,6 +2,18 @@
 
 All notable changes to Agentic Kanban will be documented here.
 
+## [1.7.3] - 2026-07-08
+
+### Added
+- **Project skill activation roots**: Project-local `.codex/skills` and `.antigravity/skills` folders are now discovered as active project skill roots alongside `.agents`, `skills`, and `.claude`.
+- **Settings access clarity**: Added a direct board Settings entry point and active workspace context in Project Skills.
+
+### Fixed
+- **Settings opening race**: Settings command handlers now wait for board refresh and creation before opening the modal, avoiding intermittent unresponsive Settings clicks.
+
+### Changed
+- **Agentic Kanban reusable skill refresh**: Updated the bundled reusable skill guidance for current `/goal`, `/loop`, `/work`, `/doctor`, `/evidence`, DoD, and production-readiness workflows.
+
 ## [1.7.2] - 2026-06-30
 
 ### Fixed

@@ -1,9 +1,9 @@
-# Template prompt — worktree operations
+# Template prompt - worktree operations
 
 Use to manage a task's isolated git worktree: create, open, merge back, remove. Requires a git repo.
 
 ````markdown
-# WORKTREE OPS — Agentic Kanban
+# WORKTREE OPS - Agentic Kanban
 
 ## Target
 - Task: `<task name or slug>`
@@ -15,7 +15,7 @@ Use to manage a task's isolated git worktree: create, open, merge back, remove. 
 ```
 Creates branch `agentkanban/<task-slug>`, auto-commits the task file, writes a task-specific
 AGENTS.md sentinel into the worktree, `--skip-worktree`s it, and opens the worktree in VS Code.
-In the worktree, `/task` and `/refresh` auto-detect the linked task — no re-selection needed.
+In the worktree, `/task` and `/refresh` auto-detect the linked task - no re-selection needed.
 
 ## Open an existing worktree
 ```
@@ -39,7 +39,7 @@ Removes the worktree dir and deletes the branch. Moving a task to Done/Archive a
 
 ## Notes
 - Config: `agentKanban.worktreeRoot` (default `../{repo}-worktrees`), `agentKanban.worktreeOpenBehavior` (`current`/`new`).
-- The branch prefix `agentkanban/` is fixed for compatibility — do not rename.
+- The branch prefix `agentkanban/` is fixed for compatibility - do not rename.
 - If worktree metadata is stale (dir gone), `@kanban /worktree` cleans up and recreates.
 
 ## When to use

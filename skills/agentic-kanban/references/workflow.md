@@ -2,6 +2,8 @@
 
 The extension structures AI-assisted delivery around **fixed workflow profiles**. The conversation between agent and user happens **in task files** (`.agentkanban/tasks/task_*.md`), not the chat window. The chat window is for summaries and lightweight coordination only.
 
+Implementation work is kanban-first: every code change must have a task file under `.agentkanban/tasks/` before coding starts. If no task exists, create or select one through the normal workflow before editing implementation files.
+
 ## Lane models
 
 ### Lite profile
@@ -22,6 +24,7 @@ backlog -> planning -> in-progress -> review -> done
 - `review`: implementation review. Return to `in-progress` for revisions, or move to `done` when approved.
   Before `done`, the task must also pass its **Definition of Done checklist** (a `## Definition of Done`
   section in the task body with all items checked; items can carry `(agent)`/`(human)` tags).
+- Before `done`, required evidence must be recorded and passing via `@kanban /evidence`: lint, test, build, and behavior proof for Standard tasks. Spec-driven tasks require behavior evidence proving acceptance criteria are met.
 - The two human gates are **plan approval** (`planning`) and **`review -> done`**; everything between can run hands-off.
 - `blocked` is a label, not a lane. Real blockers -> `blocked` / `blocked-by:<slug>`, keep the task in its lane, never force past them.
 
@@ -50,6 +53,13 @@ backlog -> planning -> in-progress -> review -> done
 - `@kanban /archive [slug]` moves a finished change to `changes/archive/`; the capability spec stays.
 - Full format and completion rules live in [sdd-workflow.md](sdd-workflow.md).
 
+## Goals
+
+- `@kanban /goal new <objective>` creates a goal epic task with `goal` and `epic` labels plus `.agentkanban/goals/<slug>/goal.md`.
+- Child tasks carry `parent: <goal-slug>` in frontmatter. The epic carries `goal: .agentkanban/goals/<slug>`.
+- Goal tier: goal (epic) > capability spec > change > task. In Standard profile, complex child tasks should use `/spec` to attach a capability contract. In Lite, children can use lightweight proposal and checklist artifacts.
+- Use `@kanban /goal`, `@kanban /goal show <slug>`, and then `/loop backlog` to track and advance decomposed child tasks.
+
 ## Action vocabulary
 
 | Action | Meaning |
@@ -61,6 +71,24 @@ backlog -> planning -> in-progress -> review -> done
 | `block` | Record blockers and add `blocked` or `blocked-by:<slug>` labels |
 | `unblock` | Resolve blockers and remove blocker labels |
 
+## Chat commands
+
+| Command | Purpose |
+| --- | --- |
+| `/new <title>` | Create a task in `backlog` |
+| `/task <name>` | Select a task and inject context |
+| `/refresh` | Re-inject workflow context |
+| `/spec [capability]` | Scaffold spec-driven artifacts |
+| `/worktree` | Create or manage a task worktree |
+| `/archive [slug]` | Archive a completed change folder |
+| `/prompts` | Write or refresh bundled stage prompts |
+| `/loop [lane]` | Emit the stage-driver prompt for a lane |
+| `/goal new <objective>` | Create a goal epic and artifact |
+| `/goal` / `/goal show <slug>` | Show goal progress and detail |
+| `/doctor` | Run workflow diagnostics |
+| `/work [task]` | Copy a task work prompt |
+| `/evidence [task] [check] [pass|fail]` | View or record task evidence |
+
 ## Task dependencies & batch sweeps
 
 Dependencies are recorded as `dependsOn: [<slug>]` frontmatter (authoritative, preserved across saves) plus a
@@ -71,9 +99,9 @@ convention, guardrail, cycle detection, discovery, and loop-until-dry mechanics:
 ## Context injection (how the agent stays on track)
 
 Three layers, described in TECHNICAL.md and README.md:
-1. **AGENTS.md managed sentinel** — re-injected on every agent turn; the most reliable. In worktree workspaces it names the exact task file.
-2. **Per-thread `response.reference()`** — `/task` and `/refresh` attach INSTRUCTION.md + task file URIs.
-3. **`/refresh` command** — on-demand re-sync when the agent drifts.
+1. **AGENTS.md managed sentinel** - re-injected on every agent turn; the most reliable. In worktree workspaces it names the exact task file.
+2. **Per-thread `response.reference()`** - `/task` and `/refresh` attach INSTRUCTION.md + task file URIs.
+3. **`/refresh` command** - on-demand re-sync when the agent drifts.
 
 ## Worktree flow
 

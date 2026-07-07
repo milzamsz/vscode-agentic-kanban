@@ -100,6 +100,8 @@ export class ProjectSkillService {
             { dir: path.join(workspacePath, '.agents', 'skills'), sourceLabel: 'project/.agents/skills', isActive: true, canDeactivateCheck: true },
             { dir: path.join(workspacePath, 'skills'), sourceLabel: 'project/skills', isActive: true, canDeactivateCheck: false },
             { dir: path.join(workspacePath, '.claude', 'skills'), sourceLabel: 'project/.claude/skills', isActive: true, canDeactivateCheck: false },
+            { dir: path.join(workspacePath, '.codex', 'skills'), sourceLabel: 'project/.codex/skills', isActive: true, canDeactivateCheck: false },
+            { dir: path.join(workspacePath, '.antigravity', 'skills'), sourceLabel: 'project/.antigravity/skills', isActive: true, canDeactivateCheck: false },
             { dir: path.join(homeDir, '.agents', 'skills'), sourceLabel: '~/.agents/skills', isActive: false, canDeactivateCheck: false },
             { dir: path.join(homeDir, '.claude', 'skills'), sourceLabel: '~/.claude/skills', isActive: false, canDeactivateCheck: false },
             { dir: path.join(homeDir, '.codex', 'skills'), sourceLabel: '~/.codex/skills', isActive: false, canDeactivateCheck: false },

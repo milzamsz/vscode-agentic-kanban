@@ -1,53 +1,45 @@
-# Template prompt — production-readiness audit
+# Template prompt - production-readiness audit
 
-Standalone gate to run before moving a task (or a release) to `done`. Deeper than the inline checklist in the stage drivers. Produces a pass/fail report in the task file.
+Standalone gate before moving a task or release to `done`. A board "done" claim is only useful when backed by evidence that the behavior runs. Produces a PASS/FAIL report in the task file.
 
 ````markdown
-# PRODUCTION READINESS AUDIT — Agentic Kanban
+# PRODUCTION READINESS AUDIT - Agentic Kanban
 
 ## Target
 - Task / release: `<name>`
-- Deploy target: `<docker / cloud / on-prem>`
+- Capability spec: `.agentkanban/specs/<cap>/spec.md`
+- Env exercised: `<local / staging / prod-like>`
 
-## Audit (mark each PASS / FAIL / N/A with evidence)
+## Audit (mark each PASS / FAIL / N/A with evidence - paste output)
 
-### Correctness & tests
-- [ ] All checklist items done; acceptance criteria met
-- [ ] Unit + integration + e2e tests green; output pasted
-- [ ] Lint / type-check / build green
-- [ ] `code-review` run; findings resolved
+### Correctness & "does it actually run"
+- [ ] Checklist + spec acceptance criteria met
+- [ ] Lint / type-check / test / build green, output pasted
+- [ ] Route smoke / integration smoke green where applicable
+- [ ] **Behavior proven to RUN**, not a DB row: the spec's Verification evidence (real workflow/job id, agent command executed on host, quota 429, S3 object, webhook state change). Quote it.
+- [ ] No silent mock fallback left in the exercised path; failure mode fails closed
 
-### Security
-- [ ] Access control / permissions enforced and tested
-- [ ] Input validation + output encoding; no injection vectors
-- [ ] Secrets via env/secret store, never hardcoded or logged
-- [ ] Dependencies free of known criticals
+### Multi-tenant & security
+- [ ] Every query scoped to its tenant or owner boundary; negative cross-boundary access tested where relevant
+- [ ] Mutations write audit events when the product requires them; multi-statement mutations use transactions
+- [ ] Secrets are reference-backed or environment-backed, masked, reveal audited, and never logged
+- [ ] Agent commands typed, allowlisted, signed, TTL-bound, and idempotent where command dispatch exists
+- [ ] Entitlement/quota enforced where the task creates billable or limited resources
 
 ### Reliability & ops
-- [ ] Error handling + graceful failures
-- [ ] Logging at useful levels; no secrets in logs
-- [ ] Monitoring / health checks where applicable
-- [ ] Backup + rollback plan documented
-- [ ] Idempotent migrations; verified on a clean DB and on a copy of prod-like data
+- [ ] Error handling + graceful failure; failed provisioning/command leaves no orphan or has cleanup/compensation
+- [ ] Idempotent migration; verified on a clean DB when applicable
+- [ ] Logging at useful levels, no secrets; health/metrics where applicable
+- [ ] Backup/rollback path documented if the task touches data or deploy
 
 ### Performance
-- [ ] No N+1 / unbatched hot paths; indexes present
-- [ ] Acceptable under expected load (smoke/load test if relevant)
-
-### Config & deploy
-- [ ] Env config externalized + documented
-- [ ] Reproducible build artifact; version bumped
-- [ ] Smoke test in a production-like environment
-- [ ] Feature flags / safe rollout where risky
+- [ ] No N+1 / unbatched hot paths; indexes present on lookup columns
 
 ### Docs
-- [ ] README + TECHNICAL + changelog updated
-- [ ] Operational notes (deploy, rollback, troubleshooting)
+- [ ] README / architecture / spec updated to reflect what is now real vs still stubbed
+- [ ] TECHNICAL.md / capability spec updated where behavior changed
 
 ## Output
-Write a PASS/FAIL summary in the task file. ANY unresolved FAIL on Correctness/Security/Reliability
-blocks `done` - list it, and either fix or `block` with a clear reason. State explicitly what was N/A.
-
-## Always
-Evidence over assertion. If a check wasn't run, mark it not-run - never imply coverage you don't have.
+Write a PASS/FAIL summary in the task file. ANY unresolved FAIL on Correctness / security /
+reliability blocks `done` - list it, then fix or `block` with a reason. Mark untested checks `not-run`; never imply coverage you do not have. Evidence over assertion.
 ````

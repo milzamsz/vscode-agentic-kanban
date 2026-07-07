@@ -58,6 +58,33 @@ async function refreshContextFromDisk(ctx: ProjectContext | undefined): Promise<
     await ctx.taskStore.reload();
 }
 
+interface OpenBoardForContextOptions {
+    ctx: ProjectContext;
+    extensionUri: vscode.Uri;
+    taskStore: TaskStore;
+    boardConfigStore: BoardConfigStore;
+    worktreeService?: WorktreeService;
+    scaffolder: ChatParticipant;
+    registry?: WorkspaceRegistry;
+    afterShow?: (panel: KanbanEditorPanel) => void;
+}
+
+export async function openBoardForContext(options: OpenBoardForContextOptions): Promise<KanbanEditorPanel> {
+    await refreshContextFromDisk(options.ctx);
+    const panel = KanbanEditorPanel.createOrShow(
+        options.extensionUri,
+        options.taskStore,
+        options.boardConfigStore,
+        NO_OP_LOGGER,
+        options.ctx.isInitialised,
+        options.worktreeService,
+        options.scaffolder,
+        options.registry,
+    );
+    options.afterShow?.(panel);
+    return panel;
+}
+
 // ---------------------------------------------------------------------------
 // Activation
 // ---------------------------------------------------------------------------
@@ -174,60 +201,51 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('agentKanban.openBoard', () => {
+        vscode.commands.registerCommand('agentKanban.openBoard', async () => {
             const ctx = getActiveContext();
             if (!ctx) { return; }
-            void refreshContextFromDisk(ctx).then(() => {
-                KanbanEditorPanel.createOrShow(
-                    context.extensionUri,
-                    createDelegatingTaskStore(),
-                    createDelegatingBoardConfigStore(),
-                    NO_OP_LOGGER,
-                    ctx.isInitialised,
-                    activeWorktreeService(),
-                    _chatParticipantHandler!,
-                    _registry,
-                );
+            await openBoardForContext({
+                ctx,
+                extensionUri: context.extensionUri,
+                taskStore: createDelegatingTaskStore(),
+                boardConfigStore: createDelegatingBoardConfigStore(),
+                worktreeService: activeWorktreeService(),
+                scaffolder: _chatParticipantHandler!,
+                registry: _registry,
             });
         }),
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('agentKanban.newTask', () => {
+        vscode.commands.registerCommand('agentKanban.newTask', async () => {
             const ctx = getActiveContext();
             if (!ctx) { return; }
-            void refreshContextFromDisk(ctx).then(() => {
-                KanbanEditorPanel.createOrShow(
-                    context.extensionUri,
-                    createDelegatingTaskStore(),
-                    createDelegatingBoardConfigStore(),
-                    NO_OP_LOGGER,
-                    ctx.isInitialised,
-                    activeWorktreeService(),
-                    _chatParticipantHandler!,
-                    _registry,
-                );
-                KanbanEditorPanel.currentPanel?.triggerCreateModal();
+            await openBoardForContext({
+                ctx,
+                extensionUri: context.extensionUri,
+                taskStore: createDelegatingTaskStore(),
+                boardConfigStore: createDelegatingBoardConfigStore(),
+                worktreeService: activeWorktreeService(),
+                scaffolder: _chatParticipantHandler!,
+                registry: _registry,
+                afterShow: (panel) => panel.triggerCreateModal(),
             });
         }),
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('agentKanban.openSettings', () => {
+        vscode.commands.registerCommand('agentKanban.openSettings', async () => {
             const ctx = getActiveContext();
             if (!ctx) { return; }
-            void refreshContextFromDisk(ctx).then(() => {
-                KanbanEditorPanel.createOrShow(
-                    context.extensionUri,
-                    createDelegatingTaskStore(),
-                    createDelegatingBoardConfigStore(),
-                    NO_OP_LOGGER,
-                    ctx.isInitialised,
-                    activeWorktreeService(),
-                    _chatParticipantHandler!,
-                    _registry,
-                );
-                KanbanEditorPanel.currentPanel?.triggerSettingsModal();
+            await openBoardForContext({
+                ctx,
+                extensionUri: context.extensionUri,
+                taskStore: createDelegatingTaskStore(),
+                boardConfigStore: createDelegatingBoardConfigStore(),
+                worktreeService: activeWorktreeService(),
+                scaffolder: _chatParticipantHandler!,
+                registry: _registry,
+                afterShow: (panel) => panel.triggerSettingsModal(),
             });
         }),
     );

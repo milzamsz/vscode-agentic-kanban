@@ -6,7 +6,7 @@ Agentic Kanban supports an opt-in spec workflow through `@kanban /spec [capabili
 
 ```text
 .agentkanban/
-  specs/<capability>/spec.md        # capability contract — one per capability, shared across tasks
+  specs/<capability>/spec.md        # capability contract - one per capability, shared across tasks
   changes/<task-slug>/
     proposal.md                     # why + outcome + scope
     design.md                       # approach (Standard profile)
@@ -15,7 +15,7 @@ Agentic Kanban supports an opt-in spec workflow through `@kanban /spec [capabili
 ```
 
 The capability spec lives **once** under `.agentkanban/specs/<capability>/spec.md` and is
-referenced — not duplicated — by each task. A task links to both:
+referenced - not duplicated - by each task. A task links to both:
 
 ```yaml
 change: .agentkanban/changes/<task-slug>
@@ -26,10 +26,10 @@ spec: .agentkanban/specs/<capability>/spec.md
 
 - `spec.md` is the authoritative behavior contract: `## Behavior`, `## Acceptance criteria`
   (testable checkboxes), `## Verification`, `## Related tasks`. It is a living document, not a
-  per-change delta — multiple tasks may reference and extend the same capability spec.
+  per-change delta - multiple tasks may reference and extend the same capability spec.
 - `proposal.md` states the problem, the outcome, and scope (in/out).
 - `design.md` (Standard profile) records the verified key facts, approach, decisions, risks, and open
-  questions — grounded in real code. Authored in `planning`.
+  questions - grounded in real code. Authored in `planning`.
 - `tasks.md` is the authoritative checklist for the task (replaces the sibling `todo_*.md`). Group
   with `## Phase N` or `# Iteration N`.
 
@@ -41,7 +41,7 @@ spec: .agentkanban/specs/<capability>/spec.md
   capability spec, proposal, and design in `planning`; implement and check off `tasks.md` in
   `in-progress`; verify code against the spec's acceptance criteria in `review`.
 
-Blockers use `blocked` and `blocked-by:<slug>` labels — they are not a lane.
+Blockers use `blocked` and `blocked-by:<slug>` labels - they are not a lane.
 
 ## Validation and completion
 
@@ -49,7 +49,7 @@ Blockers use `blocked` and `blocked-by:<slug>` labels — they are not a lane.
   shows a `SPEC` indicator + `done/total` progress, and a `⚠` badge when a declared `change` folder
   or `spec` file is missing.
 - A task is `done` only when its behavior is proven to run (test output / a real run / a workflow or
-  job id) and the spec's acceptance criteria are met — not when a record was written.
+  job id) and the spec's acceptance criteria are met - not when a record was written.
 - On `done`, archive the change with `@kanban /archive [slug]` (moves `changes/<slug>` to
   `changes/archive/<slug>`). The capability spec stays in `specs/` as the living contract.
 - Validation and the decision to archive remain agent-driven; the extension provides the `/archive`

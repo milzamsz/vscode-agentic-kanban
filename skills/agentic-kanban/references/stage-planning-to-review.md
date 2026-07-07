@@ -1,4 +1,4 @@
-# Template prompt — autonomous `planning` -> `review` (default driver)
+# Template prompt - autonomous `planning` -> `review` (default driver)
 
 One launch carries every **approved** planning task through implementation to `review`, hands-off.
 `in-progress` is automatic - no human touch between plan approval and the review gate. Real blockers
@@ -10,21 +10,22 @@ proposal/design + capability spec are the contract; the change `tasks.md` is the
 ([sdd-workflow.md](sdd-workflow.md)).
 
 ````markdown
-# AUTONOMOUS PLANNING -> REVIEW — Agentic Kanban stage driver
+# AUTONOMOUS PLANNING -> REVIEW - Agentic Kanban stage driver
 
+Source-of-truth order: AGENTS.md (custom rules + DoD) -> code -> TECHNICAL.md -> .agentkanban/INSTRUCTION.md.
 Read conventions.md (start ritual, verify gate, TDD, Always/Never) and batch-and-dependencies.md
 (worklist, guardrail, discovery, summary) first. For each task read its capability spec (`spec:`) +
 change `design.md`/`tasks.md` before coding.
 
 ## Scope (fill first)
-- Lane: `planning` — process approved + ready tasks only.
+- Lane: `planning` - process approved + ready tasks only.
 - Approved = a human go is recorded in the task (or you name the tasks when launching). No approval and
   not named -> skip.
 - Ready = every `dependsOn` slug is `done` (the guardrail). Else it stays.
 - WIP = 1, serial: fully finish or park one task before the next. Topo-sort by `dependsOn`.
 - Stack skill: `<stack skill>`.
 
-## Per approved+ready task (serial) — planning to review
+## Per approved+ready task (serial) - planning to review
 1. **Enter implementation (automatic):** Set `lane: in-progress` before starting work, so the board reflects the current progress state. Confirm toolchain green. (Automatic - launching the driver is the authority.)
 2. Re-read the capability spec + `changes/<slug>/{design,tasks}.md`. If the design materially diverges
    from current code, set `lane: planning`, add `blocked` label, park, note why (no silent scope creep), and move to the next task.
@@ -33,9 +34,9 @@ change `design.md`/`tasks.md` before coding.
    `approve` -> continue. (low/medium: self-review.)
 4. Implement via the TDD loop down `tasks.md`; honor the repo guardrails (AGENTS.md).
 5. Run the **verify gate** (conventions.md) + capture **evidence the behavior RUNS** (the spec's
-   Verification proof), not a status write.
+   Verification proof), not a status write. Record evidence with `@kanban /evidence` where applicable.
 6. Real blocker -> `blocked` / `blocked-by:<slug>`, record what clears it, park, next task.
-7. Success -> `lane: review` with verdict + pasted evidence. **STOP** — `review -> done` is the human
+7. Success -> `lane: review` with verdict + pasted evidence. **STOP** - `review -> done` is the human
    gate. Never push a task to `done` yourself.
 
 End-of-run summary per task: `advanced-to-review` / `parked-blocked` / `revise-parked` / `skipped`.

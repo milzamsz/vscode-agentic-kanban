@@ -4,7 +4,6 @@ import type { BoardConfigStore } from './BoardConfigStore';
 import type { LogService } from './LogService';
 import { NO_OP_LOGGER } from './LogService';
 import { displayLane } from './types';
-import { KanbanEditorPanel } from './KanbanEditorPanel';
 
 /**
  * Slim sidebar webview showing per-lane task counts and shortcuts.
@@ -53,8 +52,7 @@ export class BoardViewProvider implements vscode.WebviewViewProvider {
             } else if (message.type === 'newTask') {
                 await vscode.commands.executeCommand('agentKanban.newTask');
             } else if (message.type === 'openSettings') {
-                await vscode.commands.executeCommand('agentKanban.openBoard');
-                KanbanEditorPanel.currentPanel?.triggerSettingsModal();
+                await vscode.commands.executeCommand('agentKanban.openSettings');
             } else if (message.type === 'initialise') {
                 await vscode.commands.executeCommand('agentKanban.initialise');
             } else if (message.type === 'focusSidebar') {
@@ -218,9 +216,6 @@ export class BoardViewProvider implements vscode.WebviewViewProvider {
     <script nonce="${nonce}">
         const vscode = acquireVsCodeApi();
         document.getElementById('btn-settings').addEventListener('click', () => vscode.postMessage({ type: 'openSettings' }));
-        // When focus shifts to this sidebar (e.g. Activity Bar icon click in "focus" mode),
-        // re-open the board editor panel so it is always shown alongside the sidebar.
-        window.addEventListener('focus', () => vscode.postMessage({ type: 'focusSidebar' }));
     </script>
 </body>
 </html>`;
