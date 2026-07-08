@@ -607,9 +607,9 @@ Full editor panel providing the Kanban board UI with worktree support. Registere
 ### Settings Project Skills UX
 
 - The Settings modal requests discovered skills from the host with `requestSkills`.
-- `ProjectSkillService` discovers project-local and machine-installed skills, marks active project skills, and reports `name`, optional `description`, raw `source`, `sourceLabel`, `isActive`, and `canDeactivate`.
+- `ProjectSkillService` discovers project-local and machine-installed skills, marks active project skills, and reports `name`, optional `description`, raw `source`, `sourceLabel`, `isActive`, and `canDeactivate`. Active project roots are `project/.agents/skills/`, `project/skills/`, `project/.claude/skills/`, `project/.codex/skills/`, and `project/.antigravity/skills/`.
 - `KanbanEditorPanel` forwards that discovered skill payload unchanged through the `skillsList` webview message, and `board.ts` consumes it as `SettingsDiscoveredSkill[]`.
-- The webview Project Skills tab keeps a local selection set while the modal is open so filter re-renders do not discard unsaved checkbox changes.
+- The webview Project Skills tab shows the active workspace and keeps a local selection set while the modal is open so filter re-renders do not discard unsaved checkbox changes.
 - Saving the modal posts `applyProjectSkills`, which links selected machine-installed skills into `project/.agents/skills/`, refreshes prompts, and re-syncs `AGENTS.md`.
 
 ### Worktree Integration

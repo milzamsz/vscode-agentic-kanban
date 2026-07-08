@@ -80,8 +80,8 @@ Enforcement mode: `warn`
 Review policy:
 low: planning=self-agent, implementation=self-agent
 medium: planning=self-agent, implementation=self-agent
-high: planning=independent-agent, implementation=independent-agent
-critical: planning=independent-agent, implementation=independent-agent+human
+high: planning=self-agent, implementation=self-agent
+critical: planning=self-agent, implementation=self-agent
 
 Load these project skills before working: `agentic-kanban`.
 

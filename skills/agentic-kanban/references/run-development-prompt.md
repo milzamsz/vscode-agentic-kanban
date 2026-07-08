@@ -1,23 +1,23 @@
-# Template prompt — run the development (execution driver)
+# Template prompt - run the development (execution driver)
 
-Drives the actual work on already-created tasks — one focused task or a whole lane in one sweep. Scaffold:
+Drives the actual work on already-created tasks - one focused task or a whole lane in one sweep. Scaffold:
 [lifecycle-prompt.md](lifecycle-prompt.md). Run rules (ritual, verify gate, TDD, Always/Never): [conventions.md](conventions.md).
-Lane→action map + lane model: [workflow.md](workflow.md). Sweep + dependency mechanics: [batch-and-dependencies.md](batch-and-dependencies.md).
+Lane to action map + lane model: [workflow.md](workflow.md). Sweep + dependency mechanics: [batch-and-dependencies.md](batch-and-dependencies.md).
 
 ````markdown
-# RUN DEVELOPMENT — Agentic Kanban execution driver
+# RUN DEVELOPMENT - Agentic Kanban execution driver
 
-Read conventions.md, workflow.md, and batch-and-dependencies.md first — they define the ritual, verify gate,
-TDD loop, rules, the lane→action mapping, and (for sweeps) the worklist/guardrail/discovery/summary.
+Read conventions.md, workflow.md, and batch-and-dependencies.md first - they define the ritual, verify gate,
+TDD loop, rules, the lane to action mapping, and (for sweeps) the worklist/guardrail/discovery/summary.
 
 ## Mode (pick one)
-- **Single task** — fill Task below; do the start ritual; pick the action for the task's lane (workflow.md).
-- **Lane sweep (batch)** — set `Lane: <X>`; build the worklist + apply the dependency guardrail
+- **Single task** - fill Task below; do the start ritual; pick the action for the task's lane (workflow.md).
+- **Lane sweep (batch)** - set `Lane: <X>`; build the worklist + apply the dependency guardrail
   (batch-and-dependencies.md); run the matching `stage-*.md` driver, which loops the per-task flow below,
   parallel where independent.
 
 ## Target (fill first)
-- Task: `<task name or slug>`  — or —  Lane: `<lane>` (sweep)
+- Task: `<task name or slug>`  - or -  Lane: `<lane>` (sweep)
 - Intent this session: `<e.g. "implement the approved plan" / "fix review comments">`
 
 ## Per-task flow
@@ -25,11 +25,11 @@ TDD loop, rules, the lane→action mapping, and (for sweeps) the worklist/guardr
 2. Confirm the Intent matches the lane's action (workflow.md). If not (e.g. asked to implement while in
    `planning`), STOP and ask for an explicit transition first.
 3. Do the action:
-   - `plan` / `checklist` — see stage-backlog-to-planning.md.
-   - `implement` — run the TDD loop (conventions.md); isolate in a worktree for risky/large work.
-   - `review` — run the verify gate (conventions.md) for implementation review.
-   - `block` / `unblock` — see stage-blocked-and-resume.md.
-4. If new work surfaces, capture it as a discovered task (batch-and-dependencies.md) — don't derail the current task.
+   - `plan` / `checklist` - see stage-backlog-to-planning.md.
+   - `implement` - run the TDD loop (conventions.md); isolate in a worktree for risky/large work.
+   - `review` - run the verify gate (conventions.md) for implementation review.
+   - `block` / `unblock` - see stage-blocked-and-resume.md.
+4. If new work surfaces, capture it as a discovered task (batch-and-dependencies.md) - don't derail the current task.
 
 Always/Never and dependency recording: conventions.md + batch-and-dependencies.md.
 ````

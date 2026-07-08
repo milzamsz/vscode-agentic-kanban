@@ -57,6 +57,43 @@ describe('ProjectSkillService', () => {
         });
     });
 
+    it('treats project-local tool-specific skill directories as active', async () => {
+        vi.spyOn(workspace.fs, 'readDirectory').mockImplementation(async (uri: any) => {
+            const p = norm(uri);
+            if (p.endsWith('/test-workspace/.codex/skills')) {
+                return [['odoo-code-review', FileType.Directory]] as Array<[string, number]>;
+            }
+            if (p.endsWith('/test-workspace/.antigravity/skills')) {
+                return [['zoom-out', FileType.Directory]] as Array<[string, number]>;
+            }
+            if (p.endsWith('/home/user/.codex/skills')) {
+                return [['odoo-code-review', FileType.Directory], ['machine-only', FileType.Directory]] as Array<[string, number]>;
+            }
+            throw new Error('ENOENT');
+        });
+        vi.spyOn(workspace.fs, 'readFile').mockRejectedValue(new Error('ENOENT'));
+        vi.mocked(lstat).mockRejectedValue(new Error('ENOENT'));
+
+        const service = new ProjectSkillService();
+        const skills = await service.discoverSkills(Uri.file('/test-workspace'));
+
+        expect(skills.map((skill) => skill.name)).toEqual(['machine-only', 'odoo-code-review', 'zoom-out']);
+        expect(skills.find((skill) => skill.name === 'odoo-code-review')).toMatchObject({
+            isActive: true,
+            sourceLabel: 'project/.codex/skills',
+            canDeactivate: false,
+        });
+        expect(skills.find((skill) => skill.name === 'zoom-out')).toMatchObject({
+            isActive: true,
+            sourceLabel: 'project/.antigravity/skills',
+            canDeactivate: false,
+        });
+        expect(skills.find((skill) => skill.name === 'machine-only')).toMatchObject({
+            isActive: false,
+            sourceLabel: '~/.codex/skills',
+        });
+    });
+
     it('creates project links for newly selected machine skills', async () => {
         vi.spyOn(workspace.fs, 'readDirectory').mockImplementation(async (uri: any) => {
             const p = norm(uri);

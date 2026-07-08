@@ -6,7 +6,7 @@ A VS Code Kanban board where you and a coding agent share the same task files. P
 
 📖 **[Read the Documentation](https://agentic-kanban-docs.pages.dev/)**
 
-![Version 1.7.2](https://img.shields.io/badge/version-1.7.2-2563eb)
+![Version 1.7.3](https://img.shields.io/badge/version-1.7.3-2563eb)
 [![Elastic License 2.0](https://img.shields.io/badge/license-Elastic%202.0%20source--available-f59e0b)](LICENSE)
 [![GitHub Release](https://img.shields.io/github/v/release/milzamsz/vscode-agentic-kanban?label=GitHub%20Release)](https://github.com/milzamsz/vscode-agentic-kanban/releases)
 
@@ -535,10 +535,10 @@ Use **Agentic Kanban: Apply Settings to Board Config** when you want the current
 
 The Settings modal includes a **Project Skills** tab for project-local skill activation.
 
-- **Project-local skills** in `project/.agents/skills/`, `project/skills/`, and `project/.claude/skills/` are discovered automatically and treated as active for the project.
+- **Project-local skills** in `project/.agents/skills/`, `project/skills/`, `project/.claude/skills/`, `project/.codex/skills/`, and `project/.antigravity/skills/` are discovered automatically and treated as active for the project.
 - **Machine-installed skills** are discovered from `~/.agents/skills/`, `~/.codex/skills/`, `~/.claude/skills/`, `~/.antigravity/skills/`, and any extra directories configured through `agentKanban.skillsDirs`.
 - **Checked = active**. Checking a machine-installed skill links it into `project/.agents/skills/` so prompts and `AGENTS.md` load it from the project.
-- The installed skill list shows **Installed**, **Active**, and **Inactive** filters, plus a source badge for each discovered skill.
+- The installed skill list shows the active workspace, **Installed**, **Active**, and **Inactive** filters, plus a source badge for each discovered skill.
 - If a skill is a real project-owned folder instead of a link, it stays active until removed manually.
 - After adding a new skill folder, reopen Settings to refresh the discovered list.
 

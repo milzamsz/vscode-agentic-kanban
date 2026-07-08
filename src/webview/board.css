@@ -780,6 +780,19 @@
         margin-bottom: 6px;
     }
 
+    .settings-workspace-context {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        margin-bottom: 10px;
+        padding: 3px 8px;
+        border: 1px solid var(--vscode-widget-border);
+        border-radius: 999px;
+        background: rgba(127, 127, 127, 0.08);
+        color: var(--vscode-descriptionForeground);
+        font-size: 11px;
+    }
+
     .settings-skills-summary {
         display: flex;
         flex-wrap: wrap;

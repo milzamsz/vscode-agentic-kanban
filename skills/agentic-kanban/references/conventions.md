@@ -1,4 +1,4 @@
-# Conventions — shared run rules (canonical)
+# Conventions - shared run rules (canonical)
 
 Cross-cutting rules every driver reuses. Mode-agnostic: applies to single-task work and lane sweeps.
 This is the ONE home for the start ritual, verify gate, TDD loop, and Always/Never - drivers link here
@@ -6,7 +6,7 @@ instead of repeating them. Sweep mechanics + dependencies live in [batch-and-dep
 lane model + action vocabulary in [workflow.md](workflow.md).
 
 ## Start ritual (every session, in order)
-1. Read `.agentkanban/INSTRUCTION.md` + `AGENTS.md` fresh (don't rely on memory).
+1. Read `AGENTS.md` + `.agentkanban/INSTRUCTION.md` fresh (don't rely on memory). Read `.agentkanban/memory.md` if it exists.
 2. Get task context: `@kanban /task <name>` (single task) or build the lane worklist (sweep - see
    [batch-and-dependencies.md](batch-and-dependencies.md)). In a worktree, `@kanban /refresh` re-injects context.
 3. Open the task file + its checklist artifact. Use `todo_*.md` for regular tasks, or `.agentkanban/changes/<slug>/tasks.md` for spec-driven tasks. Re-read the latest `### user`/`### agent` entries and any `[comment: ...]`.
@@ -18,8 +18,9 @@ lane model + action vocabulary in [workflow.md](workflow.md).
 - Security: access/permissions, input validation, secrets, injection.
 - Performance: no N+1 / unbatched hot paths / missing indexes / heavy loops.
 - Edge cases + error handling covered by tests.
-- **Evidence the behavior RUNS** (the spec's Verification proof - a real workflow/job id, an agent command, an HTTP response), not a status write.
+- **Evidence the behavior RUNS** (the spec's Verification proof - a real workflow/job id, an agent command, an HTTP response), not a status write. Record required results with `@kanban /evidence` before `review -> done`.
 - Docs updated (README / TECHNICAL / changelog) where behavior changed.
+A Standard task cannot move to `done` until required evidence is recorded and passing. Spec-driven tasks also need behavior evidence proving acceptance criteria.
 A check that wasn't run is marked not-run - never imply coverage you don't have. If something fails, fix the
 root cause; do not work around it.
 
@@ -31,6 +32,7 @@ test (no hardcoding to the test case, no guessing user intent) - implement the g
 
 ## Always
 - Respond IN the task file, not the chat window. Append; never rewrite past entries. End with `### user`.
+- Keep implementation kanban-first: no code changes without an active task file in `.agentkanban/tasks/`.
 - Honor inline `[comment: ...]` annotations before continuing.
 - Explicit lane transitions only; never change a lane implicitly.
 - Reference other tasks by **slug**. Record dependencies per [batch-and-dependencies.md](batch-and-dependencies.md).

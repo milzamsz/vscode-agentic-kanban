@@ -1,4 +1,4 @@
-# Reference — stack packs (generated configuration)
+# Reference - stack packs (generated configuration)
 
 Stack packs are now defined as first-class configurations in `.agentkanban/packs.yaml` (seeded automatically from `assets/packs.yaml` on board initialization).
 

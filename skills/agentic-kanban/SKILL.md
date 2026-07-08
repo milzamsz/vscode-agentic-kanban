@@ -1,26 +1,28 @@
 ---
 name: agentic-kanban
-description: Use when developing, reviewing, packaging, rebranding, or validating the Agentic Kanban VS Code extension (the vscode-agentic-kanban repo). Covers the lane/checklist workflow model, spec-driven development via /spec, batch lane sweeps with a task-dependency guardrail, the AGENTS.md managed-sentinel rules, the Agent Kanban → Agentic Kanban branding rules, and the lint/test/build/VSIX release pipeline.
+description: "Use when developing, reviewing, packaging, rebranding, validating, or operating the Agentic Kanban VS Code extension (the vscode-agentic-kanban repo). Covers the lane/checklist workflow model, goals, spec-driven development via /spec, /loop stage drivers, /work task prompts, /doctor diagnostics, /evidence recording, batch lane sweeps with a dependency guardrail, AGENTS.md managed-sentinel rules, Agent Kanban to Agentic Kanban branding rules, and the lint/test/build/VSIX release pipeline."
 license: Elastic-2.0
 metadata:
   author: milzam
-  version: 1.4.1
+  version: 1.5.0
 ---
 
 # Agentic Kanban
 
-Work guide for the **Agentic Kanban** VS Code extension — a profile-driven Kanban board that drives AI-assisted development through persistent markdown task files. The extension was renamed from **Agent Kanban**; branding consistency and a clean VSIX are recurring concerns.
+Work guide for the **Agentic Kanban** VS Code extension, a profile-driven Kanban board that drives AI-assisted development through persistent markdown task files. The extension was renamed from **Agent Kanban**; branding consistency and a clean VSIX are recurring concerns.
 
-Repo root (this machine): `C:\Workspace\tools\vscode-agentic-kanban`.
+Repo root (this machine): `/home/milzam/Workspace/tools/vscode-agentic-kanban`.
 
 ## Read first, always
 
-Before changing anything, read these in order — they are the source of truth:
+Before changing anything, read these in order. They are the source of truth:
 
-1. `README.md` — product overview, workflows, chat commands.
-2. `AGENTS.md` — your role + the managed sentinel block.
-3. `TECHNICAL.md` — architecture, service responsibilities, sentinel internals.
-4. `.agentkanban/INSTRUCTION.md` — the live workflow rules the extension injects.
+1. `README.md` - product overview, workflows, chat commands.
+2. `AGENTS.md` - your role + the managed sentinel block.
+3. `TECHNICAL.md` - architecture, service responsibilities, sentinel internals.
+4. `.agentkanban/INSTRUCTION.md` - the live workflow rules the extension injects.
+
+If `.agentkanban/memory.md` exists, read it at task start. If it does not exist, note that and continue.
 
 Never speculate about code you have not opened. Investigate before answering.
 
@@ -42,16 +44,17 @@ If the board count does not match the number of `task_*.md` files on disk, inves
 
 - **`TODO` is a checklist artifact, not a lane.** It lives in `todo_*.md` files as `- [ ]` / `- [x]` items. Spec-driven tasks use `.agentkanban/changes/<slug>/tasks.md` instead. See [references/workflow.md](references/workflow.md).
 - **Lanes are fixed per profile.** Lite: `backlog -> in-progress -> done`. Standard: `backlog -> planning -> in-progress -> review -> done`. General blockers stay on the card as a `blocked` label; task dependencies use `blocked-by:<slug>`.
+- **Kanban-first implementation.** Every implementation change must have a task file under `.agentkanban/tasks/` before code changes begin. If no task exists, create or ask for one through the normal workflow; do not create it retroactively after coding.
 - **`in-progress` is not a human gate.** The autonomous `planning -> review` driver runs implementation hands-off; the two human gates are plan approval (`planning`) and `review -> done`. Real blockers are labeled and parked, never forced.
 - **WIP limit.** `wipLimits` in board.yaml caps tasks per lane (default Standard `in-progress: 1`); a move into a full lane is blocked (strict) or warned (warn). Work serially.
 - **Worktrees are optional** unless `worktreePolicy.requiredForImplementation` is true. The default is optional.
-- **Definition of Done (evidence gate):** behavior proven to run (test output / real run / workflow or job id), not a status write. Run the production-readiness audit before `done`. When `requireDoneChecklistForDone` is on (standard profile default), the task body must also contain a `## Definition of Done` section with all items checked; items tagged `(human)` require a human actor.
-- **Chat commands:** `/new`, `/task`, `/refresh`, `/spec [capability]`, `/worktree`, `/archive [slug]`, `/prompts`. `/prompts` (re)writes the bundled stage-driver prompts into `.agentkanban/prompts/` (also auto-scaffolded on init, missing-only).
+- **Definition of Done (evidence gate):** behavior proven to run (test output / real run / workflow or job id), not a status write. Record lint/test/build/behavior evidence with `/evidence`, run the production-readiness audit before `done`, and paste the PASS/FAIL report into the task. When `requireDoneChecklistForDone` is on (standard profile default), the task body must also contain a `## Definition of Done` section with all items checked; items tagged `(human)` require a human actor.
+- **Chat commands:** `/new`, `/task`, `/refresh`, `/spec [capability]`, `/worktree`, `/archive [slug]`, `/prompts`, `/loop [lane]`, `/goal new`, `/goal`, `/goal show <slug>`, `/doctor`, `/work [task]`, `/evidence [task] [check] [pass|fail]`. `/prompts` writes or refreshes bundled stage-driver prompts into `.agentkanban/prompts/`; `/loop` injects the lane driver into chat; `/work` copies a single-task work prompt.
 - **Identifiers stay stable.** Command IDs (`agentKanban.*`), config keys (`agentKanban.*`), the chat participant id, the `.agentkanban/` directory, and the `agentkanban/` git branch prefix are kept for compatibility. Do NOT rename them as part of branding work unless a migration is explicitly planned.
 - **Branding target is `Agentic Kanban`.** User-visible copy says "Agentic Kanban". The runtime log file is `agentic-kanban.log`. See [references/branding-and-packaging.md](references/branding-and-packaging.md).
 - **Managed sentinels:** new output uses `<!-- BEGIN AGENTIC KANBAN — DO NOT EDIT THIS SECTION -->` … `<!-- END AGENTIC KANBAN -->`. Code must still *read and replace* the legacy `AGENT KANBAN` markers (upgrade in place) but must only ever *write* the new ones.
 - **Respond in the task file**, not the chat window, when operating inside the workflow itself. Use explicit lane transitions; never change a lane implicitly.
-- **Stage prompts are lane sweeps.** They process ALL ready tasks in a lane in one pass (parallel where independent), not one at a time — built for agentic AI development. See [references/batch-and-dependencies.md](references/batch-and-dependencies.md).
+- **Stage prompts are lane sweeps.** They process ALL ready tasks in a lane in one pass (parallel where independent), not one at a time - built for agentic AI development. See [references/batch-and-dependencies.md](references/batch-and-dependencies.md).
 - **Task dependencies via `dependsOn` frontmatter** (authoritative; preserved across saves by the `extras` round-trip in `TaskStore`) **+ a `blocked-by:<slug>` label** for board visibility. Reference tasks by slug. A task is *ready* only when every dependency is in `done` (the guardrail). See [references/batch-and-dependencies.md](references/batch-and-dependencies.md).
 - **Discovered tasks → `backlog`.** New work found mid-sweep is created in `backlog` with a `discovered` label + back-reference; it never derails the current pass.
 - **No em dashes in product copy** (UI or docs), except the existing sentinel marker string which uses `—` and must be matched verbatim.
@@ -63,6 +66,13 @@ If the board count does not match the number of `task_*.md` files on disk, inves
 - The capability spec (`specs/<capability>/spec.md`: behavior + acceptance criteria + verification) lives once and is referenced, not duplicated per change. `tasks.md` is the authoritative checklist.
 - `@kanban /archive [slug]` moves a finished change to `changes/archive/`; the capability spec stays.
 - See [references/sdd-workflow.md](references/sdd-workflow.md).
+
+## Goals and evidence
+
+- `@kanban /goal new <objective>` creates an epic task plus `.agentkanban/goals/<slug>/goal.md`; child tasks carry `parent: <goal-slug>`.
+- Goal tier: goal (epic) > capability spec > change > task. Complex Standard-profile child tasks should attach a capability spec with `/spec`.
+- `@kanban /evidence` records lint, test, build, and behavior proof in task frontmatter. Standard `review -> done` requires the required evidence to be present and passing.
+- `@kanban /doctor` checks workflow health; use it when board state, prompts, evidence, or task metadata look inconsistent.
 
 ## Workflow model
 
@@ -78,7 +88,7 @@ Paste-ready prompt templates that drive work on the board. Fill the variables, t
 - Whole project, zero → production (stack-agnostic scaffold) → [references/lifecycle-prompt.md](references/lifecycle-prompt.md).
 - Run an active task or a whole lane this session (single-task or lane-sweep execution driver) → [references/run-development-prompt.md](references/run-development-prompt.md).
 
-**Stage drivers (lane sweeps — process all ready tasks in the lane)**
+**Stage drivers (lane sweeps - process all ready tasks in the lane)**
 - **Default (autonomous):** carry approved `planning` tasks through `in-progress` to `review` in one hands-off pass; serial (WIP=1); blockers labeled + parked -> [references/stage-planning-to-review.md](references/stage-planning-to-review.md). Runs the `planning->in-progress->review` steps inline (no separate prompts for those middle transitions).
 - New idea/bug → well-formed task → [references/new-task-intake.md](references/new-task-intake.md).
 - Sweep `backlog -> planning` (discovery + plan + checklist) -> [references/stage-backlog-to-planning.md](references/stage-backlog-to-planning.md).
