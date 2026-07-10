@@ -2,7 +2,7 @@
     "name": "agentic-kanban",
     "displayName": "Agentic Kanban",
     "description": "A profile-driven Kanban board for AI-assisted software development with persistent markdown task conversations.",
-    "version": "1.7.3",
+    "version": "1.7.4",
     "publisher": "milzam",
     "license": "Elastic-2.0",
     "icon": "images/icon.png",
@@ -63,6 +63,14 @@
             {
                 "command": "agentKanban.applySettingsToBoardConfig",
                 "title": "Agentic Kanban: Apply Settings to Board Config"
+            },
+            {
+                "command": "agentKanban.startAutorun",
+                "title": "Agentic Kanban: Start Autonomous Board Driver"
+            },
+            {
+                "command": "agentKanban.stopAutorun",
+                "title": "Agentic Kanban: Stop Autonomous Board Driver"
             }
         ],
         "configuration": {

@@ -18,6 +18,7 @@ import {
 import { getDefaultProfile, isEnforceWorktrees } from '../settings';
 import { WorkflowDoctor } from '../WorkflowDoctor';
 import { interpolate, resolveVars, getDefaultLoopLane, getLanePrompt } from '../PromptTemplate';
+import { getReadyTasks } from '../TaskReadiness';
 import { TaskEvidenceValidator } from '../TaskEvidenceValidator';
 import { ProjectSkillService } from '../ProjectSkillService';
 
@@ -1744,20 +1745,12 @@ export class ChatParticipant {
             return;
         }
 
-        // Gather ready tasks in the lane
+        // Gather ready tasks in the lane using the shared readiness engine
         const allTasks = this.taskStore.getAll();
-        const readyTasks = allTasks.filter(task => {
-            if (task.lane !== lane) { return false; }
-            if (task.labels?.includes('blocked')) { return false; }
-            if (task.dependsOn && task.dependsOn.length > 0) {
-                for (const depId of task.dependsOn) {
-                    const dep = allTasks.find(t => t.id === depId || t.slug === depId);
-                    if (dep && dep.lane !== 'done' && dep.lane !== 'archive') { return false; }
-                }
-            }
-            if (filterLabel && (!task.labels || !task.labels.includes(filterLabel))) { return false; }
-            if (filterPriority && task.priority !== filterPriority) { return false; }
-            return true;
+        const readyTasks = getReadyTasks(allTasks, {
+            lane,
+            label: filterLabel,
+            priority: filterPriority,
         });
 
         if (readyTasks.length === 0) {

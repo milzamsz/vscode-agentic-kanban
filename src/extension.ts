@@ -3,7 +3,8 @@ import * as path from 'path';
 import { BoardViewProvider } from './BoardViewProvider';
 import { KanbanEditorPanel } from './KanbanEditorPanel';
 import { TaskStore } from './TaskStore';
-import { BoardConfigStore } from './BoardConfigStore';
+import { AutorunController } from './AutorunController';
+import { ProjectSkillService } from './ProjectSkillService';
 import { ChatParticipant } from './agents/ChatParticipant';
 import { WorktreeService } from './WorktreeService';
 import { SlashCommandProvider } from './SlashCommandProvider';
@@ -360,6 +361,59 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 worktreePolicy: resolveWorktreePolicy(targetProfile),
             });
             vscode.window.showInformationMessage('Agentic Kanban settings applied to board.yaml.');
+        }),
+    );
+
+    // Per-context autorun controllers (one per workspace folder)
+    const autorunControllers = new Map<string, AutorunController>();
+
+    const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
+    context.subscriptions.push(statusBar);
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('agentKanban.startAutorun', async () => {
+            const ctx = getActiveContext();
+            if (!ctx) {
+                vscode.window.showWarningMessage('No active Agentic Kanban project.');
+                return;
+            }
+            if (!ctx.isInitialised) {
+                vscode.window.showWarningMessage('Initialise Agentic Kanban before starting autorun.');
+                return;
+            }
+
+            const ctxKey = ctx.folder.uri.toString();
+            let controller = autorunControllers.get(ctxKey);
+
+            if (!controller) {
+                const skillService = new ProjectSkillService();
+                controller = new AutorunController(
+                    ctx.taskStore,
+                    ctx.boardConfigStore,
+                    skillService,
+                    ctx.folder.uri,
+                    context.extensionUri,
+                    statusBar,
+                );
+                autorunControllers.set(ctxKey, controller);
+            }
+
+            await controller.start();
+        }),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('agentKanban.stopAutorun', async () => {
+            const ctx = getActiveContext();
+            if (!ctx) {
+                return;
+            }
+
+            const ctxKey = ctx.folder.uri.toString();
+            const controller = autorunControllers.get(ctxKey);
+            if (controller) {
+                controller.stop();
+            }
         }),
     );
 
