@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { BoardViewProvider } from './BoardViewProvider';
+import { BoardConfigStore } from './BoardConfigStore';
 import { KanbanEditorPanel } from './KanbanEditorPanel';
 import { TaskStore } from './TaskStore';
 import { AutorunController } from './AutorunController';
@@ -17,6 +18,7 @@ import {
     resolveEnforcement,
     resolveWorktreePolicy,
 } from './settings';
+import { classifyTask, findCycles, makeBoardSnapshot } from './TaskReadiness';
 
 // ---------------------------------------------------------------------------
 // Global shared instances (one per VS Code window)
@@ -68,6 +70,22 @@ interface OpenBoardForContextOptions {
     scaffolder: ChatParticipant;
     registry?: WorkspaceRegistry;
     afterShow?: (panel: KanbanEditorPanel) => void;
+}
+
+/**
+ * Ensure `.agentkanban/memory.md` exists under the workspace.
+ * Creates `# Memory\n` when missing; never overwrites existing content.
+ * Returns true when the file was created.
+ */
+export async function ensureMemoryFile(workspaceUri: vscode.Uri): Promise<boolean> {
+    const memoryUri = vscode.Uri.joinPath(workspaceUri, '.agentkanban', 'memory.md');
+    try {
+        await vscode.workspace.fs.stat(memoryUri);
+        return false;
+    } catch {
+        await vscode.workspace.fs.writeFile(memoryUri, new TextEncoder().encode('# Memory\n'));
+        return true;
+    }
 }
 
 export async function openBoardForContext(options: OpenBoardForContextOptions): Promise<KanbanEditorPanel> {
@@ -123,6 +141,69 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 void KanbanEditorPanel.currentPanel?.refresh();
             }),
         );
+        // File watcher: debounced + serialized refresh when any task file changes externally.
+        // Without debouncing, rapid writes (frontmatter, body, checklist saved in quick
+        // succession) trigger overlapping reload() calls.  reload() clears the in-memory
+        // map before re-reading, so a stale completion can overwrite newer state.
+        let _refreshTimer: ReturnType<typeof setTimeout> | undefined;
+        let _refreshInFlight: Promise<void> | undefined;
+        let _refreshQueued = false;
+
+        const refreshFromTaskFiles = async (): Promise<void> => {
+            _refreshQueued = true;
+
+            // If a refresh is already running, wait for it — it will pick up the
+            // queued flag and run again with the latest state.
+            if (_refreshInFlight) {
+                return _refreshInFlight;
+            }
+
+            _refreshInFlight = (async () => {
+                while (_refreshQueued) {
+                    _refreshQueued = false;
+                    try {
+                        await project.taskStore.reload();
+                    } catch (err) {
+                        project.logService.error(
+                            'extension',
+                            `Failed to reload tasks from disk: ${err instanceof Error ? err.message : String(err)}`,
+                        );
+                        break; // avoid infinite retry on persistent error
+                    }
+                    _boardViewProvider?.refresh();
+                    void KanbanEditorPanel.currentPanel?.refresh();
+                }
+            })()
+                .catch((err) => {
+                    project.logService.error(
+                        'extension',
+                        `Unexpected refresh error: ${err instanceof Error ? err.message : String(err)}`,
+                    );
+                })
+                .finally(() => {
+                    _refreshInFlight = undefined;
+                });
+
+            return _refreshInFlight;
+        };
+
+        const scheduleRefreshFromTaskFiles = (): void => {
+            if (_refreshTimer) {
+                clearTimeout(_refreshTimer);
+            }
+            _refreshTimer = setTimeout(() => {
+                _refreshTimer = undefined;
+                void refreshFromTaskFiles();
+            }, 75);
+        };
+
+        const taskWatcher = vscode.workspace.createFileSystemWatcher(
+            new vscode.RelativePattern(project.folder.uri, '.agentkanban/tasks/**/*.md'),
+        );
+        taskWatcher.onDidChange(scheduleRefreshFromTaskFiles);
+        taskWatcher.onDidCreate(scheduleRefreshFromTaskFiles);
+        taskWatcher.onDidDelete(scheduleRefreshFromTaskFiles);
+        project.subscriptions.push(taskWatcher);
     };
     for (const project of _registry.getContexts()) {
         wireContextRefresh(project);
@@ -295,6 +376,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await _chatParticipantHandler!.syncInstructionFileForContext(ctx);
         await _chatParticipantHandler!.scaffoldPromptsForContext(ctx, false);
         await _chatParticipantHandler!.syncAgentsMdSectionForContext(ctx);
+        await ensureMemoryFile(ctx.folder.uri);
         // Update initialised flag
         (ctx as { isInitialised: boolean }).isInitialised = true;
         _boardViewProvider?.refresh();
@@ -313,6 +395,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             const quickPickItems = [
                 { label: 'Lite', description: 'backlog -> in-progress -> done', value: 'lite' as WorkflowProfile },
                 { label: 'Standard', description: 'backlog -> planning -> in-progress -> review -> done', value: 'standard' as WorkflowProfile },
+                { label: 'Autonomous', description: 'full-board agent-driven execution with Standard gates', value: 'autonomous' as WorkflowProfile },
             ].sort((a, b) => a.value === defaultProfile ? -1 : b.value === defaultProfile ? 1 : 0);
 
             const selectedProfile = requestedProfile ? { value: requestedProfile } : await vscode.window.showQuickPick(
@@ -327,6 +410,41 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             }
             await doInitialise(ctx.folder.uri, selectedProfile.value ?? DEFAULT_PROFILE);
             vscode.window.showInformationMessage('Agentic Kanban initialised successfully.');
+        }),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('agentKanban.changeWorkflowProfile', async () => {
+            const ctx = getActiveContext();
+            if (!ctx?.isInitialised) {
+                vscode.window.showWarningMessage('Initialise Agentic Kanban before changing the workflow profile.');
+                return;
+            }
+            const selected = await vscode.window.showQuickPick([
+                { label: 'Lite', value: 'lite' as WorkflowProfile },
+                { label: 'Standard', value: 'standard' as WorkflowProfile },
+                { label: 'Autonomous', value: 'autonomous' as WorkflowProfile },
+            ], { title: 'Change Agentic Kanban workflow profile' });
+            if (!selected || selected.value === ctx.boardConfigStore.get().profile) return;
+            const current = ctx.boardConfigStore.get().profile;
+            const remap = (current !== 'lite' && selected.value === 'lite')
+                ? { planning: 'backlog', review: 'in-progress' }
+                : {};
+            const tasks = ctx.taskStore.getAll().filter((task) => !ctx.taskStore.isArchived(task));
+            const confirmation = await vscode.window.showWarningMessage(
+                `Change ${current} to ${selected.value}?${Object.keys(remap).length ? ' Planning tasks move to backlog and review tasks move to in-progress.' : ''}`,
+                { modal: true }, 'Change Profile');
+            if (confirmation !== 'Change Profile') return;
+            for (const task of tasks) {
+                const targetLane = remap[task.lane as keyof typeof remap];
+                if (targetLane) await ctx.taskStore.moveTaskToLane(task.id, targetLane);
+            }
+            await ctx.boardConfigStore.update({ profile: selected.value });
+            await ctx.boardConfigStore.init();
+            await ctx.taskStore.reload();
+            _boardViewProvider?.refresh();
+            await KanbanEditorPanel.currentPanel?.refresh();
+            vscode.window.showInformationMessage(`Workflow profile changed to ${selected.value}.`);
         }),
     );
 
@@ -369,6 +487,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
     context.subscriptions.push(statusBar);
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('agentKanban.getBoardSnapshot', () => {
+            const ctx = getActiveContext();
+            if (!ctx) return undefined;
+            const tasks = ctx.taskStore.getAll();
+            const snapshot = makeBoardSnapshot(tasks);
+            return {
+                resolver: snapshot.resolver,
+                specFolders: [...snapshot.specFolders],
+                tasks: tasks.map((task) => ({ task, classification: classifyTask(task, tasks) })),
+                cycles: findCycles(tasks),
+            };
+        }),
+    );
 
     context.subscriptions.push(
         vscode.commands.registerCommand('agentKanban.startAutorun', async () => {

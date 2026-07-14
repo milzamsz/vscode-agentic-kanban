@@ -18,6 +18,8 @@ export type AutorunState = 'stopped' | 'prompting' | 'awaiting' | 'fixed-point' 
 export class AutorunController {
     private state: AutorunState = 'stopped';
     private lastSnapshot?: BoardSnapshot;
+    private promptCount = 0;
+    private readonly maxPrompts = 25;
     private disposable?: vscode.Disposable;
     private changeListener?: vscode.Disposable;
 
@@ -38,6 +40,7 @@ export class AutorunController {
         }
 
         this.state = 'prompting';
+        this.promptCount = 0;
         this.updateStatus();
 
         // Build and inject the first prompt
@@ -63,6 +66,7 @@ export class AutorunController {
         this.lastSnapshot = makeBoardSnapshot(this.taskStore.getAll());
 
         // Inject the prompt into chat
+        this.promptCount += 1;
         await vscode.commands.executeCommand('workbench.action.chat.open', {
             query: result.content,
         });
@@ -132,9 +136,17 @@ export class AutorunController {
                 return;
             }
 
+            if (this.promptCount >= this.maxPrompts) {
+                this.state = 'stalled';
+                vscode.window.showWarningMessage(`Autorun stopped after ${this.maxPrompts} prompts; resume after checking board progress.`);
+                this.stop();
+                return;
+            }
+
             this.lastSnapshot = currentSnapshot;
 
             // Inject the next prompt
+            this.promptCount += 1;
             await vscode.commands.executeCommand('workbench.action.chat.open', {
                 query: result.content,
             });
@@ -142,12 +154,10 @@ export class AutorunController {
             this.state = 'awaiting';
             this.updateStatus(`Autorun awaiting progress after prompting "${result.task.title}"`);
         } else {
-            // Board changed but no workflow advance (e.g. task prose edited, unrelated task touched)
-            this.state = 'stalled';
-            vscode.window.showWarningMessage(
-                'Autorun stopped: board changed but no task advanced. Review the task state and resume manually if needed.'
-            );
-            this.stop();
+            // Ignore conversation/evidence prose changes; keep watching for workflow progress.
+            this.lastSnapshot = currentSnapshot;
+            this.state = 'awaiting';
+            this.updateStatus('Autorun awaiting workflow progress');
         }
     }
 

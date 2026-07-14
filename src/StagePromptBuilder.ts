@@ -32,6 +32,33 @@ export async function buildStagePrompt(input: {
     const config = boardConfigStore.get();
     const allTasks = taskStore.getAll();
 
+    // Autorun uses one fixed-point driver so the injected agent owns the whole board loop.
+    const boardDriverName = 'stage-board-to-done.md';
+    const boardReadyTask = allTasks.find((task) => getReadyTasks(allTasks, { lane: task.lane }).some((ready) => ready.id === task.id));
+    if (boardReadyTask) {
+        const boardPromptUri = vscode.Uri.joinPath(folderUri, '.agentkanban', 'prompts', boardDriverName);
+        const bundledBoardPromptUri = vscode.Uri.joinPath(extensionUri, 'assets', 'prompts', boardDriverName);
+        let promptUri = bundledBoardPromptUri;
+        let promptContent: string;
+        try {
+            promptContent = new TextDecoder().decode(await vscode.workspace.fs.readFile(boardPromptUri));
+            promptUri = boardPromptUri;
+        } catch {
+            try {
+                promptContent = new TextDecoder().decode(await vscode.workspace.fs.readFile(bundledBoardPromptUri));
+            } catch {
+                promptContent = '';
+            }
+        }
+        if (promptContent) {
+            const taskUri = taskStore.getTaskUri(boardReadyTask.id);
+            const taskRelPath = taskUri.fsPath.replace(folderUri.fsPath + (process.platform === 'win32' ? '\\' : '/'), '');
+            const activeSkills = await skillService.getActiveSkills(folderUri);
+            const vars = { ...resolveVars(config, activeSkills), taskTitle: boardReadyTask.title, taskFile: taskRelPath };
+            return { lane: boardReadyTask.lane, task: boardReadyTask, promptUri, content: interpolate(promptContent, vars) };
+        }
+    }
+
     // Find the first lane with a stage driver and ready tasks.
     for (const lane of config.lanes) {
         const promptName = getLanePrompt(config.profile, lane);

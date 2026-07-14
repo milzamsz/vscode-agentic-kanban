@@ -65,8 +65,16 @@
                 "title": "Agentic Kanban: Apply Settings to Board Config"
             },
             {
+                "command": "agentKanban.changeWorkflowProfile",
+                "title": "Agentic Kanban: Change Workflow Profile"
+            },
+            {
                 "command": "agentKanban.startAutorun",
                 "title": "Agentic Kanban: Start Autonomous Board Driver"
+            },
+            {
+                "command": "agentKanban.getBoardSnapshot",
+                "title": "Agentic Kanban: Get Board Snapshot"
             },
             {
                 "command": "agentKanban.stopAutorun",
@@ -92,7 +100,8 @@
                     "type": "string",
                     "enum": [
                         "lite",
-                        "standard"
+                        "standard",
+                        "autonomous"
                     ],
                     "default": "standard",
                     "description": "Workflow profile used when initialising a new board. Existing board.yaml files stay authoritative until you apply settings explicitly.",

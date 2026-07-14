@@ -214,11 +214,13 @@ export class BoardConfigStore {
         if (Array.isArray(loaded?.lanes) && !loaded.profile) {
             const lanes = BoardConfigStore.normaliseLegacyLanes(loaded.lanes.map((lane) => String(lane)));
             if (JSON.stringify(lanes) === JSON.stringify(PROFILE_LANES.lite)) {
-                return normaliseBoardConfig({ ...loaded, profile: 'lite' });
+                return normaliseBoardConfig({ ...loaded, profile: 'lite', profileVersion: 3 });
             }
-            return normaliseBoardConfig({ ...loaded, profile: 'standard' });
+            return normaliseBoardConfig({ ...loaded, profile: 'standard', profileVersion: 3 });
         }
-        const profile = loaded?.profile === 'lite' ? 'lite' : 'standard';
+        const profile = loaded?.profile === 'lite' || loaded?.profile === 'autonomous'
+            ? loaded.profile
+            : 'standard';
         return normaliseBoardConfig({
             ...loaded,
             profile,

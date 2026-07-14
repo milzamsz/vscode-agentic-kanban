@@ -15,6 +15,25 @@ The authoritative source hierarchy understood by these prompts:
 
 ---
 
+## Bootstrap before any prompt
+
+Initialise Agentic Kanban with the VS Code command **Agentic Kanban: Initialise** (or the board Initialise button) before pasting these prompts. Do not create a git worktree during initialise, backlog creation, or planning.
+
+After Initialise, these scaffolds should exist:
+
+* `.agentkanban/board.yaml`
+* `.agentkanban/INSTRUCTION.md`
+* `.agentkanban/memory.md`
+* `.agentkanban/prompts/` (profile stage prompts)
+* `.agentkanban/tasks/`
+* an AGENTS.md managed Agentic Kanban section
+
+If any of those are missing, stop and initialise (or re-run Initialise / `@kanban /prompts`) before continuing. Specs and change folders are created later with `/spec`, not during initialise.
+
+Worktrees are optional by default. Prefer the main workspace unless `worktreePolicy.requiredForImplementation` is true, or isolation is justified (parallel work, migrations, high conflict risk). Create a worktree only when entering implementation, never during bootstrap or planning.
+
+---
+
 ## Choosing a Profile and Governance Model
 
 ### Workflow Profile
@@ -62,6 +81,8 @@ Transform the requirements in `PLAN.md` into a complete, tested, documented, and
 
 Before creating or changing anything:
 
+* confirm Agentic Kanban is initialised and the bootstrap scaffolds exist (`board.yaml`, `INSTRUCTION.md`, `memory.md`, `prompts/`, `tasks/`, AGENTS.md managed section);
+* do not create a git worktree during this inspection, backlog, or planning phase;
 * read the complete `PLAN.md`;
 * inspect the existing repository structure and implementation;
 * inspect all active and archived Agentic Kanban tasks;
@@ -193,7 +214,7 @@ You are authorized to process all ready tasks through:
 
 `planning -> in-progress -> review -> done`
 
-Do not bypass lanes, dependency guardrails, worktree requirements, review, or completion rules.
+Do not bypass lanes, dependency guardrails, worktree policy, review, or completion rules.
 
 ## Readiness rules
 
@@ -212,7 +233,7 @@ If a prerequisite is missing, do not implement the task. Correct its dependencie
 * process tasks in dependency order;
 * process independent tasks in parallel only when their files, migrations, infrastructure, and specifications do not conflict;
 * process dependent chains sequentially;
-* keep every task isolated in its own task record, artifacts, branch, worktree, commits, and verification evidence;
+* keep every task isolated in its own task record, artifacts, commits, and verification evidence (and a worktree only when policy or isolation justifies it);
 * do not merge unrelated tasks;
 * do not modify another task's scope merely because it is convenient.
 
@@ -223,6 +244,7 @@ If a prerequisite is missing, do not implement the task. Correct its dependencie
 Read:
 
 * `.agentkanban/INSTRUCTION.md`;
+* `.agentkanban/memory.md`;
 * the selected task;
 * its dependencies;
 * proposal;
@@ -235,13 +257,16 @@ Read:
 
 Confirm the approved design is still valid.
 
-### 2. Create or open the required worktree
+### 2. Decide whether to use a worktree
 
-For Standard-profile implementation:
+Prefer the main workspace.
 
-* use the task-specific Agentic Kanban worktree;
-* work only in that isolated branch;
-* do not implement a Standard task directly on the main workspace unless the canonical workflow explicitly allows it.
+Use a task worktree only when:
+
+* `worktreePolicy.requiredForImplementation` is true; or
+* the task is risky, may run in parallel, touches migrations or shared infrastructure, modifies many files, or may conflict with other active work.
+
+Do not create a worktree during initialise, backlog, or planning. Record the decision in the task conversation.
 
 ### 3. Implement
 
@@ -327,8 +352,8 @@ Then:
 * archive the task change artifacts according to the workflow;
 * merge accepted delta requirements into canonical specifications;
 * record final implementation and verification evidence;
-* merge the task branch through the repository's normal Git flow;
-* remove the worktree only after the branch is safely integrated.
+* merge the task branch through the repository's normal Git flow when a worktree or branch was used;
+* remove the worktree only after the branch is safely integrated, if a worktree was created.
 
 ## Batch behavior
 
@@ -386,26 +411,27 @@ If any of those conditions is false, mark the task blocked, document the decisio
 
 ## Required process
 
-1. Inspect `PLAN.md`, repository instructions, existing implementation, active tasks, archived tasks, specifications, tests, migrations, and documentation.
-2. Produce a gap analysis.
-3. Convert every implementable requirement into outcome-based Agentic Kanban tasks.
-4. Define explicit `dependsOn` relationships and blocker labels.
-5. Attach Standard spec artifacts to every non-trivial task.
-6. Complete proposal, design, delta specification, and authoritative `tasks.md`.
-7. Approve planning only when the authorization conditions above are satisfied.
-8. Create a task-specific worktree before Standard-profile implementation.
-9. Implement strictly from approved artifacts.
-10. Check off `tasks.md` only after verification.
-11. Move each completed implementation to review.
-12. Perform strict review against the task, artifacts, canonical specifications, and `PLAN.md`.
-13. Fix in-scope defects and rerun verification.
-14. Return design defects to planning instead of hiding them.
-15. Move a task to done only after all acceptance criteria and verification pass.
-16. Archive accepted change artifacts.
-17. Merge accepted delta requirements into canonical specifications.
-18. Recalculate ready tasks and continue in dependency order.
-19. Run independent, non-conflicting tasks in parallel when safe.
-20. Perform a final release-readiness audit.
+1. Confirm Agentic Kanban is initialised and bootstrap scaffolds exist. Do not create a git worktree during initialise, backlog, or planning.
+2. Inspect `PLAN.md`, repository instructions, existing implementation, active tasks, archived tasks, specifications, tests, migrations, and documentation.
+3. Produce a gap analysis.
+4. Convert every implementable requirement into outcome-based Agentic Kanban tasks.
+5. Define explicit `dependsOn` relationships and blocker labels.
+6. Attach Standard spec artifacts to every non-trivial task.
+7. Complete proposal, design, delta specification, and authoritative `tasks.md`.
+8. Approve planning only when the authorization conditions above are satisfied.
+9. Prefer the main workspace for implementation; create a task worktree only when `worktreePolicy.requiredForImplementation` is true or isolation is justified.
+10. Implement strictly from approved artifacts.
+11. Check off `tasks.md` only after verification.
+12. Move each completed implementation to review.
+13. Perform strict review against the task, artifacts, canonical specifications, and `PLAN.md`.
+14. Fix in-scope defects and rerun verification.
+15. Return design defects to planning instead of hiding them.
+16. Move a task to done only after all acceptance criteria and verification pass.
+17. Archive accepted change artifacts.
+18. Merge accepted delta requirements into canonical specifications.
+19. Recalculate ready tasks and continue in dependency order.
+20. Run independent, non-conflicting tasks in parallel when safe.
+21. Perform a final release-readiness audit.
 
 ## Non-negotiable rules
 
@@ -483,6 +509,8 @@ Transform `PLAN.md` into a complete repository through small, dependency-aware, 
 
 Before creating or modifying tasks:
 
+* confirm Agentic Kanban is initialised and the bootstrap scaffolds exist (`board.yaml`, `INSTRUCTION.md`, `memory.md`, `prompts/`, `tasks/`, AGENTS.md managed section);
+* do not create a git worktree during this inspection or backlog phase;
 * read the complete `PLAN.md`;
 * inspect the current repository structure;
 * inspect active and archived Agentic Kanban tasks;
@@ -646,6 +674,7 @@ If the task is too broad or risky for a safe Lite execution:
 Read:
 
 * `.agentkanban/INSTRUCTION.md`;
+* `.agentkanban/memory.md`;
 * the selected task;
 * its `dependsOn` tasks;
 * linked `proposal.md`;
@@ -659,18 +688,19 @@ Confirm that the task remains suitable for Lite.
 
 ### 2. Decide whether to use a worktree
 
-Use the main workspace for small, isolated changes.
+Prefer the main workspace for small, isolated changes.
 
 Use a task worktree when:
 
+* `worktreePolicy.requiredForImplementation` is true; or
 * the task is risky;
 * the task may run in parallel;
 * the task touches migrations or shared infrastructure;
 * the task modifies many files;
-- the task may conflict with other active work;
+* the task may conflict with other active work;
 * isolation materially improves safety.
 
-Record the decision in the task conversation.
+Do not create a worktree during initialise or backlog planning. Record the decision in the task conversation.
 
 ### 3. Implement
 
@@ -755,8 +785,8 @@ Then:
 * archive task change artifacts according to the workflow;
 * merge accepted optional delta requirements into canonical specifications;
 * record final implementation and verification evidence;
-* merge the branch through the repository's normal Git flow;
-* remove the worktree only after successful integration.
+* merge the branch through the repository's normal Git flow when a worktree or branch was used;
+* remove the worktree only after successful integration, if a worktree was created.
 
 ## Batch behavior
 
@@ -808,27 +838,28 @@ Convert every implementable requirement in `PLAN.md` into small Lite-sized tasks
 
 ## Required process
 
-1. Inspect `PLAN.md`, repository instructions, existing implementation, active and archived tasks, specifications, tests, migrations, and documentation.
-2. Produce a repository gap analysis.
-3. Convert missing requirements into small, outcome-based tasks.
-4. Define explicit `dependsOn` relationships and blocker labels.
-5. Add scope, non-scope, acceptance criteria, tests, verification commands, and relevant operational considerations to every task.
-6. Attach Lite `/spec` artifacts to non-trivial tasks:
+1. Confirm Agentic Kanban is initialised and bootstrap scaffolds exist. Do not create a git worktree during initialise or backlog planning.
+2. Inspect `PLAN.md`, repository instructions, existing implementation, active and archived tasks, specifications, tests, migrations, and documentation.
+3. Produce a repository gap analysis.
+4. Convert missing requirements into small, outcome-based tasks.
+5. Define explicit `dependsOn` relationships and blocker labels.
+6. Add scope, non-scope, acceptance criteria, tests, verification commands, and relevant operational considerations to every task.
+7. Attach Lite `/spec` artifacts to non-trivial tasks:
 
    * `proposal.md`;
    * authoritative `tasks.md`;
    * optional delta specification when observable behavior or contracts change.
-7. Keep every task small enough to complete safely without a separate planning or review lane.
-8. Move only dependency-ready tasks into `in-progress`.
-9. Use a worktree when risk, parallel execution, migrations, or file conflicts justify isolation.
-10. Implement strictly within the selected task scope.
-11. Check off checklist items only after implementation and verification.
-12. Perform mandatory review and verification inside `in-progress`.
-13. Move the task to `done` only after all acceptance criteria and checks pass.
-14. Archive completed change artifacts.
-15. Merge accepted optional deltas into canonical specifications.
-16. Recalculate ready tasks and continue.
-17. Perform a final release-readiness audit.
+8. Keep every task small enough to complete safely without a separate planning or review lane.
+9. Move only dependency-ready tasks into `in-progress`.
+10. Prefer the main workspace; use a worktree only when `worktreePolicy.requiredForImplementation` is true or risk, parallel execution, migrations, or file conflicts justify isolation.
+11. Implement strictly within the selected task scope.
+12. Check off checklist items only after implementation and verification.
+13. Perform mandatory review and verification inside `in-progress`.
+14. Move the task to `done` only after all acceptance criteria and checks pass.
+15. Archive completed change artifacts.
+16. Merge accepted optional deltas into canonical specifications.
+17. Recalculate ready tasks and continue.
+18. Perform a final release-readiness audit.
 
 ## Autonomous planning rule
 
@@ -902,7 +933,7 @@ Return:
 ### Standard Profile -- Human-Governed
 
 ```text
-1. Initialize workspace with Standard profile
+1. Initialise the workspace with Agentic Kanban: Initialise (Standard). Confirm scaffolds exist; do not create a worktree.
 2. Place PLAN.md in the repository root
 3. Run the Standard Human-Governed prompt
 4. Review and approve the planning batch
@@ -913,7 +944,7 @@ Return:
 ### Standard Profile -- Autonomous
 
 ```text
-1. Initialize workspace with Standard profile
+1. Initialise the workspace with Agentic Kanban: Initialise (Standard). Confirm scaffolds exist; do not create a worktree.
 2. Place PLAN.md in the repository root
 3. Run the Standard Autonomous prompt
 4. Use @kanban /refresh if context drifts
@@ -922,7 +953,7 @@ Return:
 ### Lite Profile -- Human-Governed
 
 ```text
-1. Initialize workspace with Lite profile
+1. Initialise the workspace with Agentic Kanban: Initialise (Lite). Confirm scaffolds exist; do not create a worktree.
 2. Place PLAN.md in the repository root
 3. Run the Lite Human-Governed planning prompt
 4. Review and approve the generated backlog
@@ -933,7 +964,7 @@ Return:
 ### Lite Profile -- Autonomous
 
 ```text
-1. Initialize workspace with Lite profile
+1. Initialise the workspace with Agentic Kanban: Initialise (Lite). Confirm scaffolds exist; do not create a worktree.
 2. Place PLAN.md in the repository root
 3. Run the Lite Autonomous prompt
 4. Use @kanban /refresh if context drifts

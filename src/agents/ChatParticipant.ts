@@ -101,7 +101,7 @@ interface AgentsTaskContext {
     worktreePath?: string;
 }
 
-function getWorkflowPrompt(profile: 'standard' | 'lite' = 'standard'): string {
+function getWorkflowPrompt(profile: 'standard' | 'lite' | 'autonomous' = 'standard'): string {
     if (profile === 'lite') {
         return 'Use **implement** in IN PROGRESS (no separate planning lane). Lite flow: backlog -> in-progress -> done.\n\n';
     }
@@ -126,7 +126,7 @@ function getPriorityReviewGuidance(priority: Priority | undefined, reviewPolicy:
 function buildAgentsMdSection(
     enforcementMode: 'strict' | 'warn',
     reviewPolicy: ReviewPolicy,
-    profile: 'standard' | 'lite' = 'standard',
+    profile: 'standard' | 'lite' | 'autonomous' = 'standard',
     skills?: string[],
 ): string {
     const lines = [
@@ -165,7 +165,7 @@ export function buildWorktreeAgentsMdSection(
     reviewPolicy: ReviewPolicy = DEFAULT_REVIEW_POLICY,
     enforcementMode: 'strict' | 'warn' = DEFAULT_ENFORCEMENT.standard.mode,
     specRelPath?: string,
-    profile?: 'standard' | 'lite',
+    profile?: 'standard' | 'lite' | 'autonomous',
     skills?: string[],
     worktreePath?: string,
     currentWorkspacePath?: string,
@@ -382,7 +382,7 @@ export class ChatParticipant {
                 response.markdown('- `@kanban /archive [slug]` - Move a completed change folder to changes/archive/\n');
                 response.markdown('- `@kanban /prompts` - Open a QuickPick of prompts; select to copy to clipboard\n');
                 response.markdown('- `@kanban /prompts refresh` - Rewrite the bundled stage-driver prompts in .agentkanban/prompts/\n');
-                response.markdown('- `@kanban /loop [lane]` - Loop-until-dry: run passes over ready tasks until none advance (profile-aware advance target, human gates respected)\n');
+                response.markdown('- `@kanban /loop [lane]` - Emit a profile-aware stage-driver prompt; it does not submit chat or run a daemon. Use Start Autonomous Board Driver for file-backed autorun.\n');
                 response.markdown('- `@kanban /goal new <objective>` - Define a new goal: creates an epic card + goal artifact + copies decompose prompt to clipboard\n');
                 response.markdown('- `@kanban /goal` - Show goal dashboard (progress per goal)\n');
                 response.markdown('- `@kanban /goal show <slug>` - Show detail for a specific goal\n');
