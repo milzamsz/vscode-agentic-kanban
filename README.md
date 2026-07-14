@@ -6,7 +6,7 @@ A VS Code Kanban board where you and a coding agent share the same task files. P
 
 📖 **[Read the Documentation](https://agentic-kanban-docs.pages.dev/)**
 
-![Version 1.7.3](https://img.shields.io/badge/version-1.7.3-2563eb)
+![Version 1.7.4](https://img.shields.io/badge/version-1.7.4-2563eb)
 [![Elastic License 2.0](https://img.shields.io/badge/license-Elastic%202.0%20source--available-f59e0b)](LICENSE)
 [![GitHub Release](https://img.shields.io/github/v/release/milzamsz/vscode-agentic-kanban?label=GitHub%20Release)](https://github.com/milzamsz/vscode-agentic-kanban/releases)
 
@@ -61,8 +61,8 @@ flowchart LR
 1. **Open the board, pick a profile.** Click the Activity Bar icon, hit Initialise, choose Lite or Standard. One folder (`.agentkanban/`) holds everything — task files, specs, prompts, and memory.
 2. **Create tasks with `@kanban /new`.** Each task becomes a Markdown file with YAML frontmatter. Move cards on the board or type `@kanban /loop` to get the stage-driver prompt for any lane.
 3. **Attach specs with `@kanban /spec`.** Scaffolds `proposal.md`, `design.md`, `tasks.md`, and a shared capability spec. The agent works from these artifacts — not from guesswork or stale chat context.
-4. **Let `/loop` drive the lanes.** Emits the stage-driver prompt for a lane into chat. Paste it into your agent session; the agent does the work and advances tasks. Dependency-aware: blocked tasks are excluded from the ready list.
-5. **Two human gates, no more.** Plan approval (move from `planning` to `in-progress`) and completion (`review → done`). Everything in between the agent handles.
+4. **Use `/loop` to get a stage prompt.** It emits a dependency-aware prompt into chat; it does not submit the prompt, mutate lanes, or run a daemon. For hands-off file-backed prompting, use **Start Autonomous Board Driver**, which continues until fixed point or an explicit stop.
+5. **Standard workflow gates.** Plan approval (move from `planning` to `in-progress`) and completion (`review → done`) remain workflow gates unless your agent policy explicitly permits an override. Cursor Task parents must wait for each worker to finish, rescan the board, and relaunch rather than returning after one background worker.
 
 The board is for humans. The `@kanban` commands and reusable skill are for agents. Both operate on the same files.
 

@@ -45,6 +45,13 @@ export class ProjectSkillService {
         return skills.filter((skill) => skill.isActive).map((skill) => skill.name);
     }
 
+    async getActiveSkills(
+        workspaceUri: vscode.Uri,
+        extraDirs: string[] = [],
+    ): Promise<string[]> {
+        return this.getActiveSkillNames(workspaceUri, extraDirs);
+    }
+
     async applySelection(
         workspaceUri: vscode.Uri,
         selectedNames: string[],

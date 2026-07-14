@@ -77,11 +77,6 @@ Read `.agentkanban/INSTRUCTION.md` for task workflow rules.
 Read `.agentkanban/memory.md` for project context.
 
 Enforcement mode: `warn`
-Review policy:
-low: planning=self-agent, implementation=self-agent
-medium: planning=self-agent, implementation=self-agent
-high: planning=self-agent, implementation=self-agent
-critical: planning=self-agent, implementation=self-agent
 
 Load these project skills before working: `agentic-kanban`.
 

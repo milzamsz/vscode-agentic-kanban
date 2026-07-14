@@ -2,6 +2,18 @@
 
 All notable changes to Agentic Kanban will be documented here.
 
+## [1.7.4] - 2026-07-14
+
+### Added
+- **Autonomous workflow profile**: New profile with Standard lanes, strict-by-default enforcement, agent-friendly overrides, and a full-board stage driver (`stage-board-to-done`).
+- **Change Workflow Profile command**: Switch an existing board between Lite, Standard, and Autonomous with safe remapping when shrinking to Lite.
+- **Board snapshot command**: `Agentic Kanban: Get Board Snapshot` for readiness/autorun consumers.
+- **Init memory scaffold**: Initialise now creates `.agentkanban/memory.md` when missing (never overwrites existing content).
+
+### Changed
+- **Prompting docs**: Bootstrap guidance lists expected scaffolds; worktrees are optional by default and must not be created during initialise or planning.
+- **Settings enum**: `agentKanban.defaultProfile` includes `autonomous`.
+
 ## [1.7.3] - 2026-07-08
 
 ### Added
