@@ -214,15 +214,15 @@
         "lint": "tsc --noEmit"
     },
     "devDependencies": {
-        "@tailwindcss/postcss": "^4.3.1",
-        "@types/node": "^26.0.0",
-        "@types/vscode": "^1.105.0",
-        "autoprefixer": "^10.5.0",
-        "esbuild": "^0.28.1",
+        "@tailwindcss/postcss": "^4.3.3",
+        "@types/node": "^26.2.0",
+        "@types/vscode": "^1.134.0",
+        "autoprefixer": "^10.5.4",
+        "esbuild": "^0.28.2",
         "postcss": "^8.5.8",
         "tailwindcss": "^4.2.1",
         "typescript": "^6.0.3",
-        "vitest": "^4.1.9",
+        "vitest": "^4.1.11",
         "yaml": "^2.9.0"
     },
     "dependencies": {
