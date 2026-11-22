@@ -17,13 +17,13 @@ export function interpolate(content: string, vars: Record<string, string>): stri
     });
 }
 
-function getLanes(profile: 'standard' | 'lite'): string {
+function getLanes(profile: 'standard' | 'lite' | 'autonomous'): string {
     return profile === 'lite'
         ? 'backlog → in-progress → done'
         : 'backlog → planning → in-progress → review → done';
 }
 
-function getAdvance(profile: 'standard' | 'lite'): string {
+function getAdvance(profile: 'standard' | 'lite' | 'autonomous'): string {
     if (profile === 'lite') {
         return [
             'Lite workflow:',
@@ -33,10 +33,14 @@ function getAdvance(profile: 'standard' | 'lite'): string {
         ].join('\n');
     }
     return [
-        'Standard workflow:',
+        profile === 'autonomous' ? 'Autonomous workflow:' : 'Standard workflow:',
         '- `in-progress` → implementation + verification.',
-        '- Set `lane: review` after verification passes. Review is a human gate.',
-        '- `review → done` only after the human review gate passes.',
+        profile === 'autonomous'
+            ? '- Set `lane: review` after verification, then continue when all gates and evidence pass.'
+            : '- Set `lane: review` after verification passes. Review is a human gate.',
+        profile === 'autonomous'
+            ? '- `review → done` requires recorded agent reason, passing evidence, and no human-owned blocker.'
+            : '- `review → done` only after the human review gate passes.',
         '- Worktree per board policy.',
     ].join('\n');
 }
@@ -44,7 +48,7 @@ function getAdvance(profile: 'standard' | 'lite'): string {
 /**
  * Returns the default lane for `/loop` based on profile: the first lane (backlog).
  */
-export function getDefaultLoopLane(profile: 'standard' | 'lite'): string {
+export function getDefaultLoopLane(profile: 'standard' | 'lite' | 'autonomous'): string {
     return getFirstLane(profile);
 }
 
@@ -52,13 +56,14 @@ export function getDefaultLoopLane(profile: 'standard' | 'lite'): string {
  * Maps a profile+lane to the bundled stage-driver prompt filename (without path).
  * Returns null when no driver exists for that lane (e.g. `done`).
  */
-export function getLanePrompt(profile: 'standard' | 'lite', lane: string): string | null {
+export function getLanePrompt(profile: 'standard' | 'lite' | 'autonomous', lane: string): string | null {
     if (profile === 'lite') {
         if (lane === 'backlog') { return 'stage-backlog-to-inprogress.md'; }
         if (lane === 'in-progress') { return 'stage-inprogress-to-done.md'; }
         return null;
     }
-    // Standard
+    // Standard and Autonomous use the five-lane workflow.
+    if (profile === 'autonomous' && lane === 'backlog') { return 'stage-board-to-done.md'; }
     if (lane === 'backlog') { return 'stage-backlog-to-planning.md'; }
     if (lane === 'planning' || lane === 'in-progress') { return 'stage-planning-to-review.md'; }
     if (lane === 'review') { return 'stage-review-to-done.md'; }

@@ -1,5 +1,5 @@
 export type Priority = 'critical' | 'high' | 'medium' | 'low' | 'none';
-export type WorkflowProfile = 'lite' | 'standard';
+export type WorkflowProfile = 'lite' | 'standard' | 'autonomous';
 export type Lane =
     | 'backlog'
     | 'planning'
@@ -171,11 +171,12 @@ export interface BoardConfig {
     skills?: string[];
 }
 
-export const PROFILE_VERSION = 3;
+export const PROFILE_VERSION = 4; 
 
 export const PROFILE_LANES: Record<WorkflowProfile, Lane[]> = {
     lite: ['backlog', 'in-progress', 'done'],
     standard: ['backlog', 'planning', 'in-progress', 'review', 'done'],
+    autonomous: ['backlog', 'planning', 'in-progress', 'review', 'done'],
 };
 
 export const DEFAULT_PROFILE: WorkflowProfile = 'standard';
@@ -197,6 +198,14 @@ export const DEFAULT_ENFORCEMENT: Record<WorkflowProfile, EnforcementPolicy> = {
             requireReason: true,
         },
     },
+    autonomous: {
+        mode: 'strict',
+        overrides: {
+            allowed: true,
+            actors: ['agent', 'human'],
+            requireReason: true,
+        },
+    },
 };
 
 export const DEFAULT_REVIEW_POLICY: ReviewPolicy = {
@@ -209,11 +218,13 @@ export const DEFAULT_REVIEW_POLICY: ReviewPolicy = {
 export const DEFAULT_WORKTREE_POLICY: Record<WorkflowProfile, WorktreePolicy> = {
     lite: { requiredForImplementation: false },
     standard: { requiredForImplementation: false },
+    autonomous: { requiredForImplementation: false },
 };
 
 export const DEFAULT_WIP_LIMITS: Record<WorkflowProfile, Record<string, number>> = {
     lite: {},
     standard: { 'in-progress': 1 },
+    autonomous: { 'in-progress': 1 },
 };
 
 /**
@@ -253,6 +264,16 @@ export const DEFAULT_POLICIES: Record<WorkflowProfile, BoardPolicies> = {
         },
         verification: {},
     },
+    autonomous: {
+        transition: {
+            requireChecklistForInProgress: true,
+            requireSpecForInProgress: true,
+            requireDescriptionForReview: true,
+            requireWorktreeForInProgress: false,
+            requireDoneChecklistForDone: true,
+        },
+        verification: {},
+    },
 };
 
 export const DEFAULT_BOARD_CONFIG: BoardConfig = {
@@ -282,7 +303,10 @@ export function getFirstLane(profile: WorkflowProfile): Lane {
 }
 
 export function normaliseProfile(profile: unknown): WorkflowProfile {
-    return profile === 'lite' ? 'lite' : 'standard';
+    if (profile === 'lite' || profile === 'autonomous') {
+        return profile;
+    }
+    return 'standard';
 }
 
 export function normaliseBoardConfig(config?: Partial<BoardConfig> | null): BoardConfig {
